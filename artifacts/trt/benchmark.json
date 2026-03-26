@@ -1,0 +1,34 @@
+{
+  "model": "tsqbev-exportable-core",
+  "image_height": 256,
+  "image_width": 704,
+  "gpu_name": "Quadro RTX 5000",
+  "engine": {
+    "engine_path": "artifacts/trt/core_fp16.plan",
+    "parse_ok": true,
+    "fp16_enabled": true,
+    "engine_bytes": 3053044,
+    "build_time_s": 23.710170958000162
+  },
+  "pytorch_fp32": {
+    "mean_ms": 7.88278683999124,
+    "p50_ms": 7.836301000224921,
+    "p95_ms": 8.0573780001032,
+    "precision": "fp32",
+    "backend": "pytorch-exportable-core"
+  },
+  "pytorch_fp16": {
+    "mean_ms": 7.492192800000339,
+    "p50_ms": 7.447793000210368,
+    "p95_ms": 7.650368000213348,
+    "precision": "fp16",
+    "backend": "pytorch-exportable-core"
+  },
+  "tensorrt_fp16": {
+    "mean_ms": 0.7849162000002252,
+    "p50_ms": 0.7846680000511697,
+    "p95_ms": 0.795437000306265,
+    "backend": "tensorrt",
+    "precision": "fp16-enabled-engine-fp32-io"
+  }
+}

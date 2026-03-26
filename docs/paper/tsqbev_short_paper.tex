@@ -1,0 +1,165 @@
+\documentclass[11pt]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage{booktabs}
+\usepackage{amsmath}
+\usepackage{xurl}
+\usepackage[colorlinks=true,linkcolor=blue,citecolor=blue,urlcolor=blue]{hyperref}
+
+\title{A Minimal Multimodal Temporal Sparse-Query BEV Stack\\with TensorRT Validation on an RTX 5000}
+\author{tsqbev-poc working note}
+\date{March 26, 2026}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+This note describes the current \texttt{tsqbev-poc} architecture, a small public proof of concept for multimodal temporal sparse-query BEV perception. The design combines LiDAR-grounded object seeds, camera-driven sparse refinement, persistent temporal state, a camera-dominant lane branch, optional map priors, and distillation interfaces. The implementation is grounded in verified public sources including DETR3D, PETR/PETRv2, StreamPETR, Sparse4D, CMT, BEVDistill, PersFormer, MapTR, and HotBEV~\cite{detr3d,petr,petrv2,streampetr,sparse4d,cmt,bevdistill,persformer,maptr,hotbev}. We also report a successful ONNX-to-TensorRT conversion for the current exportable deployment core and provide measured latency on a local Quadro RTX 5000.
+\end{abstract}
+
+\section{Introduction}
+Recent 3D perception systems show three recurring themes. First, sparse query formulations replace dense BEV updates with object-centric or token-centric computation~\cite{detr3d,petr,sparse4d}. Second, temporal persistence is carried in sparse state rather than in a fully dense recurrent BEV tensor~\cite{petrv2,streampetr}. Third, multimodal systems use LiDAR to stabilize geometry while cameras provide semantics, lane structure, and map context~\cite{cmt,bevdistill,persformer,maptr}. For deployment, latency discipline matters as much as accuracy, especially when the same graph must later survive export and engine build constraints~\cite{hotbev}.
+
+The current repository targets a narrower goal than a full production Torc stack. It aims to provide a public, minimal, evidence-grounded implementation with a clear path from model code to export, TensorRT conversion, and measured latency. The autonomous research loop remains intentionally disabled in this phase. The implementation, scripts, and measured artifacts live in the local \texttt{tsqbev-poc} repository~\cite{repo}.
+
+\section{Architecture}
+\subsection{Tri-source sparse object seeding}
+The object path starts from three seed groups:
+\begin{enumerate}
+\item \textbf{LiDAR seeds} from a lightweight pillar-style encoder. This is the main geometric anchor path, inspired by sparse multimodal aggregation and camera--LiDAR fusion work~\cite{sparse4d,cmt}.
+\item \textbf{Camera proposal-ray seeds} from image proposals that are backprojected along calibrated rays, following the query initialization logic used by DETR3D and PETR-style methods~\cite{detr3d,petr}.
+\item \textbf{Learned global seeds} to preserve recall when the first two sources are weak.
+\end{enumerate}
+
+The three groups are concatenated and routed through a compact learned scorer. In the default repository configuration this produces up to $384$ object queries from $256$ LiDAR seeds, $192$ proposal-ray seeds, and $64$ learned global seeds.
+
+\subsection{Cross-view sparse refinement and temporal state}
+Each sparse query samples multi-view image features at calibrated projections and a small set of local keypoints, following the sparse 3D-to-2D reasoning pattern of DETR3D and Sparse4D~\cite{detr3d,sparse4d}. The sampled image evidence is fused back into the object queries. A persistent temporal state then carries sparse object memory between frames, following the object-centric temporal direction of PETRv2 and StreamPETR~\cite{petrv2,streampetr}.
+
+\subsection{Lane and map branch}
+The lane branch is intentionally camera-dominant. It uses camera tokens as the main lane signal, injects a LiDAR-derived ground hint through the object-query memory, and optionally appends map tokens. This choice follows the lane-centric emphasis of PersFormer and the vectorized map-token framing of MapTR~\cite{persformer,maptr}.
+
+\subsection{Distillation}
+Distillation is designed into the repository from the beginning. The student accepts cached teacher targets for object features, object boxes, and router logits. The current repository ships the interface and losses, not an internal teacher implementation. This is aligned with the public teacher--student framing used in BEVDistill~\cite{bevdistill}.
+
+\section{Deployment graph and TensorRT path}
+The repository currently exports an \emph{exportable core} rather than the full end-to-end model. The exported graph includes:
+\begin{itemize}
+\item the image backbone,
+\item sparse fusion and temporal refinement,
+\item the object head,
+\item the lane head.
+\end{itemize}
+
+The graph \emph{does not yet include} raw LiDAR pillarization or proposal-ray backprojection. Instead, it consumes prepared LiDAR query seeds and prepared camera proposal seeds. This split was chosen because it keeps the ONNX graph small, static-shape, and TensorRT-friendly while the public POC is still stabilizing.
+
+On the local workstation, the ONNX export parsed successfully in TensorRT 10.16.0.72 and built a valid FP16-enabled engine of size 3,053,044 bytes in 23.71 seconds.
+
+\section{RTX 5000 benchmark setup}
+All measurements in this note were collected on:
+\begin{itemize}
+\item GPU: Quadro RTX 5000, 16\,GB,
+\item driver: 570.211.01,
+\item PyTorch: 2.7.1+cu126,
+\item TensorRT: 10.16.0.72,
+\item batch size: 1,
+\item views: 6,
+\item image resolution: $256 \times 704$.
+\end{itemize}
+
+Two benchmark scopes were measured:
+\begin{enumerate}
+\item \textbf{Full model, eager PyTorch}: includes the current LiDAR seed encoder and proposal generation path.
+\item \textbf{Exportable core}: measures the current deployable graph only. The TensorRT engine uses FP16 internally but the exported graph still exposes FP32 inputs.
+\end{enumerate}
+
+\section{Latency results}
+Table~\ref{tab:latency} reports the measured latency. The most important result is that the current exportable core converts to TensorRT successfully and runs at sub-millisecond latency on this workstation GPU. The full-model eager baseline remains under 11\,ms p95 on the same synthetic fixed-shape setup.
+
+\begin{table}[t]
+\centering
+\caption{Measured latency on the local Quadro RTX 5000 at batch size 1 and $256 \times 704$ image size.}
+\label{tab:latency}
+\begin{tabular}{lrrr}
+\toprule
+Path & Mean (ms) & p50 (ms) & p95 (ms) \\
+\midrule
+Full model, PyTorch eager & 10.872 & 10.858 & 10.977 \\
+Exportable core, PyTorch FP32 & 7.883 & 7.836 & 8.057 \\
+Exportable core, PyTorch FP16 & 7.492 & 7.448 & 7.650 \\
+Exportable core, TensorRT FP16-enabled engine & 0.785 & 0.785 & 0.795 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\section{Limitations}
+These results should be read carefully.
+\begin{itemize}
+\item They are \textbf{synthetic fixed-shape latency measurements}, not dataset accuracy results.
+\item The TensorRT numbers apply only to the current \textbf{exportable core}, not the full end-to-end multimodal pipeline.
+\item The local ChatGPT-generated summary PDF that motivated this working note is treated as internal synthesis only and is not cited directly; this note cites the underlying primary papers and official documentation instead.
+\item These RTX 5000 numbers should \textbf{not} be reinterpreted as Orin numbers.
+\end{itemize}
+
+\section{Conclusion}
+The current \texttt{tsqbev-poc} repository now satisfies a meaningful pre-research milestone: it has a minimal multimodal sparse-query architecture, a tested export path, a successful TensorRT engine build, and measured workstation latency on a Quadro RTX 5000. The next engineering step is not autonomous search; it is to close the remaining deployment gap between the exportable core and the full end-to-end multimodal pipeline, then repeat the same validation on the intended embedded target.
+
+\begin{thebibliography}{10}
+
+\bibitem{detr3d}
+\emph{DETR3D: 3D Object Detection from Multi-view Images via 3D-to-2D Queries}.
+PMLR 164, 2022.
+\url{https://proceedings.mlr.press/v164/wang22b/wang22b.pdf}
+
+\bibitem{petr}
+\emph{PETR: Position Embedding Transformation for Multi-View 3D Object Detection}.
+ECCV 2022.
+\url{https://www.ecva.net/papers/eccv_2022/papers_ECCV/papers/136870523.pdf}
+
+\bibitem{petrv2}
+\emph{PETRv2: A Unified Framework for 3D Perception from Multi-Camera Images}.
+ICCV 2023.
+\url{https://openaccess.thecvf.com/content/ICCV2023/papers/Liu_PETRv2_A_Unified_Framework_for_3D_Perception_from_MultiCamera_Images_ICCV_2023_paper.pdf}
+
+\bibitem{streampetr}
+\emph{StreamPETR}.
+arXiv:2303.11926, 2023.
+\url{https://arxiv.org/abs/2303.11926}
+
+\bibitem{sparse4d}
+\emph{Sparse4D}.
+arXiv:2211.10581, 2022.
+\url{https://arxiv.org/pdf/2211.10581}
+
+\bibitem{cmt}
+\emph{Cross Modal Transformer Towards Fast and Robust 3D Object Detection}.
+ICCV 2023.
+\url{https://openaccess.thecvf.com/content/ICCV2023/papers/Yan_Cross_Modal_Transformer_Towards_Fast_and_Robust_3D_Object_Detection_ICCV_2023_paper.pdf}
+
+\bibitem{bevdistill}
+\emph{BEVDistill}.
+arXiv:2211.09386, 2022.
+\url{https://arxiv.org/abs/2211.09386}
+
+\bibitem{persformer}
+\emph{PersFormer and the OpenLane benchmark for 3D lane detection}.
+OpenDriveLab project page and associated paper.
+\url{https://github.com/OpenDriveLab/PersFormer_3DLane}
+
+\bibitem{maptr}
+\emph{MapTR: Structured Modeling and Learning for Online Vectorized HD Map Construction}.
+arXiv:2208.14437, 2022.
+\url{https://arxiv.org/abs/2208.14437}
+
+\bibitem{hotbev}
+\emph{HotBEV}.
+NeurIPS 2023.
+\url{https://proceedings.neurips.cc/paper_files/paper/2023/file/081b08068e4733ae3e7ad019fe8d172f-Paper-Conference.pdf}
+
+\bibitem{repo}
+\emph{tsqbev-poc local repository and measured artifacts}.
+Local repository working artifact, 2026.
+\url{file:///home/achbogga/projects/tsqbev-poc}
+
+\end{thebibliography}
+
+\end{document}

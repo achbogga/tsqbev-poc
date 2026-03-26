@@ -1,0 +1,17 @@
+.venv/
+__pycache__/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+coverage.xml
+*.onnx
+*.log
+tectonic
+docs/paper/build/
+artifacts/*
+!artifacts/benchmarks/
+!artifacts/benchmarks/*.json
+!artifacts/trt/
+!artifacts/trt/benchmark.json
+!artifacts/.gitkeep

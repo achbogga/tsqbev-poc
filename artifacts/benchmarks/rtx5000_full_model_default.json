@@ -1,0 +1,13 @@
+{
+  "model": "tsqbev-full-model",
+  "config": "default",
+  "image_height": 256,
+  "image_width": 704,
+  "metrics": {
+    "device": "cuda",
+    "mean_ms": 10.871546420012237,
+    "p50_ms": 10.857955999654223,
+    "p95_ms": 10.977240000102029,
+    "steps": 50.0
+  }
+}

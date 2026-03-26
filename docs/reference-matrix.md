@@ -1,0 +1,35 @@
+# Reference Matrix
+
+This repo stays grounded by mapping each subsystem to an original paper and, where available, official source code.
+
+Reference policy as of March 26, 2026:
+
+- The local summary PDF in `/home/achbogga/projects/Production-ready Temporal Sparse Query BEV for Torc on NVIDIA Orin.pdf` is not cited directly.
+- The sources below are the underlying original references used to ground the implementation.
+
+| Subsystem | Original paper | Official code | Repo usage |
+| --- | --- | --- | --- |
+| 3D-to-2D sparse query sampling | [DETR3D](https://proceedings.mlr.press/v164/wang22b/wang22b.pdf) | [WangYueFt/detr3d](https://github.com/WangYueFt/detr3d) | Calibrated sparse camera sampling and query-based OD framing |
+| 3D positional conditioning | [PETR](https://www.ecva.net/papers/eccv_2022/papers_ECCV/papers/136870523.pdf) | [megvii-research/PETR](https://github.com/megvii-research/PETR) | Position-aware camera features and proposal-ray initialization |
+| Temporal alignment and multitask queries | [PETRv2](https://openaccess.thecvf.com/content/ICCV2023/papers/Liu_PETRv2_A_Unified_Framework_for_3D_Perception_from_MultiCamera_Images_ICCV_2023_paper.pdf) | [megvii-research/PETR](https://github.com/megvii-research/PETR) | Temporal alignment and lane/map multitask framing |
+| Streaming sparse temporal state | [StreamPETR](https://arxiv.org/abs/2303.11926) | [exiawsh/StreamPETR](https://github.com/exiawsh/StreamPETR) | Persistent sparse temporal state |
+| Sparse multimodal aggregation patterns | [Sparse4D](https://arxiv.org/pdf/2211.10581) | [HorizonRobotics/Sparse4D](https://github.com/HorizonRobotics/Sparse4D) | Sparse multi-keypoint sampling and efficient query fusion |
+| Sparse camera-only baseline | [SparseBEV](https://arxiv.org/abs/2308.09244) | [MCG-NJU/SparseBEV](https://github.com/MCG-NJU/SparseBEV) | Sampling efficiency and sparse attention discipline |
+| LiDAR-to-camera BEV distillation | [BEVDistill](https://arxiv.org/abs/2211.09386) | [zehuichen123/bevdistill](https://github.com/zehuichen123/bevdistill) | Teacher-target interface and distillation objectives |
+| Camera-LiDAR transformer fusion | [CMT](https://openaccess.thecvf.com/content/ICCV2023/papers/Yan_Cross_Modal_Transformer_Towards_Fast_and_Robust_3D_Object_Detection_ICCV_2023_paper.pdf) | [junjie18/CMT](https://github.com/junjie18/CMT) | Multimodal query fusion inspiration |
+| Unified BEV multimodal robustness | [BEVFusion](https://arxiv.org/abs/2205.13542) | [mit-han-lab/bevfusion](https://github.com/mit-han-lab/bevfusion) | Fallback discipline and multimodal design tradeoffs |
+| Query-based radar-camera fusion | [RaCFormer](https://openaccess.thecvf.com/content/CVPR2025/html/Chu_RaCFormer_Towards_High-Quality_3D_Object_Detection_via_Query-based_Radar-Camera_Fusion_CVPR_2025_paper.html) | [cxmomo/RaCFormer](https://github.com/cxmomo/RaCFormer) | Query-centric multimodal fusion patterns |
+| Multi-view overlap robustness | [Graph-DETR3D](https://arxiv.org/abs/2204.11582) | [zehuichen123/Graph-DETR3D](https://github.com/zehuichen123/Graph-DETR3D) | Overlap/seam reasoning references |
+| Dense depth control baseline | [BEVDepth](https://arxiv.org/abs/2206.10092) | [Megvii-BaseDetection/BEVDepth](https://github.com/Megvii-BaseDetection/BEVDepth) | Depth-centric control arm for ablations |
+| Lane detection baseline | [PersFormer](https://arxiv.org/abs/2203.11089) | [OpenDriveLab/PersFormer_3DLane](https://github.com/OpenDriveLab/PersFormer_3DLane) | Camera-dominant lane reasoning and evaluation references |
+| HD-map tokenization | [MapTR](https://arxiv.org/abs/2208.14437) | [hustvl/MapTR](https://github.com/hustvl/MapTR) | Public map-prior adapter and vector token inspiration |
+| Orin-aware latency design | [HotBEV](https://proceedings.neurips.cc/paper_files/paper/2023/file/081b08068e4733ae3e7ad019fe8d172f-Paper-Conference.pdf) | Paper only | Latency predictor and operator-budget discipline |
+| Public lane dataset | [OpenLane V1](https://github.com/OpenDriveLab/OpenLane) | [OpenDriveLab/OpenLane](https://github.com/OpenDriveLab/OpenLane) | Public lane supervision path |
+
+## Torc Reference
+
+The public repo will only mirror contracts informed by the internal Torc loader path:
+
+- `torc_ml/projects/scene_modeling/scene_modeling/data/datasets`
+
+No internal Torc code is to be copied wholesale into this repository.
