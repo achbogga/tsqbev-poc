@@ -1,23 +1,73 @@
 # tsqbev-poc
 
-`tsqbev-poc` is a public proof-of-concept repository for a multimodal temporal sparse-query BEV system:
+`tsqbev-poc` is a public proof-of-concept repository for a multimodal temporal sparse-query BEV stack built for open datasets and deployment validation.
 
-- LiDAR grounds 3D object anchors and depth
-- cameras provide appearance, semantics, and lane structure
+- LiDAR grounds 3D object anchors and geometry
+- cameras provide semantics, sparse refinement, and lane structure
 - map priors are optional
 - temporal state is sparse and streaming
 - distillation is designed in from the start
+- ONNX and TensorRT deployment are first-class concerns
 
-This repo is intentionally small and evidence-driven. Every module is tied back to an original paper and, where available, an official codebase. See [docs/reference-matrix.md](docs/reference-matrix.md).
+This repo is intentionally small and evidence-driven. Every substantive module is tied back to an original paper and, where available, an official codebase. Local generated summaries are treated as internal synthesis only. The repo cites the underlying original papers, official codebases, and our own public repo/paper artifacts instead.
 
-Local generated design summaries are treated as internal synthesis only. The repo cites the underlying original papers, official codebases, and our own public repo/paper artifacts instead of citing generated summaries directly.
+## What This Repo Is
 
-## Status
+- a minimal multimodal BEV research artifact
+- a spec-driven and test-first implementation
+- a public `nuScenes` / `OpenLane` / `MapTR`-style prototype
+- a deployment-oriented codebase with measured RTX 5000 latency
 
-- bootstrap in progress
-- auto-research loop disabled
-- local-first, CPU/synthetic-first validation
-- GPU and Orin validation are separate acceptance stages
+## What This Repo Is Not
+
+- a large-scale training platform
+- a private or proprietary dataset integration layer
+- an autonomous research loop
+- a finished embedded deployment product
+
+## Architecture At A Glance
+
+```mermaid
+flowchart LR
+    A[Multi-view images] --> B[Image backbone + neck]
+    C[LiDAR points] --> D[Pillar encoder]
+    B --> E[2D proposal head]
+    E --> F[Proposal-ray seeds]
+    G[Learned global seeds] --> H[Tri-source router]
+    D --> H
+    F --> H
+    B --> I[Sparse cross-view sampler]
+    H --> I
+    I --> J[Query fusion]
+    K[Temporal state t-1] --> L[Temporal updater]
+    J --> L
+    L --> M[Object head]
+    L --> N[Lane head]
+    O[Optional map priors] --> N
+    L --> P[Temporal state t]
+```
+
+More detail and additional diagrams are in [docs/architecture.md](docs/architecture.md) and the paper in [docs/paper/tsqbev_short_paper.pdf](docs/paper/tsqbev_short_paper.pdf).
+
+## Current Public Scope
+
+- Object detection: `nuScenes`
+- Lane supervision: `OpenLane V1`
+- Map priors: `MapTR`-style vectorized public priors
+- Deployment validation: ONNX export and TensorRT engine build for the exportable core
+
+## Measured Results
+
+Measured on a local `Quadro RTX 5000`, batch size `1`, image size `256x704`:
+
+| Path | Mean ms | p95 ms |
+| --- | ---: | ---: |
+| Full model, eager PyTorch | 10.872 | 10.977 |
+| Exportable core, PyTorch FP32 | 7.883 | 8.057 |
+| Exportable core, PyTorch FP16 | 7.492 | 7.650 |
+| Exportable core, TensorRT FP16-enabled engine | 0.785 | 0.795 |
+
+These measurements are summarized in [docs/benchmarks/rtx5000.md](docs/benchmarks/rtx5000.md). The TensorRT result applies to the current exportable core only, not the full end-to-end multimodal pipeline.
 
 ## Source Grounding
 
@@ -34,6 +84,17 @@ Primary references include:
 - [MapTR](https://github.com/hustvl/MapTR)
 - [HotBEV](https://proceedings.neurips.cc/paper_files/paper/2023/file/081b08068e4733ae3e7ad019fe8d172f-Paper-Conference.pdf)
 
+The full source map is in [docs/reference-matrix.md](docs/reference-matrix.md).
+
+## Docs
+
+- [Architecture](docs/architecture.md)
+- [Benchmarks](docs/benchmarks/rtx5000.md)
+- [Reference matrix](docs/reference-matrix.md)
+- [Implementation plan](docs/plan.md)
+- [Short paper PDF](docs/paper/tsqbev_short_paper.pdf)
+- [Short paper LaTeX](docs/paper/tsqbev_short_paper.tex)
+
 ## Repo Layout
 
 ```text
@@ -45,18 +106,7 @@ research/       intentionally disabled research loop scaffolding
 artifacts/      local run outputs and exports
 ```
 
-## Implementation Order
-
-1. lock contracts and citations
-2. implement geometry, LiDAR, and query seeding
-3. implement the minimal multimodal model
-4. add public dataset adapters
-5. add export and latency harnesses
-6. keep auto-research disabled until the repo is green and explicitly authorized
-
 ## Quick Start
-
-After bootstrap is complete:
 
 ```bash
 uv venv
@@ -76,11 +126,11 @@ uv sync --extra dev --extra deploy
 uv run tsqbev trt-bench
 ```
 
-## Non-Goal For Now
+## Validation Status
 
-This repo does not yet target:
-
-- autonomous experimentation
-- large-scale Ray orchestration
-- final Orin deployment packaging
-- private or proprietary dataset integration
+- `ruff` clean
+- `mypy` clean
+- `pytest` passing
+- ONNX export smoke passing
+- TensorRT engine build validated on RTX 5000
+- auto-research loop explicitly disabled

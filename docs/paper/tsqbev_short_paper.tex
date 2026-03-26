@@ -2,8 +2,10 @@
 \usepackage[margin=1in]{geometry}
 \usepackage{booktabs}
 \usepackage{amsmath}
+\usepackage{tikz}
 \usepackage{xurl}
 \usepackage[colorlinks=true,linkcolor=blue,citecolor=blue,urlcolor=blue]{hyperref}
+\usetikzlibrary{arrows.meta,calc,positioning}
 
 \title{A Minimal Multimodal Temporal Sparse-Query BEV Stack\\with TensorRT Validation on an RTX 5000}
 \author{tsqbev-poc working note}
@@ -22,6 +24,46 @@ Recent 3D perception systems show three recurring themes. First, sparse query fo
 The current repository targets a narrower goal than a full production stack. It aims to provide a public, minimal, evidence-grounded implementation with a clear path from model code to export, TensorRT conversion, and measured latency. The autonomous research loop remains intentionally disabled in this phase. The implementation, scripts, and measured artifacts live in the public \texttt{tsqbev-poc} repository~\cite{repo}.
 
 \section{Architecture}
+\begin{figure}[t]
+\centering
+\resizebox{\linewidth}{!}{%
+\begin{tikzpicture}[
+    node distance=7mm and 8mm,
+    box/.style={draw, rounded corners, align=center, minimum width=2.4cm, minimum height=8mm},
+    arr/.style={-{Latex[length=2mm]}, thick}
+]
+\node[box] (img) {Multi-view\\images};
+\node[box, below=of img] (lidar) {LiDAR\\points};
+\node[box, right=of img] (backbone) {Image backbone\\+ neck};
+\node[box, right=of lidar] (pillar) {Pillar\\encoder};
+\node[box, right=of backbone] (proposal) {2D proposal head\\+ ray seeds};
+\node[box, below=of proposal] (global) {Learned\\global seeds};
+\node[box, right=14mm of pillar] (router) {Tri-source\\router};
+\node[box, right=of router] (sampler) {Sparse cross-view\\sampler};
+\node[box, right=of sampler] (fusion) {Query fusion\\+ temporal update};
+\node[box, above right=of fusion] (obj) {Object\\head};
+\node[box, below right=of fusion] (lane) {Lane head\\+ map priors};
+\node[box, below=of fusion] (state) {Persistent\\temporal state};
+
+\draw[arr] (img) -- (backbone);
+\draw[arr] (lidar) -- (pillar);
+\draw[arr] (backbone) -- (proposal);
+\draw[arr] (pillar) -- (router);
+\draw[arr] (proposal) -- (router);
+\draw[arr] (global) -- (router);
+\draw[arr] (backbone) -- (sampler);
+\draw[arr] (router) -- (sampler);
+\draw[arr] (sampler) -- (fusion);
+\draw[arr] (fusion) -- (obj);
+\draw[arr] (fusion) -- (lane);
+\draw[arr] (fusion) -- (state);
+\draw[arr] (state.west) to[out=180,in=-90] ($(router.south)+(0,-0.15)$);
+\end{tikzpicture}
+}
+\caption{Current TSQBEV public architecture: LiDAR provides grounded object seeds, cameras provide sparse refinement and lane structure, and temporal state is carried in sparse query memory.}
+\label{fig:overview}
+\end{figure}
+
 \subsection{Tri-source sparse object seeding}
 The object path starts from three seed groups:
 \begin{enumerate}
@@ -42,6 +84,34 @@ The lane branch is intentionally camera-dominant. It uses camera tokens as the m
 Distillation is designed into the repository from the beginning. The student accepts cached teacher targets for object features, object boxes, and router logits. The current repository ships the interface and losses, not an internal teacher implementation. This is aligned with the public teacher--student framing used in BEVDistill~\cite{bevdistill}.
 
 \section{Deployment graph and TensorRT path}
+\begin{figure}[t]
+\centering
+\resizebox{\linewidth}{!}{%
+\begin{tikzpicture}[
+    node distance=8mm and 10mm,
+    box/.style={draw, rounded corners, align=center, minimum width=2.5cm, minimum height=8mm},
+    arr/.style={-{Latex[length=2mm]}, thick}
+]
+\node[box] (raw) {Raw inputs\\images + LiDAR points};
+\node[box, right=of raw] (prep) {Seed preparation\\pillarization + proposal rays};
+\node[box, right=of prep] (core) {Exportable core\\backbone + fusion + heads};
+\node[box, right=of core] (out) {3D objects\\+ lanes};
+
+\node[box, below=12mm of prep] (deployin) {Prepared sparse seeds\\+ images};
+\node[box, right=of deployin] (trt) {ONNX / TensorRT\\deployment graph};
+\node[box, right=of trt] (deployout) {Deployed core\\outputs};
+
+\draw[arr] (raw) -- (prep);
+\draw[arr] (prep) -- (core);
+\draw[arr] (core) -- (out);
+\draw[arr] (deployin) -- (trt);
+\draw[arr] (trt) -- (deployout);
+\end{tikzpicture}
+}
+\caption{Deployment split in the current public repo: the full PyTorch model includes seed preparation, while the TensorRT path benchmarks the deployable core with prepared sparse seeds.}
+\label{fig:deploy}
+\end{figure}
+
 The repository currently exports an \emph{exportable core} rather than the full end-to-end model. The exported graph includes:
 \begin{itemize}
 \item the image backbone,
