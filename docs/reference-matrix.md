@@ -4,7 +4,7 @@ This repo stays grounded by mapping each subsystem to an original paper and, whe
 
 Reference policy as of March 26, 2026:
 
-- The local summary PDF in `/home/achbogga/projects/Production-ready Temporal Sparse Query BEV for Torc on NVIDIA Orin.pdf` is not cited directly.
+- Local generated design summaries are not cited directly.
 - The sources below are the underlying original references used to ground the implementation.
 
 | Subsystem | Original paper | Official code | Repo usage |
@@ -25,11 +25,4 @@ Reference policy as of March 26, 2026:
 | HD-map tokenization | [MapTR](https://arxiv.org/abs/2208.14437) | [hustvl/MapTR](https://github.com/hustvl/MapTR) | Public map-prior adapter and vector token inspiration |
 | Orin-aware latency design | [HotBEV](https://proceedings.neurips.cc/paper_files/paper/2023/file/081b08068e4733ae3e7ad019fe8d172f-Paper-Conference.pdf) | Paper only | Latency predictor and operator-budget discipline |
 | Public lane dataset | [OpenLane V1](https://github.com/OpenDriveLab/OpenLane) | [OpenDriveLab/OpenLane](https://github.com/OpenDriveLab/OpenLane) | Public lane supervision path |
-
-## Torc Reference
-
-The public repo will only mirror contracts informed by the internal Torc loader path:
-
-- `torc_ml/projects/scene_modeling/scene_modeling/data/datasets`
-
-No internal Torc code is to be copied wholesale into this repository.
+| Repo implementation and RTX 5000 measurements | [tsqbev-poc repo](https://github.com/achbogga/tsqbev-poc) | [tsqbev-poc repo](https://github.com/achbogga/tsqbev-poc) | Novel implementation details, TensorRT utilities, and local benchmark artifacts |

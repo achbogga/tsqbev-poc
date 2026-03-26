@@ -4,7 +4,6 @@ from tsqbev.adapters import (
     MapTRNuScenesAdapter,
     NuScenesODAdapter,
     OpenLaneAdapter,
-    TorcThinAdapter,
 )
 
 
@@ -44,20 +43,5 @@ def test_maptr_adapter_validate() -> None:
             "map_tokens": object(),
             "map_coords_xy": object(),
             "map_valid_mask": object(),
-        }
-    )
-
-
-def test_torc_adapter_validate() -> None:
-    adapter = TorcThinAdapter()
-    adapter.validate(
-        {
-            "general_timestamp": object(),
-            "lidar_path": object(),
-            "annotations_3d_cuboid": object(),
-            "img_051_intrinsic": object(),
-            "img_051_odom_extrinsic": object(),
-            "img_053_intrinsic": object(),
-            "img_053_odom_extrinsic": object(),
         }
     )

@@ -19,7 +19,7 @@ This note describes the current \texttt{tsqbev-poc} architecture, a small public
 \section{Introduction}
 Recent 3D perception systems show three recurring themes. First, sparse query formulations replace dense BEV updates with object-centric or token-centric computation~\cite{detr3d,petr,sparse4d}. Second, temporal persistence is carried in sparse state rather than in a fully dense recurrent BEV tensor~\cite{petrv2,streampetr}. Third, multimodal systems use LiDAR to stabilize geometry while cameras provide semantics, lane structure, and map context~\cite{cmt,bevdistill,persformer,maptr}. For deployment, latency discipline matters as much as accuracy, especially when the same graph must later survive export and engine build constraints~\cite{hotbev}.
 
-The current repository targets a narrower goal than a full production Torc stack. It aims to provide a public, minimal, evidence-grounded implementation with a clear path from model code to export, TensorRT conversion, and measured latency. The autonomous research loop remains intentionally disabled in this phase. The implementation, scripts, and measured artifacts live in the local \texttt{tsqbev-poc} repository~\cite{repo}.
+The current repository targets a narrower goal than a full production stack. It aims to provide a public, minimal, evidence-grounded implementation with a clear path from model code to export, TensorRT conversion, and measured latency. The autonomous research loop remains intentionally disabled in this phase. The implementation, scripts, and measured artifacts live in the public \texttt{tsqbev-poc} repository~\cite{repo}.
 
 \section{Architecture}
 \subsection{Tri-source sparse object seeding}
@@ -96,7 +96,7 @@ These results should be read carefully.
 \begin{itemize}
 \item They are \textbf{synthetic fixed-shape latency measurements}, not dataset accuracy results.
 \item The TensorRT numbers apply only to the current \textbf{exportable core}, not the full end-to-end multimodal pipeline.
-\item The local ChatGPT-generated summary PDF that motivated this working note is treated as internal synthesis only and is not cited directly; this note cites the underlying primary papers and official documentation instead.
+\item Local generated design summaries are treated as internal synthesis only and are not cited directly; this note cites the underlying primary papers, official documentation, and our own public repo artifact instead.
 \item These RTX 5000 numbers should \textbf{not} be reinterpreted as Orin numbers.
 \end{itemize}
 
@@ -156,9 +156,9 @@ NeurIPS 2023.
 \url{https://proceedings.neurips.cc/paper_files/paper/2023/file/081b08068e4733ae3e7ad019fe8d172f-Paper-Conference.pdf}
 
 \bibitem{repo}
-\emph{tsqbev-poc local repository and measured artifacts}.
-Local repository working artifact, 2026.
-\url{file:///home/achbogga/projects/tsqbev-poc}
+\emph{tsqbev-poc repository and measured artifacts}.
+GitHub repository, 2026.
+\url{https://github.com/achbogga/tsqbev-poc}
 
 \end{thebibliography}
 

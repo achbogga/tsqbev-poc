@@ -10,7 +10,7 @@
 
 This repo is intentionally small and evidence-driven. Every module is tied back to an original paper and, where available, an official codebase. See [docs/reference-matrix.md](docs/reference-matrix.md).
 
-The local summary PDF in `/home/achbogga/projects/Production-ready Temporal Sparse Query BEV for Torc on NVIDIA Orin.pdf` is treated as internal synthesis only. The repo cites the underlying original papers, official codebases, and our own local paper/repo artifacts instead of citing that generated PDF directly.
+Local generated design summaries are treated as internal synthesis only. The repo cites the underlying original papers, official codebases, and our own public repo/paper artifacts instead of citing generated summaries directly.
 
 ## Status
 
@@ -50,7 +50,7 @@ artifacts/      local run outputs and exports
 1. lock contracts and citations
 2. implement geometry, LiDAR, and query seeding
 3. implement the minimal multimodal model
-4. add public/Torc-thin adapters
+4. add public dataset adapters
 5. add export and latency harnesses
 6. keep auto-research disabled until the repo is green and explicitly authorized
 
@@ -83,4 +83,4 @@ This repo does not yet target:
 - autonomous experimentation
 - large-scale Ray orchestration
 - final Orin deployment packaging
-- full internal Torc data integration
+- private or proprietary dataset integration

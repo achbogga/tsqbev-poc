@@ -12,13 +12,13 @@ The repo is meant to:
 - remain clean enough for paper submission and public review
 - avoid premature scale infrastructure
 
-The repo is not the final large-scale Torc training system.
-It is a focused POC that can later be integrated into `torc_ml`.
+The repo is not a final large-scale production training system.
+It is a focused open-source POC for public datasets and deployable research artifacts.
 
 ## Evidence Basis
 
 - The public primary sources used by this repo are indexed in `docs/reference-matrix.md`.
-- The local summary PDF in `/home/achbogga/projects/Production-ready Temporal Sparse Query BEV for Torc on NVIDIA Orin.pdf` is treated as internal synthesis only; the repo cites the underlying original sources instead.
+- Local generated design summaries are treated as internal synthesis only; the repo cites the underlying original sources instead.
 - The workflow staging is influenced by Andrej Karpathy's public `autoresearch` repository, but the autonomous loop remains disabled during bootstrap: <https://github.com/karpathy/autoresearch>
 
 ## Hard Constraints
@@ -103,14 +103,15 @@ Do not use dense temporal BEV caches in v1.
 - `OpenLane v1`: lane supervision
 - `nuScenes map expansion + MapTR-style vector priors`: first public map adapter
 
-### Torc Compatibility
+### Open Dataset Scope
 
-Use a thin Torc compatibility adapter informed by:
+Use only open-source dataset adapters in the public repo:
 
-- `torc_ml/projects/scene_modeling/scene_modeling/data/datasets`
+- `nuScenes` for object detection
+- `OpenLane v1` for lane supervision
+- `nuScenes` map expansion with MapTR-style vector priors for public map tokens
 
-Do not vendor Torc code into the public repo.
-Mirror schema and calibration contracts only where needed.
+Do not include private dataset compatibility layers in this repository.
 
 ## Distillation Strategy
 
@@ -248,7 +249,6 @@ Add:
 - `nuScenes` OD adapter
 - `OpenLane` lane adapter
 - `nuScenes` map-prior adapter
-- thin Torc adapter
 
 All adapters require contract tests with synthetic fixtures.
 
@@ -332,7 +332,6 @@ Add adapter contract tests for:
 - `nuScenes`
 - `OpenLane`
 - map priors
-- Torc thin adapter
 
 ## Research Loop Policy
 

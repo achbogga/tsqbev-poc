@@ -1,12 +1,10 @@
-"""Thin public and Torc-inspired adapter contracts.
+"""Thin public adapter contracts for open-source datasets.
 
 References:
 - OpenLane dataset:
   https://github.com/OpenDriveLab/OpenLane
 - MapTR public code:
   https://github.com/hustvl/MapTR
-- Torc internal reference path used for thin compatibility:
-  torc_ml/projects/scene_modeling/scene_modeling/data/datasets
 """
 
 from __future__ import annotations
@@ -62,20 +60,3 @@ class MapTRNuScenesAdapter:
 
     def validate(self, sample: Mapping[str, object]) -> None:
         assert_required_keys(sample, self.required_keys)
-
-
-class TorcThinAdapter:
-    """Thin schema mirror for Torc-style column naming."""
-
-    required_columns = (
-        "general_timestamp",
-        "lidar_path",
-        "annotations_3d_cuboid",
-        "img_051_intrinsic",
-        "img_051_odom_extrinsic",
-        "img_053_intrinsic",
-        "img_053_odom_extrinsic",
-    )
-
-    def validate(self, sample: Mapping[str, object]) -> None:
-        assert_required_keys(sample, self.required_columns)
