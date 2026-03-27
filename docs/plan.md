@@ -15,6 +15,25 @@ The repo is meant to:
 The repo is not a final large-scale production training system.
 It is a focused open-source POC for public datasets and deployable research artifacts.
 
+## Current Status
+
+- The public repo is bootstrapped, tested, and published on GitHub.
+- The public `nuScenes` train/val archive has been downloaded and extracted into a devkit-compatible root at `/mnt/storage/research/nuscenes`.
+- Real-data `nuScenes` readiness checks pass.
+- A float32 real-data smoke run on the RTX 5000 completed successfully on a tiny subset, which confirmed the loader and training path are functional on real data.
+- A longer tuned `nuScenes` baseline is now running in detached `screen` session `220120.tsqbev_nuscenes_small`.
+- OpenLane support still needs version alignment against the OpenLane-V2 getting-started instructions before any lane baseline can be treated as final.
+- The autonomous research loop remains disabled.
+
+## Milestones Achieved
+
+- Created the clean `uv`-based repo and public docs.
+- Removed private-dataset references from the public-facing plan and docs.
+- Implemented typed multimodal contracts, dataset loaders, loss functions, export helpers, and training loops.
+- Added unit, integration, and checkpoint round-trip tests.
+- Verified synthetic forward/backward, export smoke, and repo lint/type checks.
+- Verified the public `nuScenes` dataset root and executed real-data smoke training successfully in float32.
+
 ## Evidence Basis
 
 - The public primary sources used by this repo are indexed in `docs/reference-matrix.md`.
@@ -31,9 +50,9 @@ It is a focused open-source POC for public datasets and deployable research arti
 
 ## Current Operating Assumption
 
-- The machine is mid-driver-update / restart cycle.
-- Real GPU verification may still be broken immediately after reboot.
-- Implementation should proceed CPU-first and synthetic-data-first if GPU runtime is still unhealthy.
+- The GPU runtime is available and verified on the RTX 5000.
+- Public-data work should stay measured and reproducible.
+- The long `nuScenes` baseline run should be allowed to continue without adding autonomous tuning logic yet.
 
 ## System Goal
 
@@ -371,13 +390,13 @@ V1 does not require:
 - Orin-perfect optimization
 - autonomous experimentation
 
-## Immediate Next Step After Reboot
+## Immediate Next Step
 
 Resume with:
 
-1. post-reboot environment verification
-2. repo bootstrap files
-3. specs and tests
-4. core implementation
+1. let the detached `nuScenes` baseline finish
+2. inspect the resulting checkpoint, history, and validation metrics
+3. decide whether the lane path should target OpenLane V1 or be adapted to OpenLane-V2 before any lane baseline
+4. publish only measured results into the docs and paper
 
 No autonomous loop work until explicitly approved later.

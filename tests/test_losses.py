@@ -1,0 +1,70 @@
+from __future__ import annotations
+
+import torch
+
+from tsqbev.contracts import LaneTargets, ObjectTargets, SceneBatch
+from tsqbev.losses import DetectionSetCriterion, LaneSetCriterion
+
+
+def test_detection_set_criterion_prefers_exact_match(small_config, synthetic_batch) -> None:
+    criterion = DetectionSetCriterion()
+    target_boxes = synthetic_batch.od_targets.boxes_3d[:, :2].clone()
+    target_labels = synthetic_batch.od_targets.labels[:, :2].clone()
+
+    logits = torch.full(
+        (
+            synthetic_batch.batch_size,
+            small_config.max_object_queries,
+            small_config.num_object_classes,
+        ),
+        -8.0,
+    )
+    batch_indices = torch.arange(synthetic_batch.batch_size)
+    logits[batch_indices, 0, target_labels[:, 0]] = 8.0
+    logits[batch_indices, 1, target_labels[:, 1]] = 8.0
+    boxes = torch.zeros(synthetic_batch.batch_size, small_config.max_object_queries, 9)
+    boxes[:, 0] = target_boxes[:, 0]
+    boxes[:, 1] = target_boxes[:, 1]
+
+    batch = SceneBatch(
+        images=synthetic_batch.images,
+        lidar_points=synthetic_batch.lidar_points,
+        lidar_mask=synthetic_batch.lidar_mask,
+        intrinsics=synthetic_batch.intrinsics,
+        extrinsics=synthetic_batch.extrinsics,
+        ego_pose=synthetic_batch.ego_pose,
+        time_delta_s=synthetic_batch.time_delta_s,
+        od_targets=ObjectTargets(boxes_3d=target_boxes, labels=target_labels),
+    )
+    losses = criterion(logits, boxes, batch)
+    assert losses["object_box"] < 1e-5
+    assert losses["object_cls"] < 2e-2
+
+
+def test_lane_set_criterion_prefers_exact_match(small_config, synthetic_batch) -> None:
+    criterion = LaneSetCriterion()
+    target_polylines = synthetic_batch.lane_targets.polylines[:, :2].clone()
+    target_mask = synthetic_batch.lane_targets.valid_mask[:, :2].clone()
+    logits = torch.full((synthetic_batch.batch_size, small_config.lane_queries), -8.0)
+    logits[:, :2] = 8.0
+    polylines = torch.zeros(
+        synthetic_batch.batch_size,
+        small_config.lane_queries,
+        small_config.lane_points,
+        3,
+    )
+    polylines[:, :2] = target_polylines
+
+    batch = SceneBatch(
+        images=synthetic_batch.images,
+        lidar_points=synthetic_batch.lidar_points,
+        lidar_mask=synthetic_batch.lidar_mask,
+        intrinsics=synthetic_batch.intrinsics,
+        extrinsics=synthetic_batch.extrinsics,
+        ego_pose=synthetic_batch.ego_pose,
+        time_delta_s=synthetic_batch.time_delta_s,
+        lane_targets=LaneTargets(polylines=target_polylines, valid_mask=target_mask),
+    )
+    losses = criterion(logits, polylines, batch)
+    assert losses["lane_shape"] < 1e-5
+    assert losses["lane_logits"] < 3e-3

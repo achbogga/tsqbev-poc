@@ -91,6 +91,7 @@ The full source map is in [docs/reference-matrix.md](docs/reference-matrix.md).
 - [Architecture](docs/architecture.md)
 - [Benchmarks](docs/benchmarks/rtx5000.md)
 - [Reference matrix](docs/reference-matrix.md)
+- [Public baseline workflow](docs/training-baselines.md)
 - [Implementation plan](docs/plan.md)
 - [Short paper PDF](docs/paper/tsqbev_short_paper.pdf)
 - [Short paper LaTeX](docs/paper/tsqbev_short_paper.tex)
@@ -118,6 +119,15 @@ uv run tsqbev train-step
 uv run tsqbev eval
 uv run tsqbev bench
 ```
+
+For real public-dataset baselines:
+
+```bash
+uv sync --extra dev --extra data
+uv run tsqbev check-data --dataset-root /path/to/dataset/root
+```
+
+The full workflow for `nuScenes` and `OpenLane` is documented in [docs/training-baselines.md](docs/training-baselines.md). Full accuracy results are intentionally not published until the actual datasets are present and measured.
 
 For CUDA deployment validation on supported NVIDIA systems:
 

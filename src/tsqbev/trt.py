@@ -29,7 +29,7 @@ from tsqbev.model import TSQBEVModel
 Tensor = torch.Tensor
 
 try:
-    import tensorrt as trt  # type: ignore[import-untyped]
+    import tensorrt as trt
 except ImportError:  # pragma: no cover - exercised only when TensorRT is absent.
     trt = None
 
