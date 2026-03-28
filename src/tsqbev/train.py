@@ -27,6 +27,10 @@ from tsqbev.model import TSQBEVModel
 from tsqbev.runtime import move_batch, resolve_device
 
 
+def _format_metrics(metrics: dict[str, float]) -> str:
+    return ", ".join(f"{name}={value:.4f}" for name, value in metrics.items())
+
+
 def _to_float_metrics(losses: dict[str, torch.Tensor]) -> dict[str, float]:
     return {name: float(value.detach().cpu()) for name, value in losses.items()}
 
@@ -52,12 +56,15 @@ def _train_epoch(
     device: torch.device,
     amp_enabled: bool,
     scaler: torch.amp.GradScaler,
+    epoch: int,
+    log_every_steps: int | None,
 ) -> dict[str, float]:
     model.train()
     optimizer.zero_grad(set_to_none=True)
     history: list[dict[str, float]] = []
     autocast_dtype = torch.float16 if device.type == "cuda" else torch.float32
 
+    total_steps = len(loader)
     for step, (batch, _) in enumerate(loader, start=1):
         batch = move_batch(batch, device)
         with torch.autocast(device_type=device.type, dtype=autocast_dtype, enabled=amp_enabled):
@@ -78,7 +85,17 @@ def _train_epoch(
             else:
                 optimizer.step()
             optimizer.zero_grad(set_to_none=True)
-        history.append(_to_float_metrics(losses))
+        step_metrics = _to_float_metrics(losses)
+        history.append(step_metrics)
+        should_log = (
+            log_every_steps is not None
+            and (step == 1 or step % log_every_steps == 0 or step == total_steps)
+        )
+        if should_log:
+            print(
+                f"[train] epoch={epoch} step={step}/{total_steps} {_format_metrics(step_metrics)}",
+                flush=True,
+            )
 
     if len(loader) % grad_accum_steps != 0:
         if amp_enabled:
@@ -101,6 +118,7 @@ def _eval_epoch(
     criterion: MultitaskCriterion,
     device: torch.device,
     amp_enabled: bool,
+    epoch: int,
 ) -> dict[str, float]:
     model.eval()
     history: list[dict[str, float]] = []
@@ -111,7 +129,9 @@ def _eval_epoch(
             outputs = model(batch)
             losses = criterion(outputs, batch)
         history.append(_to_float_metrics(losses))
-    return _average_history(history)
+    avg = _average_history(history)
+    print(f"[val] epoch={epoch} {_format_metrics(avg)}", flush=True)
+    return avg
 
 
 def _write_history(artifact_dir: Path, history: list[dict[str, object]]) -> None:
@@ -157,6 +177,7 @@ def fit_nuscenes(
     max_train_samples: int | None = None,
     max_val_samples: int | None = None,
     use_amp: bool = False,
+    log_every_steps: int | None = 100,
 ) -> dict[str, object]:
     """Fit the public object-detection baseline on nuScenes train/val."""
 
@@ -182,7 +203,14 @@ def fit_nuscenes(
 
     history: list[dict[str, object]] = []
     checkpoint_path = Path(artifact_dir) / "checkpoint_last.pt"
+    train_sample_count = len(cast(Sized, train_dataset))
+    val_sample_count = len(cast(Sized, val_dataset))
     for epoch in range(1, epochs + 1):
+        print(
+            f"[train] epoch={epoch}/{epochs} device={resolved_device.type} "
+            f"train_samples={train_sample_count} val_samples={val_sample_count}",
+            flush=True,
+        )
         train_metrics = _train_epoch(
             model=model,
             loader=train_loader,
@@ -192,6 +220,8 @@ def fit_nuscenes(
             device=resolved_device,
             amp_enabled=amp_enabled,
             scaler=scaler,
+            epoch=epoch,
+            log_every_steps=log_every_steps,
         )
         val_metrics = _eval_epoch(
             model=model,
@@ -199,6 +229,7 @@ def fit_nuscenes(
             criterion=criterion,
             device=resolved_device,
             amp_enabled=amp_enabled,
+            epoch=epoch,
         )
         scheduler.step()
         history.append({"epoch": epoch, "train": train_metrics, "val": val_metrics})
@@ -210,6 +241,11 @@ def fit_nuscenes(
             epoch=epoch,
             history=history,
         )
+        print(
+            f"[epoch] completed epoch={epoch} train=({_format_metrics(train_metrics)}) "
+            f"val=({_format_metrics(val_metrics)})",
+            flush=True,
+        )
 
     return {
         "device": resolved_device.type,
@@ -217,8 +253,8 @@ def fit_nuscenes(
         "epochs": epochs,
         "artifact_dir": str(artifact_dir),
         "checkpoint_path": str(checkpoint_path),
-        "train_samples": len(cast(Sized, train_dataset)),
-        "val_samples": len(cast(Sized, val_dataset)),
+        "train_samples": train_sample_count,
+        "val_samples": val_sample_count,
         "last_train": history[-1]["train"],
         "last_val": history[-1]["val"],
     }
@@ -240,6 +276,7 @@ def fit_openlane(
     max_train_samples: int | None = None,
     max_val_samples: int | None = None,
     use_amp: bool = False,
+    log_every_steps: int | None = 100,
 ) -> dict[str, object]:
     """Fit the public lane baseline on OpenLane V1."""
 
@@ -275,7 +312,14 @@ def fit_openlane(
 
     history: list[dict[str, object]] = []
     checkpoint_path = Path(artifact_dir) / "checkpoint_last.pt"
+    train_sample_count = len(cast(Sized, train_dataset))
+    val_sample_count = len(cast(Sized, val_dataset))
     for epoch in range(1, epochs + 1):
+        print(
+            f"[train] epoch={epoch}/{epochs} device={resolved_device.type} "
+            f"train_samples={train_sample_count} val_samples={val_sample_count}",
+            flush=True,
+        )
         train_metrics = _train_epoch(
             model=model,
             loader=train_loader,
@@ -285,6 +329,8 @@ def fit_openlane(
             device=resolved_device,
             amp_enabled=amp_enabled,
             scaler=scaler,
+            epoch=epoch,
+            log_every_steps=log_every_steps,
         )
         val_metrics = _eval_epoch(
             model=model,
@@ -292,6 +338,7 @@ def fit_openlane(
             criterion=criterion,
             device=resolved_device,
             amp_enabled=amp_enabled,
+            epoch=epoch,
         )
         scheduler.step()
         history.append({"epoch": epoch, "train": train_metrics, "val": val_metrics})
@@ -303,6 +350,11 @@ def fit_openlane(
             epoch=epoch,
             history=history,
         )
+        print(
+            f"[epoch] completed epoch={epoch} train=({_format_metrics(train_metrics)}) "
+            f"val=({_format_metrics(val_metrics)})",
+            flush=True,
+        )
 
     return {
         "device": resolved_device.type,
@@ -310,8 +362,8 @@ def fit_openlane(
         "epochs": epochs,
         "artifact_dir": str(artifact_dir),
         "checkpoint_path": str(checkpoint_path),
-        "train_samples": len(cast(Sized, train_dataset)),
-        "val_samples": len(cast(Sized, val_dataset)),
+        "train_samples": train_sample_count,
+        "val_samples": val_sample_count,
         "last_train": history[-1]["train"],
         "last_val": history[-1]["val"],
     }
