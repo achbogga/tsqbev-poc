@@ -16,6 +16,12 @@ from tsqbev.config import ModelConfig
 from tsqbev.model import TSQBEVModel
 
 
+def _allowed_checkpoint_key_mismatch(key: str) -> bool:
+    """Allow additive optional teacher bootstrap modules across checkpoint versions."""
+
+    return key.startswith("teacher_seed_encoder.")
+
+
 def save_model_checkpoint(
     model: TSQBEVModel,
     config: ModelConfig,
@@ -69,5 +75,16 @@ def load_model_from_checkpoint(
     state_dict = payload.get("model_state_dict", payload)
     if not isinstance(state_dict, dict):
         raise TypeError("checkpoint model_state_dict must be a dict")
-    model.load_state_dict(state_dict)
+    incompatible = model.load_state_dict(state_dict, strict=False)
+    unexpected = [
+        key for key in incompatible.unexpected_keys if not _allowed_checkpoint_key_mismatch(key)
+    ]
+    missing = [
+        key for key in incompatible.missing_keys if not _allowed_checkpoint_key_mismatch(key)
+    ]
+    if unexpected or missing:
+        raise RuntimeError(
+            "checkpoint state_dict mismatch: "
+            f"missing={missing}, unexpected={unexpected}"
+        )
     return model, payload

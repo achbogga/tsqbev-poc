@@ -408,7 +408,9 @@ class TSQBEVModel(nn.Module):
         super().__init__()
         self.config = config
         self.lidar_encoder = LidarSeedEncoder(config)
-        self.teacher_seed_encoder = TeacherSeedEncoder(config)
+        self.teacher_seed_encoder = (
+            TeacherSeedEncoder(config) if config.teacher_seed_mode == "replace_lidar" else None
+        )
         self.core = TSQBEVCore(config)
 
     def forward(
@@ -416,7 +418,10 @@ class TSQBEVModel(nn.Module):
     ) -> dict[str, Tensor | QuerySeedBank | TemporalState]:
         batch.validate()
         teacher_seed_bank = None
-        if self.config.teacher_seed_mode == "replace_lidar":
+        if (
+            self.config.teacher_seed_mode == "replace_lidar"
+            and self.teacher_seed_encoder is not None
+        ):
             teacher_seed_bank = self.teacher_seed_encoder(batch.teacher_targets)
         if teacher_seed_bank is None:
             lidar_queries, lidar_refs, lidar_scores = self.lidar_encoder(

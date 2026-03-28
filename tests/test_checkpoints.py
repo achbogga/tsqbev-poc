@@ -31,3 +31,22 @@ def test_save_and_load_model_checkpoint_round_trip(tmp_path) -> None:
         strict=True,
     ):
         assert torch.equal(expected, actual)
+
+
+def test_load_model_checkpoint_ignores_optional_teacher_seed_mismatch(tmp_path) -> None:
+    config = ModelConfig.small()
+    teacher_config = config.model_copy(update={"teacher_seed_mode": "replace_lidar"})
+    teacher_model = TSQBEVModel(teacher_config)
+    checkpoint_path = tmp_path / "teacher_checkpoint.pt"
+
+    payload = {
+        "epoch": 1,
+        "model_config": config.model_dump(),
+        "model_state_dict": teacher_model.state_dict(),
+        "history": [],
+    }
+    torch.save(payload, checkpoint_path)
+
+    restored_model, loaded_payload = load_model_from_checkpoint(checkpoint_path)
+    assert isinstance(restored_model, TSQBEVModel)
+    assert loaded_payload["epoch"] == 1
