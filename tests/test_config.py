@@ -12,3 +12,9 @@ def test_rtx5000_baseline_uses_pretrained_mobilenet() -> None:
     assert config.image_backbone == "mobilenet_v3_large"
     assert config.pretrained_image_backbone is True
     assert config.freeze_image_backbone is True
+
+
+def test_rtx5000_teacher_bootstrap_enables_teacher_seed_mode() -> None:
+    config = ModelConfig.rtx5000_nuscenes_teacher_bootstrap()
+    assert config.image_backbone == "mobilenet_v3_large"
+    assert config.teacher_seed_mode == "replace_lidar"

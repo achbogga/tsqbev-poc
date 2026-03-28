@@ -162,23 +162,24 @@ Exportable core, TensorRT FP16-enabled engine & 0.785 & 0.785 & 0.795 \\
 \end{table}
 
 \section{Mini nuScenes baseline}
-The repository now includes a bounded local research loop on the official \texttt{nuScenes v1.0-mini} split~\cite{nuscenes}. The loop evaluated three small variants for one epoch each: a frozen pretrained MobileNetV3 baseline, a higher-batch frozen variant, and an unfrozen-backbone variant. The frozen baseline with batch size 2 and gradient accumulation 2 achieved the best validation loss and was promoted to a longer run.
+The repository now includes a bounded local research loop on the official \texttt{nuScenes v1.0-mini} split~\cite{nuscenes}. After an initial proof-of-pipeline sweep, the loop was strengthened in two ways: the routed query bank was prevented from collapsing to near-ego LiDAR seeds, and recipe selection switched from surrogate loss to official \texttt{mini\_val} metrics. The current loop evaluates three six-epoch variants: a balanced frozen MobileNetV3 baseline, a proposal-heavy frozen MobileNetV3 variant, and a proposal-heavy frozen EfficientNet-B0 variant.
 
 \begin{table}[t]
 \centering
-\caption{Bounded \texttt{nuScenes v1.0-mini} research sweep and promoted baseline.}
+\caption{Strengthened bounded \texttt{nuScenes v1.0-mini} research sweep.}
 \label{tab:mini}
 \begin{tabular}{lrrrr}
 \toprule
 Run & Epochs & Val total & mAP & NDS \\
 \midrule
-Frozen MobileNetV3 sweep winner & 1 & 28.0525 & 0.0 & 0.0 \\
-Promoted mini baseline & 4 & 24.4006 & 1.54e-05 & 7.69e-06 \\
+Balanced frozen MobileNetV3 & 6 & 20.9826 & 0.0 & 0.0 \\
+Proposal-heavy frozen MobileNetV3 & 6 & 22.4723 & 0.0 & 0.0 \\
+Proposal-heavy frozen EfficientNet-B0 & 6 & 23.6836 & 0.0 & 0.0127 \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-The promoted mini baseline is functional but still undertrained. Its official \texttt{mini\_val} evaluation produced a nonzero car AP at the 4\,m threshold while the remaining classes stayed at zero. That is not a competitive result, but it is meaningful evidence that the end-to-end public training, checkpointing, prediction export, and official local evaluation path all complete successfully.
+The strengthened sweep produced the first clearly nonzero official \texttt{NDS} in the repo while keeping a stable multimodal routed query mix of roughly one-third LiDAR, one-half proposal, and one-sixth global queries. That is still not a competitive detector: official \texttt{mAP} remains zero. However, it is meaningful evidence that the direction is now learnable under official metrics rather than only under surrogate validation loss. In particular, the lowest-loss recipe still had \texttt{NDS}=0.0, which justifies ranking recipes by official metrics instead of loss alone.
 
 \section{Limitations}
 These results should be read carefully.
@@ -186,12 +187,13 @@ These results should be read carefully.
 \item They are \textbf{synthetic fixed-shape latency measurements}, not dataset accuracy results.
 \item The TensorRT numbers apply only to the current \textbf{exportable core}, not the full end-to-end multimodal pipeline.
 \item The \texttt{nuScenes} accuracy results are on the tiny \texttt{v1.0-mini} split only and should be interpreted as a functional public baseline, not as a claim of competitive accuracy.
+\item The current best official \texttt{mini\_val} result still has \texttt{mAP}=0.0, so the repo now explicitly blocks 10x compute scale-up until stronger gates are cleared.
 \item Local generated design summaries are treated as internal synthesis only and are not cited directly; this note cites the underlying primary papers, official documentation, and our own public repo artifact instead.
 \item These RTX 5000 numbers should \textbf{not} be reinterpreted as Orin numbers.
 \end{itemize}
 
 \section{Conclusion}
-The current \texttt{tsqbev-poc} repository now satisfies a stronger milestone than the original pre-research target: it has a minimal multimodal sparse-query architecture, a tested export path, a successful TensorRT engine build, a bounded local research loop on \texttt{nuScenes v1.0-mini}, and a promoted mini baseline with nonzero official detection metrics. The next engineering step is to improve detector quality while preserving the same evidence-first workflow, then repeat the validation on larger public splits and the intended embedded target.
+The current \texttt{tsqbev-poc} repository now satisfies a stronger milestone than the original pre-research target: it has a minimal multimodal sparse-query architecture, a tested export path, a successful TensorRT engine build, a bounded local research loop on \texttt{nuScenes v1.0-mini}, and the first nonzero official \texttt{NDS} under a stabilized multimodal routing regime. The next engineering step is not blind scale. It is to bootstrap the student with a public pretrained external LiDAR teacher, with CenterPoint/OpenPCDet-style models as the first target~\cite{centerpoint,opencpdet}, and require a material official-metric lift before larger-scale training is authorized.
 
 \begin{thebibliography}{10}
 
@@ -239,6 +241,16 @@ OpenDriveLab project page and associated paper.
 \emph{MapTR: Structured Modeling and Learning for Online Vectorized HD Map Construction}.
 arXiv:2208.14437, 2022.
 \url{https://arxiv.org/abs/2208.14437}
+
+\bibitem{centerpoint}
+\emph{Center-Based 3D Object Detection and Tracking}.
+CVPR 2021.
+\url{https://openaccess.thecvf.com/content/CVPR2021/papers/Yin_Center-Based_3D_Object_Detection_and_Tracking_CVPR_2021_paper.pdf}
+
+\bibitem{opencpdet}
+\emph{OpenPCDet model zoo}.
+GitHub repository, 2026.
+\url{https://github.com/open-mmlab/OpenPCDet}
 
 \bibitem{hotbev}
 \emph{HotBEV}.
