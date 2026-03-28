@@ -92,14 +92,17 @@ def _train_epoch(
     scaler: torch.amp.GradScaler,
     epoch: int,
     log_every_steps: int | None,
+    max_steps: int | None = None,
 ) -> dict[str, float]:
     model.train()
     optimizer.zero_grad(set_to_none=True)
     history: list[dict[str, float]] = []
     autocast_dtype = torch.float16 if device.type == "cuda" else torch.float32
 
-    total_steps = len(loader)
+    total_steps = len(loader) if max_steps is None else min(len(loader), max_steps)
     for step, (batch, _) in enumerate(loader, start=1):
+        if max_steps is not None and step > max_steps:
+            break
         batch = move_batch(batch, device)
         with torch.autocast(device_type=device.type, dtype=autocast_dtype, enabled=amp_enabled):
             outputs = model(batch)
@@ -216,6 +219,7 @@ def fit_nuscenes(
     device: str | None = None,
     max_train_samples: int | None = None,
     max_val_samples: int | None = None,
+    max_train_steps: int | None = None,
     teacher_provider_config: TeacherProviderConfig | None = None,
     use_amp: bool = False,
     log_every_steps: int | None = 100,
@@ -294,11 +298,20 @@ def fit_nuscenes(
     checkpoint_path = Path(artifact_dir) / "checkpoint_last.pt"
     train_sample_count = len(cast(Sized, train_dataset))
     val_sample_count = len(cast(Sized, val_dataset))
+    train_steps_completed = 0
+    epochs_run = 0
     for epoch in range(1, epochs + 1):
+        epoch_max_steps = None
+        if max_train_steps is not None:
+            remaining_steps = max_train_steps - train_steps_completed
+            if remaining_steps <= 0:
+                break
+            epoch_max_steps = min(len(train_loader), remaining_steps)
         print(
             f"[train] epoch={epoch}/{epochs} device={resolved_device.type} "
             f"train_samples={train_sample_count} val_samples={val_sample_count} "
             f"batch_size={batch_size} grad_accum_steps={grad_accum_steps} "
+            f"max_train_steps={max_train_steps} "
             f"backbone={model_config.image_backbone} "
             f"pretrained_backbone={model_config.pretrained_image_backbone} "
             f"freeze_backbone={model_config.freeze_image_backbone}",
@@ -315,6 +328,7 @@ def fit_nuscenes(
             scaler=scaler,
             epoch=epoch,
             log_every_steps=log_every_steps,
+            max_steps=epoch_max_steps,
         )
         val_metrics = _eval_epoch(
             model=model,
@@ -339,11 +353,17 @@ def fit_nuscenes(
             f"val=({_format_metrics(val_metrics)})",
             flush=True,
         )
+        epochs_run = epoch
+        train_steps_completed += len(train_loader) if epoch_max_steps is None else epoch_max_steps
+        if max_train_steps is not None and train_steps_completed >= max_train_steps:
+            break
 
     return {
         "device": resolved_device.type,
         "amp_enabled": amp_enabled,
-        "epochs": epochs,
+        "epochs": epochs_run,
+        "max_train_steps": max_train_steps,
+        "train_steps": train_steps_completed,
         "version": version,
         "train_split": resolved_train_split,
         "val_split": resolved_val_split,

@@ -34,6 +34,7 @@ Interpretation:
 The sweep artifacts are stored in:
 
 - `artifacts/baselines/research_loop/results.jsonl`
+- `artifacts/baselines/research_loop/results.tsv`
 - `artifacts/baselines/research_loop/summary.json`
 
 ## Promoted 4-Epoch Mini Baseline (Historical)
@@ -115,6 +116,7 @@ Interpretation:
 V2 artifacts:
 
 - sweep ledger: `artifacts/research_v2/research_loop/results.jsonl`
+- sweep ledger TSV: `artifacts/research_v2/research_loop/results.tsv`
 - sweep summary: `artifacts/research_v2/research_loop/summary.json`
 
 ## Scale Decision

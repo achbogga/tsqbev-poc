@@ -162,7 +162,7 @@ Exportable core, TensorRT FP16-enabled engine & 0.785 & 0.785 & 0.795 \\
 \end{table}
 
 \section{Mini nuScenes baseline}
-The repository now includes a bounded local research loop on the official \texttt{nuScenes v1.0-mini} split~\cite{nuscenes}. After an initial proof-of-pipeline sweep, the loop was strengthened in two ways: the routed query bank was prevented from collapsing to near-ego LiDAR seeds, and recipe selection switched from surrogate loss to official \texttt{mini\_val} metrics. The current loop evaluates three six-epoch variants: a balanced frozen MobileNetV3 baseline, a proposal-heavy frozen MobileNetV3 variant, and a proposal-heavy frozen EfficientNet-B0 variant.
+The repository now includes a bounded local research loop on the official \texttt{nuScenes v1.0-mini} split~\cite{nuscenes}. Its workflow is explicitly influenced by Karpathy's public \texttt{autoresearch} framing~\cite{repo}: keep the budget small and comparable, establish an incumbent first, record every run in append-only ledgers, and advance only on measured metric gains. For this repo, that idea is adapted into a staged \texttt{baseline $\rightarrow$ explore $\rightarrow$ exploit} loop with a fixed comparable train-step budget, per-run manifests, and an explicit scale-gate verdict. The measured numbers below are from the latest completed strengthened sweep, which improved the earlier proof-of-pipeline loop in two ways: the routed query bank was prevented from collapsing to near-ego LiDAR seeds, and recipe selection switched from surrogate loss to official \texttt{mini\_val} metrics.
 
 \begin{table}[t]
 \centering

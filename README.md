@@ -147,12 +147,16 @@ uv run tsqbev check-data --dataset-root /path/to/dataset/root
 
 The full workflow for `nuScenes` and `OpenLane` is documented in [docs/training-baselines.md](docs/training-baselines.md). Full `v1.0-trainval` accuracy is not published yet; the repo currently reports measured `v1.0-mini` results only.
 
-The active bounded research loop is currently scoped to `nuScenes v1.0-mini` only:
+The active bounded research loop is currently scoped to `nuScenes v1.0-mini` only and now follows
+the strongest transferable ideas from Karpathy's `autoresearch`: one incumbent, a fixed comparable
+train-step budget, bounded exploration, bounded exploitation, append-only ledgers, and explicit
+promote/discard semantics.
 
 ```bash
 uv run tsqbev research-loop \
   --dataset-root /path/to/nuscenes \
   --artifact-dir artifacts/baselines \
+  --max-experiments 5 \
   --device cuda
 ```
 
@@ -190,3 +194,4 @@ uv run tsqbev trt-bench
 - explicit scale gates added; current answer is still "do not scale by 10x compute yet"
 - optional external LiDAR teacher cache/provider scaffolding added and tested
 - bounded mini-dataset research loop enabled via `program.md`
+- research loop upgraded to staged baseline/explore/exploit with `results.tsv`, per-run `manifest.json`, and machine-readable `scale_gate_verdict`

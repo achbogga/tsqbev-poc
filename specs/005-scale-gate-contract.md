@@ -72,7 +72,7 @@ The promoted public mini recipe must clear all of the following on `mini_train /
 - official `mAP >= 0.01`
 - at least `3` classes with nonzero mean distance AP
 - `car AP @ 4.0m >= 0.05`
-- translation error strictly below the current default-failure regime
+- translation error `mATE < 1.0`
 
 The intent is not to claim competitiveness. The intent is to reject directions that still only
 look good through surrogate losses.

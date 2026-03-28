@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 from tsqbev.datasets import SceneExample
 from tsqbev.synthetic import make_synthetic_batch
 from tsqbev.teacher_backends import TeacherProviderConfig
 from tsqbev.teacher_cache import TeacherCacheStore
-from tsqbev.train import maybe_attach_teacher_targets, resolve_nuscenes_splits
+from tsqbev.train import fit_nuscenes, maybe_attach_teacher_targets, resolve_nuscenes_splits
 
 
 class _SingleExampleDataset:
@@ -16,6 +18,19 @@ class _SingleExampleDataset:
 
     def __getitem__(self, index: int) -> SceneExample:
         assert index == 0
+        return self.example
+
+
+class _RepeatedDataset:
+    def __init__(self, example: SceneExample, length: int) -> None:
+        self.example = example
+        self.length = length
+
+    def __len__(self) -> int:
+        return self.length
+
+    def __getitem__(self, index: int) -> SceneExample:
+        assert 0 <= index < self.length
         return self.example
 
 
@@ -54,3 +69,36 @@ def test_maybe_attach_teacher_targets_wraps_dataset_when_cache_is_configured(
     )
     loaded = wrapped[0]
     assert loaded.scene.teacher_targets is not None
+
+
+def test_fit_nuscenes_respects_max_train_steps(
+    monkeypatch,
+    small_config,
+    tmp_path: Path,
+) -> None:
+    batch = make_synthetic_batch(small_config, batch_size=1, with_teacher=False)
+    example = SceneExample(scene=batch, metadata={"sample_token": "sample-1"})
+
+    def fake_nuscenes_dataset(**kwargs: object) -> _RepeatedDataset:
+        del kwargs
+        return _RepeatedDataset(example, length=4)
+
+    monkeypatch.setattr("tsqbev.train.NuScenesDataset", fake_nuscenes_dataset)
+
+    result = fit_nuscenes(
+        dataroot=tmp_path,
+        artifact_dir=tmp_path / "artifacts",
+        config=small_config,
+        version="v1.0-mini",
+        train_split="mini_train",
+        val_split="mini_val",
+        epochs=4,
+        max_train_steps=1,
+        batch_size=1,
+        num_workers=0,
+        device="cpu",
+        log_every_steps=None,
+    )
+
+    assert result["train_steps"] == 1
+    assert result["epochs"] == 1

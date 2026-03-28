@@ -196,6 +196,7 @@ def _make_parser() -> argparse.ArgumentParser:
     parser.add_argument("--subset", type=str, default="lane3d_300")
     parser.add_argument("--test-list", type=Path, default=None)
     parser.add_argument("--epochs", type=int, default=4)
+    parser.add_argument("--max-train-steps", type=int, default=None)
     parser.add_argument("--lr", type=float, default=3e-4)
     parser.add_argument("--weight-decay", type=float, default=1e-4)
     parser.add_argument("--grad-accum-steps", type=int, default=8)
@@ -204,6 +205,7 @@ def _make_parser() -> argparse.ArgumentParser:
     parser.add_argument("--max-train-samples", type=int, default=None)
     parser.add_argument("--max-val-samples", type=int, default=None)
     parser.add_argument("--device", type=str, default=None)
+    parser.add_argument("--max-experiments", type=int, default=5)
     parser.add_argument("--score-threshold", type=float, default=0.25)
     parser.add_argument("--top-k", type=int, default=300)
     parser.add_argument(
@@ -266,6 +268,7 @@ def main() -> None:
                 train_split=args.train_split,
                 val_split=val_split,
                 epochs=args.epochs,
+                max_train_steps=args.max_train_steps,
                 lr=args.lr,
                 weight_decay=args.weight_decay,
                 grad_accum_steps=args.grad_accum_steps,
@@ -383,6 +386,7 @@ def main() -> None:
                 dataroot=args.dataset_root,
                 artifact_dir=args.artifact_dir,
                 device=args.device,
+                max_experiments=args.max_experiments,
                 teacher_provider_config=teacher_provider_config,
             )
         )

@@ -28,6 +28,10 @@ It is a focused open-source POC for public datasets and deployable research arti
 - The current best source mix is `33.3% LiDAR / 50.0% proposal / 16.7% global`, which is the first stable non-collapsed multimodal routing regime in the repo.
 - The repo now explicitly blocks 10x compute scale-up until the gates in `specs/005-scale-gate-contract.md` are cleared.
 - Optional external LiDAR teacher scaffolding is now present through typed cache/provider contracts and a dataset wrapper, with `CenterPoint-PointPillar` as the first target backend.
+- The bounded mini loop now mirrors the strongest transferable `autoresearch` mechanics more closely:
+  incumbent-first execution, bounded exploration then exploitation, append-only `results.jsonl` and
+  `results.tsv`, per-run `manifest.json`, a fixed comparable `max_train_steps=960` budget per
+  recipe, explicit `promote/discard/crash` semantics, and a machine-readable `scale_gate_verdict`.
 - OpenLane support still needs version alignment against the OpenLane-V2 getting-started instructions before any lane baseline can be treated as final.
 - The bounded mini-dataset research loop is now authorized via `program.md`.
 
@@ -44,6 +48,9 @@ It is a focused open-source POC for public datasets and deployable research arti
 - Added explicit scale-gate and external-teacher bootstrap contracts.
 - Added optional external teacher cache/provider scaffolding for pretrained LiDAR teachers.
 - Added optional external teacher cache/provider scaffolding for LiDAR-strong distillation experiments.
+- Upgraded the bounded local loop to a staged `baseline -> explore -> exploit` workflow aligned
+  with the public `autoresearch` design intent while remaining bounded and ML-specific.
+- Added per-run manifests, a human-readable TSV ledger, and explicit scale-gate verdict emission.
 
 ## Evidence Basis
 

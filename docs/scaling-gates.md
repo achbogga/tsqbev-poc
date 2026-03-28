@@ -2,6 +2,9 @@
 
 This note makes the current scale decision explicit.
 
+The bounded research loop now also emits the same decision as a machine-readable
+`scale_gate_verdict` block inside `research_loop/summary.json`.
+
 ## Current Answer
 
 Do **not** scale `tsqbev-poc` by 10x compute yet.

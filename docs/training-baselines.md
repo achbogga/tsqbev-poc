@@ -83,7 +83,7 @@ Train the object-detection baseline on `v1.0-mini`:
 uv run tsqbev train-nuscenes \
   --dataset-root /path/to/nuscenes \
   --artifact-dir artifacts/baselines \
-  --preset rtx5000-nuscenes-teacher \
+  --preset rtx5000-nuscenes \
   --version v1.0-mini \
   --train-split mini_train \
   --split mini_val \
@@ -124,8 +124,14 @@ Run the bounded local research loop on `v1.0-mini`:
 uv run tsqbev research-loop \
   --dataset-root /path/to/nuscenes \
   --artifact-dir artifacts/baselines \
+  --max-experiments 5 \
   --device cuda
 ```
+
+The loop now follows a staged `baseline -> explore -> exploit` pattern inspired by the public
+`karpathy/autoresearch` workflow, but adapted to this repo's narrower ML contract. Each run emits a
+JSONL ledger, a TSV ledger, a per-run manifest, and a machine-readable scale verdict. The current
+bounded contract also uses a fixed comparable `max_train_steps=960` budget per recipe.
 
 Export predictions for official local validation:
 
@@ -180,6 +186,7 @@ Promoted 4-epoch mini baseline:
 Artifact locations:
 
 - sweep ledger: `artifacts/baselines/research_loop/results.jsonl`
+- sweep ledger TSV: `artifacts/baselines/research_loop/results.tsv`
 - sweep summary: `artifacts/baselines/research_loop/summary.json`
 - promoted baseline history: `artifacts/baselines/mini_selected/nuscenes/history.json`
 - promoted eval summary: `artifacts/baselines/mini_selected/eval/nuscenes/metrics_summary.json`
@@ -209,6 +216,7 @@ Current answer on scale:
 Artifact locations for the strengthened loop:
 
 - sweep ledger: `artifacts/research_v2/research_loop/results.jsonl`
+- sweep ledger TSV: `artifacts/research_v2/research_loop/results.tsv`
 - sweep summary: `artifacts/research_v2/research_loop/summary.json`
 
 ## OpenLane Baseline
