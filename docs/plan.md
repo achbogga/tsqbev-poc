@@ -18,12 +18,12 @@ It is a focused open-source POC for public datasets and deployable research arti
 ## Current Status
 
 - The public repo is bootstrapped, tested, and published on GitHub.
-- The public `nuScenes` train/val archive has been downloaded and extracted into a devkit-compatible root at `/mnt/storage/research/nuscenes`.
+- The public `nuScenes` data is present under `/home/achbogga/projects/research/nuscenes`.
 - Real-data `nuScenes` readiness checks pass.
 - A float32 real-data smoke run on the RTX 5000 completed successfully on a tiny subset, which confirmed the loader and training path are functional on real data.
-- A longer tuned `nuScenes` baseline is now running in detached `screen` session `220120.tsqbev_nuscenes_small`.
+- The active local research contract is now bounded `nuScenes v1.0-mini`, not full `v1.0-trainval`.
 - OpenLane support still needs version alignment against the OpenLane-V2 getting-started instructions before any lane baseline can be treated as final.
-- The autonomous research loop remains disabled.
+- The bounded mini-dataset research loop is now authorized via `program.md`.
 
 ## Milestones Achieved
 
@@ -33,26 +33,29 @@ It is a focused open-source POC for public datasets and deployable research arti
 - Added unit, integration, and checkpoint round-trip tests.
 - Verified synthetic forward/backward, export smoke, and repo lint/type checks.
 - Verified the public `nuScenes` dataset root and executed real-data smoke training successfully in float32.
+- Added a pretrained MobileNetV3 image-backbone path and batched training.
+- Enabled a bounded `nuScenes v1.0-mini` research loop contract.
 
 ## Evidence Basis
 
 - The public primary sources used by this repo are indexed in `docs/reference-matrix.md`.
 - Local generated design summaries are treated as internal synthesis only; the repo cites the underlying original sources instead.
-- The workflow staging is influenced by Andrej Karpathy's public `autoresearch` repository, but the autonomous loop remains disabled during bootstrap: <https://github.com/karpathy/autoresearch>
+- The workflow staging is influenced by Andrej Karpathy's public `autoresearch` repository: <https://github.com/karpathy/autoresearch>
 
 ## Hard Constraints
 
-- Do not enable or run any autonomous `autoresearch` loop yet.
+- Do not run an unbounded autonomous `autoresearch` loop.
 - Do not optimize for large-scale distributed training in v1.
 - Keep the implementation dependency-light and pure PyTorch at the core.
 - Make the repo functional first: setup, tests, forward pass, export smoke, perf harness, adapters.
 - Treat GPU and Orin validation as separate acceptance stages after local functionality is stable.
+- Keep the active loop limited to `nuScenes v1.0-mini`.
 
 ## Current Operating Assumption
 
 - The GPU runtime is available and verified on the RTX 5000.
 - Public-data work should stay measured and reproducible.
-- The long `nuScenes` baseline run should be allowed to continue without adding autonomous tuning logic yet.
+- Local tuning should use `v1.0-mini` first and only promote after recorded evidence.
 
 ## System Goal
 
@@ -185,7 +188,7 @@ Where:
 This predictor is only a gate and triage tool.
 Real latency decisions come from measured microbenchmarks and end-to-end timings.
 
-## Functional Milestone Before Any Research Loop
+## Functional Milestone Before Bounded Research
 
 The repo is considered ready only when all of the following are true:
 
@@ -197,9 +200,9 @@ The repo is considered ready only when all of the following are true:
 - ONNX export smoke passes
 - perf microbenches run
 - manual train/eval entrypoints run
-- auto-research remains disabled
+- the bounded mini-dataset research loop is explicitly authorized in `program.md`
 
-No autonomous loop should exist in executable form before these gates are green.
+No bounded loop should exist in executable form before these gates are green.
 
 ## Implementation Sequence
 

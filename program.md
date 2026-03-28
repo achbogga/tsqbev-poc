@@ -1,26 +1,43 @@
 # tsqbev-poc Program
 
-Status: disabled.
+Status: enabled.
 
 Reference workflow template:
 
 - Andrej Karpathy `autoresearch`: <https://github.com/karpathy/autoresearch>
 
-This repo is not allowed to run an autonomous research loop yet.
+This repo is allowed to run a bounded local research loop.
 
 Current priorities:
 
-1. bootstrap the repo
-2. implement typed contracts
-3. implement a minimal multimodal model
-4. get tests green
-5. add manual export and latency harnesses
+1. tune a public `nuScenes v1.0-mini` object baseline
+2. record keep/discard decisions for a small fixed recipe set
+3. run official local `mini_val` export/eval for the selected recipe
+4. update docs with measured mini-baseline results
 
-Forbidden for now:
+Loop contract:
 
-- autonomous mutation loops
-- keep/discard experiment automation
+- dataset scope: `nuScenes v1.0-mini` only
+- split scope: `mini_train` / `mini_val`
+- max recipes per invocation: `3`
+- recipe changes allowed:
+  - batch size
+  - gradient accumulation
+  - learning rate
+  - frozen vs unfrozen pretrained image backbone
+- real acceptance criteria:
+  - lower validation loss on `mini_val`
+  - no runtime errors
+  - measured forward latency captured in the ledger
+- output artifacts:
+  - `research_loop/results.jsonl`
+  - `research_loop/summary.json`
+  - best-checkpoint export and `mini_val` evaluation output
+
+Forbidden:
+
+- unbounded mutation loops
+- full `v1.0-trainval` search via the research loop
 - indefinite training runs
 - silent rewriting of core contracts
-
-When the repo is stable and explicit budget exists, this file can be revised to describe a bounded research loop.
+- deleting experiment evidence after a run completes

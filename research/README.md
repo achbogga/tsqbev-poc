@@ -1,12 +1,13 @@
 # Research
 
-Research automation is intentionally disabled during bootstrap.
+Research automation is now enabled in a bounded form.
 
-This directory may later hold:
+Current contract:
 
-- manual experiment recipes
-- result ledgers
-- bounded mutation surfaces
+- dataset scope: `nuScenes v1.0-mini` only
+- split scope: `mini_train` / `mini_val`
+- experiment count: a small fixed recipe list per invocation
+- artifact output: append-only result ledger and summary JSON
+- decision policy: keep/discard based on measured validation loss and runtime success
 
-It must not contain an active autonomous loop until the repo is functional and the user explicitly enables that phase.
-
+This directory is still not a place for an unbounded self-modifying loop. The implementation is intentionally narrow and evidence-first.

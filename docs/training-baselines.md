@@ -1,6 +1,6 @@
 # Public Baseline Workflow
 
-This repository now contains real-data training and evaluation plumbing for the public baselines, but it does **not** yet publish full-dataset accuracy numbers because the required public datasets are not present on the current machine.
+This repository now contains real-data training, evaluation, and a bounded local research loop for public baselines. The active local contract is `nuScenes v1.0-mini`, not the full `v1.0-trainval` split.
 
 Grounding for the acquisition requirements:
 
@@ -15,6 +15,13 @@ The code expects a standard `nuScenes` dataroot containing at least:
 
 ```text
 <nuscenes-root>/
+  v1.0-mini/
+    scene.json
+    sample.json
+    sample_data.json
+    calibrated_sensor.json
+    ego_pose.json
+    sample_annotation.json
   v1.0-trainval/
     scene.json
     sample.json
@@ -29,7 +36,7 @@ The code expects a standard `nuScenes` dataroot containing at least:
   maps/
 ```
 
-The official devkit states that for full `nuScenes` use you should download the dataset from the official download page and that the devkit expects all archives for the full setup.
+The official devkit supports both the full train/val split and the mini split. This repo’s active research loop uses `mini_train` / `mini_val`.
 
 ### OpenLane V1
 
@@ -68,19 +75,30 @@ uv run tsqbev check-data --dataset-root /path/to/root
 
 This is a structural check only. It does not verify dataset licenses, corrupted archives, or completeness beyond the expected top-level files and folders.
 
-## nuScenes Baseline
+## nuScenes Mini Baseline
 
-Train the object-detection baseline:
+Train the object-detection baseline on `v1.0-mini`:
 
 ```bash
 uv run tsqbev train-nuscenes \
   --dataset-root /path/to/nuscenes \
   --artifact-dir artifacts/baselines \
-  --version v1.0-trainval \
-  --split val \
+  --version v1.0-mini \
+  --train-split mini_train \
+  --split mini_val \
   --epochs 4 \
   --lr 3e-4 \
-  --grad-accum-steps 8
+  --batch-size 2 \
+  --grad-accum-steps 2
+```
+
+Run the bounded local research loop on `v1.0-mini`:
+
+```bash
+uv run tsqbev research-loop \
+  --dataset-root /path/to/nuscenes \
+  --artifact-dir artifacts/baselines \
+  --device cuda
 ```
 
 Export predictions for official local validation:
@@ -88,8 +106,8 @@ Export predictions for official local validation:
 ```bash
 uv run tsqbev export-nuscenes \
   --dataset-root /path/to/nuscenes \
-  --version v1.0-trainval \
-  --split val \
+  --version v1.0-mini \
+  --split mini_val \
   --output-path artifacts/eval/nuscenes_predictions.json
 ```
 
@@ -98,8 +116,8 @@ Run the official local nuScenes validation metrics:
 ```bash
 uv run tsqbev eval-nuscenes \
   --dataset-root /path/to/nuscenes \
-  --version v1.0-trainval \
-  --split val \
+  --version v1.0-mini \
+  --split mini_val \
   --output-path artifacts/eval/nuscenes_predictions.json \
   --output-dir artifacts/eval
 ```
@@ -167,12 +185,13 @@ What is ready now:
 - set-based matching losses instead of the original smoke losses
 - local training entrypoints
 - official local evaluation wrappers for `nuScenes` and `OpenLane`
+- a bounded `nuScenes v1.0-mini` research loop
 - repo-local validation still green
 
 What is still pending:
 
-- actual full-dataset runs on this machine
-- measured baseline accuracy tables in the paper
-- tuned baseline numbers in the docs
+- measured `v1.0-mini` baseline tables in the paper
+- tuned `v1.0-mini` numbers in the docs
+- any future full `v1.0-trainval` promotion, if desired
 
-Those final numbers should only be published after the real datasets are present and the runs complete successfully.
+Those final numbers should only be published after the `v1.0-mini` runs complete successfully and the official local evaluation is recorded.

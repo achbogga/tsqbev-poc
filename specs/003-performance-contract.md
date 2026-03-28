@@ -21,7 +21,9 @@ Measured latency is the real acceptance criterion.
 ## Policy
 
 - no configuration that obviously misses the chosen tier should be trained first
-- no autonomous search loop is allowed before the repo is functional
+- bounded local research is allowed only after the repo is functional
+- the active research dataset contract is `nuScenes v1.0-mini`
+- the loop must not promote a config without recorded validation evidence
 
 ## References
 

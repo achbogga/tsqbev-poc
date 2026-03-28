@@ -53,6 +53,20 @@ def _subset_if_requested(dataset: Dataset[Any], max_samples: int | None) -> Data
     return Subset(dataset, list(range(max_samples)))
 
 
+def resolve_nuscenes_splits(
+    version: str,
+    train_split: str | None,
+    val_split: str | None,
+) -> tuple[str, str]:
+    """Resolve the appropriate nuScenes splits for the requested version."""
+
+    if train_split is not None and val_split is not None:
+        return train_split, val_split
+    if version == "v1.0-mini":
+        return train_split or "mini_train", val_split or "mini_val"
+    return train_split or "train", val_split or "val"
+
+
 def _train_epoch(
     model: TSQBEVModel,
     loader: DataLoader,
@@ -177,8 +191,8 @@ def fit_nuscenes(
     artifact_dir: str | Path,
     config: ModelConfig | None = None,
     version: str = "v1.0-trainval",
-    train_split: str = "train",
-    val_split: str = "val",
+    train_split: str | None = None,
+    val_split: str | None = None,
     epochs: int = 4,
     lr: float = 3e-4,
     weight_decay: float = 1e-4,
@@ -200,20 +214,31 @@ def fit_nuscenes(
         torch.backends.cudnn.benchmark = True
     amp_enabled = bool(use_amp) and resolved_device.type == "cuda"
     model_config = config if config is not None else ModelConfig()
-    print(f"[setup] loading nuScenes train split={train_split} from {dataroot}", flush=True)
+    resolved_train_split, resolved_val_split = resolve_nuscenes_splits(
+        version=version,
+        train_split=train_split,
+        val_split=val_split,
+    )
+    print(
+        f"[setup] loading nuScenes train split={resolved_train_split} from {dataroot}",
+        flush=True,
+    )
     start_time = time.perf_counter()
     train_dataset = _subset_if_requested(
-        NuScenesDataset(dataroot=dataroot, version=version, split=train_split),
+        NuScenesDataset(dataroot=dataroot, version=version, split=resolved_train_split),
         max_train_samples,
     )
     print(
         f"[setup] loaded train split in {time.perf_counter() - start_time:.2f}s",
         flush=True,
     )
-    print(f"[setup] loading nuScenes val split={val_split} from {dataroot}", flush=True)
+    print(
+        f"[setup] loading nuScenes val split={resolved_val_split} from {dataroot}",
+        flush=True,
+    )
     start_time = time.perf_counter()
     val_dataset = _subset_if_requested(
-        NuScenesDataset(dataroot=dataroot, version=version, split=val_split),
+        NuScenesDataset(dataroot=dataroot, version=version, split=resolved_val_split),
         max_val_samples,
     )
     print(
@@ -299,6 +324,9 @@ def fit_nuscenes(
         "device": resolved_device.type,
         "amp_enabled": amp_enabled,
         "epochs": epochs,
+        "version": version,
+        "train_split": resolved_train_split,
+        "val_split": resolved_val_split,
         "artifact_dir": str(artifact_dir),
         "checkpoint_path": str(checkpoint_path),
         "train_samples": train_sample_count,

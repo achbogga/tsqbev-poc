@@ -22,7 +22,7 @@ This repo is intentionally small and evidence-driven. Every substantive module i
 
 - a large-scale training platform
 - a private or proprietary dataset integration layer
-- an autonomous research loop
+- an unbounded autonomous research loop
 - a finished embedded deployment product
 
 ## Architecture At A Glance
@@ -51,7 +51,7 @@ More detail and additional diagrams are in [docs/architecture.md](docs/architect
 
 ## Current Public Scope
 
-- Object detection: `nuScenes`
+- Object detection: `nuScenes`, with `v1.0-mini` as the active local research contract
 - Lane supervision: `OpenLane V1`
 - Map priors: `MapTR`-style vectorized public priors
 - Deployment validation: ONNX export and TensorRT engine build for the exportable core
@@ -129,6 +129,15 @@ uv run tsqbev check-data --dataset-root /path/to/dataset/root
 
 The full workflow for `nuScenes` and `OpenLane` is documented in [docs/training-baselines.md](docs/training-baselines.md). Full accuracy results are intentionally not published until the actual datasets are present and measured.
 
+The active bounded research loop is currently scoped to `nuScenes v1.0-mini` only:
+
+```bash
+uv run tsqbev research-loop \
+  --dataset-root /path/to/nuscenes \
+  --artifact-dir artifacts/baselines \
+  --device cuda
+```
+
 For CUDA deployment validation on supported NVIDIA systems:
 
 ```bash
@@ -143,4 +152,4 @@ uv run tsqbev trt-bench
 - `pytest` passing
 - ONNX export smoke passing
 - TensorRT engine build validated on RTX 5000
-- auto-research loop explicitly disabled
+- bounded mini-dataset research loop enabled via `program.md`

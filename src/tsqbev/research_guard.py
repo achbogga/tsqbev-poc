@@ -1,4 +1,4 @@
-"""Guard rails for intentionally disabled research automation.
+"""Guard rails for the bounded local research loop.
 
 References:
 - Karpathy autoresearch workflow template:
@@ -7,11 +7,27 @@ References:
 
 from __future__ import annotations
 
+from pathlib import Path
 
-def ensure_research_loop_disabled() -> None:
-    """Raise an error because bootstrap has not authorized the loop yet."""
+PROGRAM_PATH = Path(__file__).resolve().parents[2] / "program.md"
 
-    raise RuntimeError(
-        "Autonomous research is disabled. "
-        "Make the repo functional first, then explicitly enable bounded research later."
-    )
+
+def _read_status_line(program_path: str | Path = PROGRAM_PATH) -> str:
+    path = Path(program_path)
+    if not path.exists():
+        raise RuntimeError(f"program file not found: {path}")
+    for line in path.read_text().splitlines():
+        if line.startswith("Status:"):
+            return line.split(":", maxsplit=1)[1].strip().rstrip(".")
+    raise RuntimeError(f"program file does not define a Status line: {path}")
+
+
+def ensure_research_loop_enabled(program_path: str | Path = PROGRAM_PATH) -> None:
+    """Raise unless the program explicitly enables the bounded research loop."""
+
+    status = _read_status_line(program_path)
+    if status != "enabled":
+        raise RuntimeError(
+            "Autonomous research is not enabled in program.md. "
+            "Set Status: enabled only when the bounded loop is intentionally authorized."
+        )

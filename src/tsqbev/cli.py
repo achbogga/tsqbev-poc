@@ -26,7 +26,7 @@ from tsqbev.eval_openlane import evaluate_openlane_predictions, export_openlane_
 from tsqbev.export import export_core_to_onnx
 from tsqbev.latency import LatencyPredictor, features_from_config
 from tsqbev.model import TSQBEVModel
-from tsqbev.research_guard import ensure_research_loop_disabled
+from tsqbev.research import run_bounded_research_loop
 from tsqbev.runtime import benchmark_forward, run_eval_step, run_train_step
 from tsqbev.synthetic import make_synthetic_batch
 from tsqbev.train import fit_nuscenes, fit_openlane
@@ -114,6 +114,12 @@ def _resolve_config(args: argparse.Namespace) -> ModelConfig:
     return config.model_copy(update=updates)
 
 
+def _resolve_nuscenes_eval_split(version: str, split: str | None) -> str:
+    if split is not None:
+        return split
+    return "mini_val" if version == "v1.0-mini" else "val"
+
+
 def _make_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="tsqbev-poc utilities")
     parser.add_argument(
@@ -162,8 +168,9 @@ def _make_parser() -> argparse.ArgumentParser:
         default=None,
     )
     parser.add_argument("--openlane-repo-root", type=Path, default=Path("/tmp/OpenLane"))
-    parser.add_argument("--version", type=str, default="v1.0-trainval")
-    parser.add_argument("--split", type=str, default="val")
+    parser.add_argument("--version", type=str, default="v1.0-mini")
+    parser.add_argument("--train-split", type=str, default=None)
+    parser.add_argument("--split", type=str, default=None)
     parser.add_argument("--subset", type=str, default="lane3d_300")
     parser.add_argument("--test-list", type=Path, default=None)
     parser.add_argument("--epochs", type=int, default=4)
@@ -219,14 +226,15 @@ def main() -> None:
         if args.dataset_root is None:
             raise ValueError("--dataset-root is required for train-nuscenes")
         config = _resolve_config(args)
+        val_split = _resolve_nuscenes_eval_split(args.version, args.split)
         print(
             fit_nuscenes(
                 dataroot=args.dataset_root,
                 artifact_dir=args.artifact_dir / "nuscenes",
                 config=config,
                 version=args.version,
-                train_split="train",
-                val_split=args.split,
+                train_split=args.train_split,
+                val_split=val_split,
                 epochs=args.epochs,
                 lr=args.lr,
                 weight_decay=args.weight_decay,
@@ -267,6 +275,7 @@ def main() -> None:
         if args.dataset_root is None:
             raise ValueError("--dataset-root is required for export-nuscenes")
         model = _model_for_export(_resolve_config(args), args.checkpoint)
+        split = _resolve_nuscenes_eval_split(args.version, args.split)
         print(
             {
                 "result_path": str(
@@ -274,7 +283,7 @@ def main() -> None:
                         model=model,
                         dataroot=args.dataset_root,
                         version=args.version,
-                        split=args.split,
+                        split=split,
                         output_path=args.output_path,
                         score_threshold=args.score_threshold,
                         top_k=args.top_k,
@@ -287,11 +296,12 @@ def main() -> None:
     if args.command == "eval-nuscenes":
         if args.dataset_root is None:
             raise ValueError("--dataset-root is required for eval-nuscenes")
+        split = _resolve_nuscenes_eval_split(args.version, args.split)
         print(
             evaluate_nuscenes_predictions(
                 dataroot=args.dataset_root,
                 version=args.version,
-                split=args.split,
+                split=split,
                 result_path=args.output_path,
                 output_dir=args.output_dir / "nuscenes",
             )
@@ -331,4 +341,15 @@ def main() -> None:
             )
         )
         return
-    ensure_research_loop_disabled()
+    if args.command == "research-loop":
+        if args.dataset_root is None:
+            raise ValueError("--dataset-root is required for research-loop")
+        print(
+            run_bounded_research_loop(
+                dataroot=args.dataset_root,
+                artifact_dir=args.artifact_dir,
+                device=args.device,
+            )
+        )
+        return
+    raise ValueError(f"unsupported command: {args.command}")
