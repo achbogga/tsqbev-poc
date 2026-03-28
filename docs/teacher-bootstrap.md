@@ -27,6 +27,11 @@ Why this is the first target:
 - it is much easier to map teacher boxes and proposal priors into the current query bank than a
   full sparse-voxel teacher stack
 
+Primary sources:
+
+- CenterPoint paper: <https://openaccess.thecvf.com/content/CVPR2021/papers/Yin_Center-Based_3D_Object_Detection_and_Tracking_CVPR_2021_paper.pdf>
+- OpenPCDet model zoo: <https://github.com/open-mmlab/OpenPCDet>
+
 ## Ranked Candidate Order
 
 1. `CenterPoint-PointPillar`
