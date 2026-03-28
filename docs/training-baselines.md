@@ -132,6 +132,32 @@ Expected metric family from the official devkit:
 - `mAVE`
 - `mAAE`
 
+## Recorded Mini Results
+
+Bounded research-loop sweep on `v1.0-mini`:
+
+| Recipe | Val Total | Synthetic Mean ms | Decision |
+| --- | ---: | ---: | --- |
+| `mini_mbv3_frozen_bs2` | 28.0525 | 15.6993 | keep |
+| `mini_mbv3_frozen_bs4` | 29.4311 | 15.6731 | discard |
+| `mini_mbv3_unfrozen_bs2` | 29.6107 | 15.6858 | discard |
+
+Promoted 4-epoch mini baseline:
+
+| Metric | Value |
+| --- | ---: |
+| Final val total | 24.4006 |
+| Official `mAP` | `1.5376e-05` |
+| Official `NDS` | `7.6880e-06` |
+| Nonzero class result | `car AP @ 4.0m = 6.1504e-04` |
+
+Artifact locations:
+
+- sweep ledger: `artifacts/baselines/research_loop/results.jsonl`
+- sweep summary: `artifacts/baselines/research_loop/summary.json`
+- promoted baseline history: `artifacts/baselines/mini_selected/nuscenes/history.json`
+- promoted eval summary: `artifacts/baselines/mini_selected/eval/nuscenes/metrics_summary.json`
+
 ## OpenLane Baseline
 
 Train the lane baseline on the small official split first:
@@ -190,8 +216,5 @@ What is ready now:
 
 What is still pending:
 
-- measured `v1.0-mini` baseline tables in the paper
-- tuned `v1.0-mini` numbers in the docs
 - any future full `v1.0-trainval` promotion, if desired
-
-Those final numbers should only be published after the `v1.0-mini` runs complete successfully and the official local evaluation is recorded.
+- stronger training schedules, if the goal moves from a functional baseline toward a competitive one

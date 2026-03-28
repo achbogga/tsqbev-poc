@@ -58,7 +58,7 @@ More detail and additional diagrams are in [docs/architecture.md](docs/architect
 
 ## Measured Results
 
-Measured on a local `Quadro RTX 5000`, batch size `1`, image size `256x704`:
+RTX 5000 latency, batch size `1`, image size `256x704`:
 
 | Path | Mean ms | p95 ms |
 | --- | ---: | ---: |
@@ -67,7 +67,16 @@ Measured on a local `Quadro RTX 5000`, batch size `1`, image size `256x704`:
 | Exportable core, PyTorch FP16 | 7.492 | 7.650 |
 | Exportable core, TensorRT FP16-enabled engine | 0.785 | 0.795 |
 
-These measurements are summarized in [docs/benchmarks/rtx5000.md](docs/benchmarks/rtx5000.md). The TensorRT result applies to the current exportable core only, not the full end-to-end multimodal pipeline.
+The latency measurements are summarized in [docs/benchmarks/rtx5000.md](docs/benchmarks/rtx5000.md). The TensorRT result applies to the current exportable core only, not the full end-to-end multimodal pipeline.
+
+`nuScenes v1.0-mini` bounded sweep and promoted baseline:
+
+| Run | Key Setting | Val Total | mAP | NDS |
+| --- | --- | ---: | ---: | ---: |
+| Sweep winner, 1 epoch | frozen `MobileNetV3-Large`, `bs=2`, `accum=2` | 28.0525 | 0.0 | 0.0 |
+| Promoted baseline, 4 epochs | frozen `MobileNetV3-Large`, `bs=2`, `accum=2` | 24.4006 | `1.5376e-05` | `7.6880e-06` |
+
+The promoted mini baseline is functional but still undertrained; it is a verified public starting point, not a competitive detector yet. The full sweep and baseline artifacts are summarized in [docs/benchmarks/nuscenes-mini.md](docs/benchmarks/nuscenes-mini.md).
 
 ## Source Grounding
 
@@ -89,7 +98,8 @@ The full source map is in [docs/reference-matrix.md](docs/reference-matrix.md).
 ## Docs
 
 - [Architecture](docs/architecture.md)
-- [Benchmarks](docs/benchmarks/rtx5000.md)
+- [RTX 5000 latency benchmark](docs/benchmarks/rtx5000.md)
+- [nuScenes mini baseline](docs/benchmarks/nuscenes-mini.md)
 - [Reference matrix](docs/reference-matrix.md)
 - [Public baseline workflow](docs/training-baselines.md)
 - [Implementation plan](docs/plan.md)
@@ -103,8 +113,8 @@ docs/           plan and evidence trail
 specs/          implementation contracts
 src/tsqbev/     minimal multimodal implementation
 tests/          isolated and integration tests
-research/       intentionally disabled research loop scaffolding
-artifacts/      local run outputs and exports
+research/       bounded research-loop recipes and evidence
+artifacts/      local run outputs, exports, and mini-baseline results
 ```
 
 ## Quick Start
@@ -127,7 +137,7 @@ uv sync --extra dev --extra data
 uv run tsqbev check-data --dataset-root /path/to/dataset/root
 ```
 
-The full workflow for `nuScenes` and `OpenLane` is documented in [docs/training-baselines.md](docs/training-baselines.md). Full accuracy results are intentionally not published until the actual datasets are present and measured.
+The full workflow for `nuScenes` and `OpenLane` is documented in [docs/training-baselines.md](docs/training-baselines.md). Full `v1.0-trainval` accuracy is not published yet; the repo currently reports measured `v1.0-mini` results only.
 
 The active bounded research loop is currently scoped to `nuScenes v1.0-mini` only:
 
@@ -152,4 +162,5 @@ uv run tsqbev trt-bench
 - `pytest` passing
 - ONNX export smoke passing
 - TensorRT engine build validated on RTX 5000
+- bounded `nuScenes v1.0-mini` sweep and promoted baseline recorded
 - bounded mini-dataset research loop enabled via `program.md`

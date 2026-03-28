@@ -22,6 +22,8 @@ It is a focused open-source POC for public datasets and deployable research arti
 - Real-data `nuScenes` readiness checks pass.
 - A float32 real-data smoke run on the RTX 5000 completed successfully on a tiny subset, which confirmed the loader and training path are functional on real data.
 - The active local research contract is now bounded `nuScenes v1.0-mini`, not full `v1.0-trainval`.
+- The bounded `v1.0-mini` sweep selected the frozen MobileNetV3 recipe over both a larger-batch variant and an unfrozen-backbone variant.
+- The promoted 4-epoch `v1.0-mini` baseline reached `val total = 24.4006`, `mAP = 1.5376e-05`, and `NDS = 7.6880e-06`.
 - OpenLane support still needs version alignment against the OpenLane-V2 getting-started instructions before any lane baseline can be treated as final.
 - The bounded mini-dataset research loop is now authorized via `program.md`.
 
@@ -223,7 +225,7 @@ Create only the essential files:
 - `README.md`
 - `pyproject.toml`
 - `.gitignore`
-- `program.md` with explicit disabled status
+- `program.md` with explicit bounded-loop status
 - initial `specs/`
 
 No experiment loop logic in this phase.
@@ -284,8 +286,6 @@ Add:
 - latency predictor
 - microbench entrypoints
 
-Still no autonomous research loop.
-
 ### Phase 7: Distillation Interfaces
 
 Add:
@@ -299,13 +299,13 @@ Still no full cloud training workflow.
 
 ### Phase 8: Controlled Research Scaffolding
 
-Only after the repo is functional:
+After the repo became functional:
 
 - add `program.md`
-- add disabled experiment bookkeeping
+- add bounded experiment bookkeeping
 - add append-only result logging scaffolding
 
-This phase does not enable any always-on autonomous loop.
+This phase enables a bounded `nuScenes v1.0-mini` loop only.
 
 ## Test Plan
 
@@ -357,20 +357,14 @@ Add adapter contract tests for:
 
 ## Research Loop Policy
 
-The research loop is explicitly disabled until:
-
-- local functionality is green
-- the user confirms budget is available
-- the user explicitly authorizes enabling it
-
-When that phase comes later, the loop must:
+The bounded research loop is now enabled with the following constraints:
 
 - mutate only bounded research surfaces
 - never rewrite core contracts silently
 - log results append-only
 - remain human-overridable
-
-But none of that should be implemented in executable form yet.
+- stay on `nuScenes v1.0-mini`
+- avoid unbounded or recursive execution
 
 ## Deliverable Definition For V1
 
@@ -384,22 +378,20 @@ V1 is complete when the repo has:
 - export smoke coverage
 - latency harnesses
 - distillation interfaces
-- a disabled research scaffold
+- a bounded research scaffold
 
-V1 does not require:
+V1 still does not require:
 
 - distributed training
 - full teacher training
 - Orin-perfect optimization
-- autonomous experimentation
+- unbounded autonomous experimentation
 
 ## Immediate Next Step
 
 Resume with:
 
-1. let the detached `nuScenes` baseline finish
-2. inspect the resulting checkpoint, history, and validation metrics
-3. decide whether the lane path should target OpenLane V1 or be adapted to OpenLane-V2 before any lane baseline
-4. publish only measured results into the docs and paper
-
-No autonomous loop work until explicitly approved later.
+1. publish measured `v1.0-mini` results into the docs and paper
+2. push the bounded-loop and mini-baseline updates to the public repo
+3. decide whether to keep iterating on `v1.0-mini` or promote to `v1.0-trainval` later
+4. decide whether the lane path should target OpenLane V1 or be adapted to OpenLane-V2 before any lane baseline

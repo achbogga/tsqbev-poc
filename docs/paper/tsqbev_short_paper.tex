@@ -9,19 +9,19 @@
 
 \title{A Minimal Multimodal Temporal Sparse-Query BEV Stack\\with TensorRT Validation on an RTX 5000}
 \author{tsqbev-poc working note}
-\date{March 26, 2026}
+\date{March 27, 2026}
 
 \begin{document}
 \maketitle
 
 \begin{abstract}
-This note describes the current \texttt{tsqbev-poc} architecture, a small public proof of concept for multimodal temporal sparse-query BEV perception. The design combines LiDAR-grounded object seeds, camera-driven sparse refinement, persistent temporal state, a camera-dominant lane branch, optional map priors, and distillation interfaces. The implementation is grounded in verified public sources including DETR3D, PETR/PETRv2, StreamPETR, Sparse4D, CMT, BEVDistill, PersFormer, MapTR, and HotBEV~\cite{detr3d,petr,petrv2,streampetr,sparse4d,cmt,bevdistill,persformer,maptr,hotbev}. We also report a successful ONNX-to-TensorRT conversion for the current exportable deployment core and provide measured latency on a local Quadro RTX 5000.
+This note describes the current \texttt{tsqbev-poc} architecture, a small public proof of concept for multimodal temporal sparse-query BEV perception. The design combines LiDAR-grounded object seeds, camera-driven sparse refinement, persistent temporal state, a camera-dominant lane branch, optional map priors, and distillation interfaces. The implementation is grounded in verified public sources including DETR3D, PETR/PETRv2, StreamPETR, Sparse4D, CMT, BEVDistill, PersFormer, MapTR, and HotBEV~\cite{detr3d,petr,petrv2,streampetr,sparse4d,cmt,bevdistill,persformer,maptr,hotbev}. We report a successful ONNX-to-TensorRT conversion for the current exportable deployment core, measured latency on a local Quadro RTX 5000, a bounded \texttt{nuScenes v1.0-mini} research sweep, and a promoted 4-epoch \texttt{mini} baseline that reaches nonzero official detection metrics.
 \end{abstract}
 
 \section{Introduction}
 Recent 3D perception systems show three recurring themes. First, sparse query formulations replace dense BEV updates with object-centric or token-centric computation~\cite{detr3d,petr,sparse4d}. Second, temporal persistence is carried in sparse state rather than in a fully dense recurrent BEV tensor~\cite{petrv2,streampetr}. Third, multimodal systems use LiDAR to stabilize geometry while cameras provide semantics, lane structure, and map context~\cite{cmt,bevdistill,persformer,maptr}. For deployment, latency discipline matters as much as accuracy, especially when the same graph must later survive export and engine build constraints~\cite{hotbev}.
 
-The current repository targets a narrower goal than a full production stack. It aims to provide a public, minimal, evidence-grounded implementation with a clear path from model code to export, TensorRT conversion, and measured latency. The autonomous research loop remains intentionally disabled in this phase. The implementation, scripts, and measured artifacts live in the public \texttt{tsqbev-poc} repository~\cite{repo}.
+The current repository targets a narrower goal than a full production stack. It aims to provide a public, minimal, evidence-grounded implementation with a clear path from model code to export, TensorRT conversion, and measured latency. In the current phase, the repository also enables a bounded local research loop on \texttt{nuScenes v1.0-mini}, which keeps the experiment surface narrow while still producing real keep/discard evidence. The implementation, scripts, and measured artifacts live in the public \texttt{tsqbev-poc} repository~\cite{repo,nuscenes}.
 
 \section{Architecture}
 \begin{figure}[t]
@@ -161,17 +161,37 @@ Exportable core, TensorRT FP16-enabled engine & 0.785 & 0.785 & 0.795 \\
 \end{tabular}
 \end{table}
 
+\section{Mini nuScenes baseline}
+The repository now includes a bounded local research loop on the official \texttt{nuScenes v1.0-mini} split~\cite{nuscenes}. The loop evaluated three small variants for one epoch each: a frozen pretrained MobileNetV3 baseline, a higher-batch frozen variant, and an unfrozen-backbone variant. The frozen baseline with batch size 2 and gradient accumulation 2 achieved the best validation loss and was promoted to a longer run.
+
+\begin{table}[t]
+\centering
+\caption{Bounded \texttt{nuScenes v1.0-mini} research sweep and promoted baseline.}
+\label{tab:mini}
+\begin{tabular}{lrrrr}
+\toprule
+Run & Epochs & Val total & mAP & NDS \\
+\midrule
+Frozen MobileNetV3 sweep winner & 1 & 28.0525 & 0.0 & 0.0 \\
+Promoted mini baseline & 4 & 24.4006 & 1.54e-05 & 7.69e-06 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The promoted mini baseline is functional but still undertrained. Its official \texttt{mini\_val} evaluation produced a nonzero car AP at the 4\,m threshold while the remaining classes stayed at zero. That is not a competitive result, but it is meaningful evidence that the end-to-end public training, checkpointing, prediction export, and official local evaluation path all complete successfully.
+
 \section{Limitations}
 These results should be read carefully.
 \begin{itemize}
 \item They are \textbf{synthetic fixed-shape latency measurements}, not dataset accuracy results.
 \item The TensorRT numbers apply only to the current \textbf{exportable core}, not the full end-to-end multimodal pipeline.
+\item The \texttt{nuScenes} accuracy results are on the tiny \texttt{v1.0-mini} split only and should be interpreted as a functional public baseline, not as a claim of competitive accuracy.
 \item Local generated design summaries are treated as internal synthesis only and are not cited directly; this note cites the underlying primary papers, official documentation, and our own public repo artifact instead.
 \item These RTX 5000 numbers should \textbf{not} be reinterpreted as Orin numbers.
 \end{itemize}
 
 \section{Conclusion}
-The current \texttt{tsqbev-poc} repository now satisfies a meaningful pre-research milestone: it has a minimal multimodal sparse-query architecture, a tested export path, a successful TensorRT engine build, and measured workstation latency on a Quadro RTX 5000. The next engineering step is not autonomous search; it is to close the remaining deployment gap between the exportable core and the full end-to-end multimodal pipeline, then repeat the same validation on the intended embedded target.
+The current \texttt{tsqbev-poc} repository now satisfies a stronger milestone than the original pre-research target: it has a minimal multimodal sparse-query architecture, a tested export path, a successful TensorRT engine build, a bounded local research loop on \texttt{nuScenes v1.0-mini}, and a promoted mini baseline with nonzero official detection metrics. The next engineering step is to improve detector quality while preserving the same evidence-first workflow, then repeat the validation on larger public splits and the intended embedded target.
 
 \begin{thebibliography}{10}
 
@@ -229,6 +249,11 @@ NeurIPS 2023.
 \emph{tsqbev-poc repository and measured artifacts}.
 GitHub repository, 2026.
 \url{https://github.com/achbogga/tsqbev-poc}
+
+\bibitem{nuscenes}
+\emph{nuScenes devkit and official dataset split definitions}.
+GitHub repository, 2026.
+\url{https://github.com/nutonomy/nuscenes-devkit}
 
 \end{thebibliography}
 

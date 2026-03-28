@@ -11,7 +11,10 @@ Build command used locally:
 cp docs/paper/build/tsqbev_short_paper.pdf docs/paper/tsqbev_short_paper.pdf
 ```
 
-The PDF in this directory was built locally after collecting the RTX 5000 measurements recorded in:
+The PDF in this directory was built locally after collecting the RTX 5000 measurements and the bounded `nuScenes v1.0-mini` baseline artifacts recorded in:
 
 - `artifacts/benchmarks/rtx5000_full_model_default.json`
 - `artifacts/trt/benchmark.json`
+- `artifacts/baselines/research_loop/summary.json`
+- `artifacts/baselines/mini_selected/nuscenes/history.json`
+- `artifacts/baselines/mini_selected/eval/nuscenes/metrics_summary.json`
