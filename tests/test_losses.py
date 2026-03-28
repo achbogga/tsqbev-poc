@@ -38,7 +38,7 @@ def test_detection_set_criterion_prefers_exact_match(small_config, synthetic_bat
     )
     losses = criterion(logits, boxes, batch)
     assert losses["object_box"] < 1e-5
-    assert losses["object_cls"] < 2e-2
+    assert losses["object_cls"] < 5e-2
 
 
 def test_lane_set_criterion_prefers_exact_match(small_config, synthetic_batch) -> None:

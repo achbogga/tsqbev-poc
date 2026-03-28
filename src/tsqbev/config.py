@@ -69,7 +69,6 @@ class ModelConfig(BaseModel):
 
         return cls(
             model_dim=64,
-            num_object_classes=4,
             q_lidar=24,
             q_2d=16,
             q_global=8,
