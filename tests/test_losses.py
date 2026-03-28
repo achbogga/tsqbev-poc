@@ -3,7 +3,8 @@ from __future__ import annotations
 import torch
 
 from tsqbev.contracts import LaneTargets, ObjectTargets, SceneBatch
-from tsqbev.losses import DetectionSetCriterion, LaneSetCriterion
+from tsqbev.losses import DetectionSetCriterion, LaneSetCriterion, MultitaskCriterion
+from tsqbev.model import TSQBEVModel
 
 
 def test_detection_set_criterion_prefers_exact_match(small_config, synthetic_batch) -> None:
@@ -68,3 +69,24 @@ def test_lane_set_criterion_prefers_exact_match(small_config, synthetic_batch) -
     losses = criterion(logits, polylines, batch)
     assert losses["lane_shape"] < 1e-5
     assert losses["lane_logits"] < 3e-3
+
+
+def test_multitask_criterion_keeps_grad_when_batch_has_no_supervision(
+    small_config, synthetic_batch
+) -> None:
+    model = TSQBEVModel(small_config)
+    criterion = MultitaskCriterion()
+    batch = SceneBatch(
+        images=synthetic_batch.images,
+        lidar_points=synthetic_batch.lidar_points,
+        lidar_mask=synthetic_batch.lidar_mask,
+        intrinsics=synthetic_batch.intrinsics,
+        extrinsics=synthetic_batch.extrinsics,
+        ego_pose=synthetic_batch.ego_pose,
+        time_delta_s=synthetic_batch.time_delta_s,
+        camera_proposals=synthetic_batch.camera_proposals,
+    )
+    outputs = model(batch)
+    losses = criterion(outputs, batch)
+    assert losses["total"].requires_grad
+    losses["total"].backward()

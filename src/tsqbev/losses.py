@@ -29,6 +29,10 @@ except ImportError:  # pragma: no cover
 Tensor = torch.Tensor
 
 
+def _zero_with_grad(tensor: Tensor) -> Tensor:
+    return tensor.sum() * 0.0
+
+
 def _angle_difference(pred_yaw: Tensor, target_yaw: Tensor) -> Tensor:
     return torch.atan2(
         torch.sin(pred_yaw.unsqueeze(-1) - target_yaw.unsqueeze(0)),
@@ -95,7 +99,7 @@ class DetectionSetCriterion(nn.Module):
     ) -> dict[str, Tensor]:
         object_logits = object_logits.float()
         object_boxes = object_boxes.float()
-        zero = object_logits.new_tensor(0.0)
+        zero = _zero_with_grad(object_logits)
         if batch.od_targets is None:
             return {"object_cls": zero, "object_box": zero}
 
@@ -160,7 +164,7 @@ class LaneSetCriterion(nn.Module):
     ) -> dict[str, Tensor]:
         lane_logits = lane_logits.float()
         lane_polylines = lane_polylines.float()
-        zero = lane_logits.new_tensor(0.0)
+        zero = _zero_with_grad(lane_logits)
         if batch.lane_targets is None:
             return {"lane_logits": zero, "lane_shape": zero}
 
@@ -228,7 +232,7 @@ class MultitaskCriterion(nn.Module):
                 teacher=batch.teacher_targets,
             )
         )
-        total = object_logits.new_tensor(0.0)
+        total = _zero_with_grad(object_logits) + _zero_with_grad(lane_logits)
         for key, value in losses.items():
             if key != "kd_total":
                 total = total + value

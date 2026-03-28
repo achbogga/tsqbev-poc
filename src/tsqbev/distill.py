@@ -18,6 +18,10 @@ from tsqbev.contracts import QuerySeedBank, TeacherTargets
 Tensor = torch.Tensor
 
 
+def _zero_with_grad(tensor: Tensor) -> Tensor:
+    return tensor.sum() * 0.0
+
+
 def _masked_mean(tensor: Tensor, mask: Tensor | None) -> Tensor:
     if mask is None:
         return tensor.mean()
@@ -46,7 +50,7 @@ class DistillationObjective(nn.Module):
         seed_bank: QuerySeedBank,
         teacher: TeacherTargets | None,
     ) -> dict[str, Tensor]:
-        zero = object_queries.new_tensor(0.0)
+        zero = _zero_with_grad(object_queries)
         if teacher is None:
             return {"kd_total": zero, "kd_features": zero, "kd_boxes": zero, "kd_router": zero}
 
