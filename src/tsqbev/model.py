@@ -44,6 +44,7 @@ from tsqbev.contracts import (
 from tsqbev.geometry import normalize_grid, project_points
 from tsqbev.lidar import LidarSeedEncoder
 from tsqbev.seeding import LearnedGlobalSeeds, ProposalRayInitializer, TriSourceQueryRouter
+from tsqbev.teacher_seed import TeacherSeedEncoder
 
 Tensor = torch.Tensor
 
@@ -407,15 +408,23 @@ class TSQBEVModel(nn.Module):
         super().__init__()
         self.config = config
         self.lidar_encoder = LidarSeedEncoder(config)
+        self.teacher_seed_encoder = TeacherSeedEncoder(config)
         self.core = TSQBEVCore(config)
 
     def forward(
         self, batch: SceneBatch, state: TemporalState | None = None
     ) -> dict[str, Tensor | QuerySeedBank | TemporalState]:
         batch.validate()
-        lidar_queries, lidar_refs, lidar_scores = self.lidar_encoder(
-            batch.lidar_points, batch.lidar_mask
-        )
+        teacher_seed_bank = None
+        if self.config.teacher_seed_mode == "replace_lidar":
+            teacher_seed_bank = self.teacher_seed_encoder(batch.teacher_targets)
+        if teacher_seed_bank is None:
+            lidar_queries, lidar_refs, lidar_scores = self.lidar_encoder(
+                batch.lidar_points,
+                batch.lidar_mask,
+            )
+        else:
+            lidar_queries, lidar_refs, lidar_scores = teacher_seed_bank
         return self.core(
             images=batch.images,
             intrinsics=batch.intrinsics,

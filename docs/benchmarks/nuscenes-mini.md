@@ -1,13 +1,14 @@
 # nuScenes v1.0-mini Baseline
 
-This note records the bounded local research loop and the promoted `v1.0-mini` baseline run executed on March 27, 2026.
+This note records the bounded local research loops and promoted `v1.0-mini` baselines executed on
+March 27-28, 2026.
 
 Grounding:
 
 - nuScenes official devkit and split definitions: <https://github.com/nutonomy/nuscenes-devkit>
 - repo research loop contract: [specs/004-research-loop-contract.md](../../specs/004-research-loop-contract.md)
 
-## Bounded Research Sweep
+## Sweep V1
 
 All sweep runs used:
 
@@ -35,7 +36,7 @@ The sweep artifacts are stored in:
 - `artifacts/baselines/research_loop/results.jsonl`
 - `artifacts/baselines/research_loop/summary.json`
 
-## Promoted 4-Epoch Mini Baseline
+## Promoted 4-Epoch Mini Baseline (Historical)
 
 The selected recipe was promoted to a longer baseline run:
 
@@ -75,3 +76,57 @@ Baseline artifacts:
 - checkpoint: `artifacts/baselines/mini_selected/nuscenes/checkpoint_last.pt`
 - prediction export: `artifacts/baselines/mini_selected/nuscenes_predictions.json`
 - official eval summary: `artifacts/baselines/mini_selected/eval/nuscenes/metrics_summary.json`
+
+## Sweep V2: Real-Metric Selection
+
+The second bounded loop changed the selection rule. Recipes are now ranked by:
+
+1. official `mini_val` `NDS`
+2. official `mini_val` `mAP`
+3. validation loss only as a tiebreaker
+
+That change mattered in practice: the lowest-loss recipe still had `NDS = 0.0`, while a
+slightly higher-loss recipe produced the first clearly nonzero official `NDS`.
+
+All V2 sweep runs used:
+
+- dataset: `nuScenes v1.0-mini`
+- train split: `mini_train`
+- validation split: `mini_val`
+- epochs: `6`
+- export threshold: `0.05`
+- device: local RTX 5000
+
+| Recipe | Backbone | Query Budget | Val Total | mAP | NDS | Mean ms | Source Mix | Decision |
+| --- | --- | --- | ---: | ---: | ---: | ---: | --- | --- |
+| `mini_balanced_mbv3_frozen` | frozen `MobileNetV3-Large` | `96 / 64 / 32` | 20.9826 | 0.0 | 0.0 | 17.1130 | `50 / 33 / 17` | discard |
+| `mini_propheavy_mbv3_frozen` | frozen `MobileNetV3-Large` | `64 / 96 / 32` | 22.4723 | 0.0 | 0.0 | 17.2225 | `33 / 50 / 17` | discard |
+| `mini_propheavy_effb0_frozen` | frozen `EfficientNet-B0` | `64 / 96 / 32` | 23.6836 | 0.0 | `0.0127` | 21.6604 | `33 / 50 / 17` | keep |
+
+Interpretation:
+
+- the router/source-balance fix was necessary but not sufficient
+- simply lowering validation loss is still not enough; official detection metrics can remain zero
+- shifting more sparse budget toward proposal seeds helped only when paired with the stronger image backbone
+- the first nonzero official `NDS` arrived without any external teacher yet, which is evidence that
+  the direction is learnable
+- the model is still not scale-ready because `mAP` remains `0.0`
+
+V2 artifacts:
+
+- sweep ledger: `artifacts/research_v2/research_loop/results.jsonl`
+- sweep summary: `artifacts/research_v2/research_loop/summary.json`
+
+## Scale Decision
+
+Current answer: do **not** scale by 10x compute yet.
+
+The reasons are straightforward:
+
+- best official `mini_val` `NDS` is still only `0.0127`
+- best official `mini_val` `mAP` is still `0.0`
+- the model has not yet cleared a deliberate tiny-subset overfit gate
+- a pretrained external LiDAR teacher has not yet been added
+
+The formal go/no-go rules are in [docs/scaling-gates.md](../scaling-gates.md) and
+[specs/005-scale-gate-contract.md](../../specs/005-scale-gate-contract.md).

@@ -75,6 +75,12 @@ def move_batch(batch: SceneBatch, device: torch.device) -> SceneBatch:
             object_boxes=teacher_targets.object_boxes.to(device)
             if teacher_targets.object_boxes is not None
             else None,
+            object_labels=teacher_targets.object_labels.to(device)
+            if teacher_targets.object_labels is not None
+            else None,
+            object_scores=teacher_targets.object_scores.to(device)
+            if teacher_targets.object_scores is not None
+            else None,
             lane_features=teacher_targets.lane_features.to(device)
             if teacher_targets.lane_features is not None
             else None,

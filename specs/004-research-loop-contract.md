@@ -13,10 +13,13 @@ Enable a bounded local experiment loop that improves the public baseline without
 
 ## Allowed Recipe Changes
 
+- sparse query-budget allocation across seed sources
+- compact pretrained image-backbone family
+- pretrained image-backbone freeze policy
+- optional cache-backed external teacher provider
 - batch size
 - gradient accumulation
 - learning rate
-- pretrained image-backbone freeze policy
 
 ## Required Outputs
 
@@ -24,7 +27,17 @@ Enable a bounded local experiment loop that improves the public baseline without
 - `summary.json`
 - selected checkpoint path
 - synthetic forward latency measurement for each completed recipe
-- official `mini_val` export/eval for the selected recipe
+- official `mini_val` export/eval for each completed recipe
+- per-recipe source-mix diagnostics from the selected sparse query bank
+
+## Selection Policy
+
+- primary metric: official `mini_val` `NDS`
+- secondary metric: official `mini_val` `mAP`
+- tertiary metric: validation loss
+
+The loop may not keep a recipe purely because it has a lower surrogate loss if its official
+`mini_val` metrics are worse.
 
 ## Forbidden
 

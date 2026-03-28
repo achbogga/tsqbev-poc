@@ -83,6 +83,7 @@ Train the object-detection baseline on `v1.0-mini`:
 uv run tsqbev train-nuscenes \
   --dataset-root /path/to/nuscenes \
   --artifact-dir artifacts/baselines \
+  --preset rtx5000-nuscenes-teacher \
   --version v1.0-mini \
   --train-split mini_train \
   --split mini_val \
@@ -91,6 +92,31 @@ uv run tsqbev train-nuscenes \
   --batch-size 2 \
   --grad-accum-steps 2
 ```
+
+Optional cached teacher-guided training:
+
+```bash
+uv run tsqbev train-nuscenes \
+  --dataset-root /path/to/nuscenes \
+  --artifact-dir artifacts/baselines \
+  --version v1.0-mini \
+  --train-split mini_train \
+  --split mini_val \
+  --epochs 4 \
+  --lr 3e-4 \
+  --batch-size 2 \
+  --grad-accum-steps 2 \
+  --teacher-kind cache \
+  --teacher-cache-dir /path/to/teacher-cache
+```
+
+This expects cached repo-local `TeacherTargets`, not a live heavyweight LiDAR framework in the
+default runtime. The teacher bootstrap contract is documented in
+[`specs/006-lidar-teacher-bootstrap.md`](../specs/006-lidar-teacher-bootstrap.md).
+
+If the cached teacher outputs include `object_boxes`, `object_labels`, and `object_scores`, the
+teacher-enabled preset replaces the raw LiDAR seed path with projected teacher seeds while still
+keeping the heavy teacher itself outside the default runtime.
 
 Run the bounded local research loop on `v1.0-mini`:
 
@@ -134,7 +160,7 @@ Expected metric family from the official devkit:
 
 ## Recorded Mini Results
 
-Bounded research-loop sweep on `v1.0-mini`:
+Historical first bounded research-loop sweep on `v1.0-mini`:
 
 | Recipe | Val Total | Synthetic Mean ms | Decision |
 | --- | ---: | ---: | --- |
@@ -157,6 +183,33 @@ Artifact locations:
 - sweep summary: `artifacts/baselines/research_loop/summary.json`
 - promoted baseline history: `artifacts/baselines/mini_selected/nuscenes/history.json`
 - promoted eval summary: `artifacts/baselines/mini_selected/eval/nuscenes/metrics_summary.json`
+
+Strengthened bounded research-loop sweep on `v1.0-mini`:
+
+| Recipe | Val Total | Official mAP | Official NDS | Mean ms | Source Mix | Decision |
+| --- | ---: | ---: | ---: | ---: | --- | --- |
+| `mini_balanced_mbv3_frozen` | 20.9826 | 0.0 | 0.0 | 17.1130 | `50 / 33 / 17` | discard |
+| `mini_propheavy_mbv3_frozen` | 22.4723 | 0.0 | 0.0 | 17.2225 | `33 / 50 / 17` | discard |
+| `mini_propheavy_effb0_frozen` | 23.6836 | 0.0 | `0.0127` | 21.6604 | `33 / 50 / 17` | keep |
+
+Key change:
+
+- the strengthened loop now selects by official `mini_val` `NDS`, then `mAP`, then validation
+  loss only as a tiebreaker
+
+This prevented the repo from incorrectly promoting the lowest-loss recipe, which still had
+`NDS = 0.0`.
+
+Current answer on scale:
+
+- do **not** scale by 10x compute yet
+- current best official `mini_val` result is promising but still too weak
+- see [docs/scaling-gates.md](scaling-gates.md) for the required promotion thresholds
+
+Artifact locations for the strengthened loop:
+
+- sweep ledger: `artifacts/research_v2/research_loop/results.jsonl`
+- sweep summary: `artifacts/research_v2/research_loop/summary.json`
 
 ## OpenLane Baseline
 
@@ -218,3 +271,4 @@ What is still pending:
 
 - any future full `v1.0-trainval` promotion, if desired
 - stronger training schedules, if the goal moves from a functional baseline toward a competitive one
+- pretrained external LiDAR teacher ablations through the optional teacher cache/provider path

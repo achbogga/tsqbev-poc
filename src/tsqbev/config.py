@@ -49,6 +49,7 @@ class ModelConfig(BaseModel):
     sample_radius_m: float = 1.25
     map_input_dim: int = 256
     dropout_lidar_probability: float = 0.2
+    teacher_seed_mode: Literal["off", "replace_lidar"] = "off"
     pillar: PillarConfig = Field(default_factory=PillarConfig)
 
     @model_validator(mode="after")
@@ -115,6 +116,14 @@ class ModelConfig(BaseModel):
             num_depth_bins=6,
             map_input_dim=128,
             pillar=PillarConfig(q_lidar=96),
+        )
+
+    @classmethod
+    def rtx5000_nuscenes_teacher_bootstrap(cls) -> ModelConfig:
+        """Return the local baseline with external teacher seeds enabled."""
+
+        return cls.rtx5000_nuscenes_baseline().model_copy(
+            update={"teacher_seed_mode": "replace_lidar"}
         )
 
 

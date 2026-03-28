@@ -7,6 +7,7 @@
 - map priors are optional
 - temporal state is sparse and streaming
 - distillation is designed in from the start
+- optional external LiDAR teacher bootstrap is now scaffolded
 - ONNX and TensorRT deployment are first-class concerns
 
 This repo is intentionally small and evidence-driven. Every substantive module is tied back to an original paper and, where available, an official codebase. Local generated summaries are treated as internal synthesis only. The repo cites the underlying original papers, official codebases, and our own public repo/paper artifacts instead.
@@ -54,6 +55,7 @@ More detail and additional diagrams are in [docs/architecture.md](docs/architect
 - Object detection: `nuScenes`, with `v1.0-mini` as the active local research contract
 - Lane supervision: `OpenLane V1`
 - Map priors: `MapTR`-style vectorized public priors
+- Teacher bootstrap: optional cached external LiDAR teacher path, starting with public `CenterPoint-PointPillar` style teachers
 - Deployment validation: ONNX export and TensorRT engine build for the exportable core
 
 ## Measured Results
@@ -69,14 +71,15 @@ RTX 5000 latency, batch size `1`, image size `256x704`:
 
 The latency measurements are summarized in [docs/benchmarks/rtx5000.md](docs/benchmarks/rtx5000.md). The TensorRT result applies to the current exportable core only, not the full end-to-end multimodal pipeline.
 
-`nuScenes v1.0-mini` bounded sweep and promoted baseline:
+Latest bounded `nuScenes v1.0-mini` sweep:
 
-| Run | Key Setting | Val Total | mAP | NDS |
-| --- | --- | ---: | ---: | ---: |
-| Sweep winner, 1 epoch | frozen `MobileNetV3-Large`, `bs=2`, `accum=2` | 28.0525 | 0.0 | 0.0 |
-| Promoted baseline, 4 epochs | frozen `MobileNetV3-Large`, `bs=2`, `accum=2` | 24.4006 | `1.5376e-05` | `7.6880e-06` |
+| Run | Key Setting | Val Total | mAP | NDS | Source Mix |
+| --- | --- | ---: | ---: | ---: | --- |
+| Balanced `MobileNetV3-Large` | frozen, `q_lidar=96`, `q_2d=64` | 20.9826 | 0.0 | 0.0 | `50/33/17` |
+| Proposal-heavy `MobileNetV3-Large` | frozen, `q_lidar=64`, `q_2d=96` | 22.4723 | 0.0 | 0.0 | `33/50/17` |
+| Proposal-heavy `EfficientNet-B0` | frozen, `q_lidar=64`, `q_2d=96` | 23.6836 | 0.0 | `0.0127` | `33/50/17` |
 
-The promoted mini baseline is functional but still undertrained; it is a verified public starting point, not a competitive detector yet. The full sweep and baseline artifacts are summarized in [docs/benchmarks/nuscenes-mini.md](docs/benchmarks/nuscenes-mini.md).
+The key change is methodological: the loop now selects by official `mini_val` `NDS`, then `mAP`, then loss. That matters because the lowest-loss recipe still had `NDS = 0.0`, while the proposal-heavy frozen `EfficientNet-B0` recipe reached the first clearly nonzero official `NDS`. The sweep artifacts are summarized in [docs/benchmarks/nuscenes-mini.md](docs/benchmarks/nuscenes-mini.md).
 
 ## Source Grounding
 
@@ -87,7 +90,10 @@ Primary references include:
 - [StreamPETR](https://github.com/exiawsh/StreamPETR)
 - [Sparse4D](https://github.com/HorizonRobotics/Sparse4D)
 - [SparseBEV](https://github.com/MCG-NJU/SparseBEV)
+- [CenterPoint](https://github.com/tianweiy/CenterPoint)
+- [OpenPCDet](https://github.com/open-mmlab/OpenPCDet)
 - [BEVDistill](https://arxiv.org/abs/2211.09386)
+- [PillarNet](https://github.com/VISION-SJTU/PillarNet)
 - [CMT](https://github.com/junjie18/CMT)
 - [BEVFusion](https://arxiv.org/abs/2205.13542)
 - [MapTR](https://github.com/hustvl/MapTR)
@@ -100,6 +106,8 @@ The full source map is in [docs/reference-matrix.md](docs/reference-matrix.md).
 - [Architecture](docs/architecture.md)
 - [RTX 5000 latency benchmark](docs/benchmarks/rtx5000.md)
 - [nuScenes mini baseline](docs/benchmarks/nuscenes-mini.md)
+- [Scaling gates](docs/scaling-gates.md)
+- [Teacher bootstrap](docs/teacher-bootstrap.md)
 - [Reference matrix](docs/reference-matrix.md)
 - [Public baseline workflow](docs/training-baselines.md)
 - [Implementation plan](docs/plan.md)
@@ -148,6 +156,22 @@ uv run tsqbev research-loop \
   --device cuda
 ```
 
+Teacher-assisted training is now scaffolded through cached teacher targets:
+
+```bash
+uv run tsqbev train-nuscenes \
+  --dataset-root /path/to/nuscenes \
+  --preset rtx5000-nuscenes-teacher \
+  --version v1.0-mini \
+  --train-split mini_train \
+  --split mini_val \
+  --teacher-kind cache \
+  --teacher-cache-dir /path/to/teacher-cache
+```
+
+Use `--preset rtx5000-nuscenes-teacher` or `--teacher-seed-mode replace_lidar` when the cached
+teacher outputs include `object_boxes`, `object_labels`, and `object_scores` for seed replacement.
+
 For CUDA deployment validation on supported NVIDIA systems:
 
 ```bash
@@ -162,5 +186,7 @@ uv run tsqbev trt-bench
 - `pytest` passing
 - ONNX export smoke passing
 - TensorRT engine build validated on RTX 5000
-- bounded `nuScenes v1.0-mini` sweep and promoted baseline recorded
+- strengthened bounded `nuScenes v1.0-mini` sweep recorded with official per-recipe `mini_val` evaluation
+- explicit scale gates added; current answer is still "do not scale by 10x compute yet"
+- optional external LiDAR teacher cache/provider scaffolding added and tested
 - bounded mini-dataset research loop enabled via `program.md`

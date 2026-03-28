@@ -60,8 +60,12 @@ def make_synthetic_batch(
         teacher_targets = TeacherTargets(
             object_features=torch.randn(batch_size, config.max_object_queries, config.model_dim),
             object_boxes=torch.randn(batch_size, config.max_object_queries, 9),
+            object_labels=torch.randint(
+                0, config.num_object_classes, (batch_size, config.max_object_queries)
+            ),
+            object_scores=torch.rand(batch_size, config.max_object_queries),
             router_logits=torch.randn(batch_size, config.max_object_queries),
-            valid_mask=torch.ones(batch_size, config.max_object_queries),
+            valid_mask=torch.ones(batch_size, config.max_object_queries, dtype=torch.bool),
         )
 
     batch = SceneBatch(

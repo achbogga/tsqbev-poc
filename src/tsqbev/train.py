@@ -26,6 +26,8 @@ from tsqbev.datasets import NuScenesDataset, OpenLaneDataset, collate_scene_exam
 from tsqbev.losses import MultitaskCriterion
 from tsqbev.model import TSQBEVModel
 from tsqbev.runtime import move_batch, resolve_device
+from tsqbev.teacher_backends import TeacherProviderConfig, build_teacher_provider
+from tsqbev.teacher_dataset import TeacherAugmentedDataset
 
 
 def _format_metrics(metrics: dict[str, float]) -> str:
@@ -51,6 +53,18 @@ def _subset_if_requested(dataset: Dataset[Any], max_samples: int | None) -> Data
     if max_samples is None or max_samples >= len(sized_dataset):
         return dataset
     return Subset(dataset, list(range(max_samples)))
+
+
+def maybe_attach_teacher_targets(
+    dataset: Dataset[Any],
+    teacher_provider_config: TeacherProviderConfig | None,
+) -> Dataset[Any]:
+    """Wrap a dataset with an optional external teacher cache/provider."""
+
+    if teacher_provider_config is None:
+        return dataset
+    provider = build_teacher_provider(teacher_provider_config)
+    return TeacherAugmentedDataset(dataset, provider)
 
 
 def resolve_nuscenes_splits(
@@ -202,6 +216,7 @@ def fit_nuscenes(
     device: str | None = None,
     max_train_samples: int | None = None,
     max_val_samples: int | None = None,
+    teacher_provider_config: TeacherProviderConfig | None = None,
     use_amp: bool = False,
     log_every_steps: int | None = 100,
 ) -> dict[str, object]:
@@ -228,6 +243,7 @@ def fit_nuscenes(
         NuScenesDataset(dataroot=dataroot, version=version, split=resolved_train_split),
         max_train_samples,
     )
+    train_dataset = maybe_attach_teacher_targets(train_dataset, teacher_provider_config)
     print(
         f"[setup] loaded train split in {time.perf_counter() - start_time:.2f}s",
         flush=True,
@@ -241,6 +257,7 @@ def fit_nuscenes(
         NuScenesDataset(dataroot=dataroot, version=version, split=resolved_val_split),
         max_val_samples,
     )
+    val_dataset = maybe_attach_teacher_targets(val_dataset, teacher_provider_config)
     print(
         f"[setup] loaded val split in {time.perf_counter() - start_time:.2f}s",
         flush=True,
@@ -261,7 +278,10 @@ def fit_nuscenes(
     print(
         f"[setup] building model backbone={model_config.image_backbone} "
         f"pretrained_backbone={model_config.pretrained_image_backbone} "
-        f"freeze_backbone={model_config.freeze_image_backbone}",
+        f"freeze_backbone={model_config.freeze_image_backbone} "
+        f"teacher_seed_mode={model_config.teacher_seed_mode} "
+        f"teacher_provider="
+        f"{teacher_provider_config.kind if teacher_provider_config is not None else 'none'}",
         flush=True,
     )
     model = TSQBEVModel(model_config).to(resolved_device)
@@ -329,10 +349,14 @@ def fit_nuscenes(
         "val_split": resolved_val_split,
         "artifact_dir": str(artifact_dir),
         "checkpoint_path": str(checkpoint_path),
+        "teacher_seed_mode": model_config.teacher_seed_mode,
         "train_samples": train_sample_count,
         "val_samples": val_sample_count,
         "last_train": history[-1]["train"],
         "last_val": history[-1]["val"],
+        "teacher_provider": (
+            teacher_provider_config.kind if teacher_provider_config is not None else None
+        ),
     }
 
 

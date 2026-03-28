@@ -29,6 +29,7 @@ from tsqbev.model import TSQBEVModel
 from tsqbev.research import run_bounded_research_loop
 from tsqbev.runtime import benchmark_forward, run_eval_step, run_train_step
 from tsqbev.synthetic import make_synthetic_batch
+from tsqbev.teacher_backends import TeacherProviderConfig
 from tsqbev.train import fit_nuscenes, fit_openlane
 from tsqbev.trt import run_trt_benchmark
 
@@ -99,6 +100,8 @@ def _model_for_export(default_config: ModelConfig, checkpoint: Path | None) -> T
 def _resolve_config(args: argparse.Namespace) -> ModelConfig:
     if args.preset == "small":
         config = ModelConfig.small()
+    elif args.preset == "rtx5000-nuscenes-teacher":
+        config = ModelConfig.rtx5000_nuscenes_teacher_bootstrap()
     elif args.preset == "rtx5000-nuscenes":
         config = ModelConfig.rtx5000_nuscenes_baseline()
     else:
@@ -111,6 +114,8 @@ def _resolve_config(args: argparse.Namespace) -> ModelConfig:
         updates["pretrained_image_backbone"] = args.pretrained_image_backbone
     if args.freeze_image_backbone is not None:
         updates["freeze_image_backbone"] = args.freeze_image_backbone
+    if args.teacher_seed_mode is not None:
+        updates["teacher_seed_mode"] = args.teacher_seed_mode
     return config.model_copy(update=updates)
 
 
@@ -118,6 +123,18 @@ def _resolve_nuscenes_eval_split(version: str, split: str | None) -> str:
     if split is not None:
         return split
     return "mini_val" if version == "v1.0-mini" else "val"
+
+
+def _resolve_teacher_provider_config(args: argparse.Namespace) -> TeacherProviderConfig | None:
+    if args.teacher_kind is None:
+        return None
+    return TeacherProviderConfig(
+        kind=args.teacher_kind,
+        cache_dir=str(args.teacher_cache_dir) if args.teacher_cache_dir is not None else None,
+        checkpoint_path=(
+            str(args.teacher_checkpoint) if args.teacher_checkpoint is not None else None
+        ),
+    )
 
 
 def _make_parser() -> argparse.ArgumentParser:
@@ -149,7 +166,7 @@ def _make_parser() -> argparse.ArgumentParser:
     parser.add_argument("--checkpoint", type=Path, default=None)
     parser.add_argument(
         "--preset",
-        choices=("default", "small", "rtx5000-nuscenes"),
+        choices=("default", "small", "rtx5000-nuscenes", "rtx5000-nuscenes-teacher"),
         default="default",
     )
     parser.add_argument(
@@ -165,6 +182,11 @@ def _make_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--freeze-image-backbone",
         action=argparse.BooleanOptionalAction,
+        default=None,
+    )
+    parser.add_argument(
+        "--teacher-seed-mode",
+        choices=("off", "replace_lidar"),
         default=None,
     )
     parser.add_argument("--openlane-repo-root", type=Path, default=Path("/tmp/OpenLane"))
@@ -184,6 +206,13 @@ def _make_parser() -> argparse.ArgumentParser:
     parser.add_argument("--device", type=str, default=None)
     parser.add_argument("--score-threshold", type=float, default=0.25)
     parser.add_argument("--top-k", type=int, default=300)
+    parser.add_argument(
+        "--teacher-kind",
+        choices=("cache", "openpcdet-centerpoint-pointpillar", "openpcdet-centerpoint-voxel"),
+        default=None,
+    )
+    parser.add_argument("--teacher-cache-dir", type=Path, default=None)
+    parser.add_argument("--teacher-checkpoint", type=Path, default=None)
     return parser
 
 
@@ -227,6 +256,7 @@ def main() -> None:
             raise ValueError("--dataset-root is required for train-nuscenes")
         config = _resolve_config(args)
         val_split = _resolve_nuscenes_eval_split(args.version, args.split)
+        teacher_provider_config = _resolve_teacher_provider_config(args)
         print(
             fit_nuscenes(
                 dataroot=args.dataset_root,
@@ -244,6 +274,7 @@ def main() -> None:
                 device=args.device,
                 max_train_samples=args.max_train_samples,
                 max_val_samples=args.max_val_samples,
+                teacher_provider_config=teacher_provider_config,
             )
         )
         return
@@ -276,6 +307,7 @@ def main() -> None:
             raise ValueError("--dataset-root is required for export-nuscenes")
         model = _model_for_export(_resolve_config(args), args.checkpoint)
         split = _resolve_nuscenes_eval_split(args.version, args.split)
+        teacher_provider_config = _resolve_teacher_provider_config(args)
         print(
             {
                 "result_path": str(
@@ -288,6 +320,7 @@ def main() -> None:
                         score_threshold=args.score_threshold,
                         top_k=args.top_k,
                         device=args.device,
+                        teacher_provider_config=teacher_provider_config,
                     )
                 )
             }
@@ -344,11 +377,13 @@ def main() -> None:
     if args.command == "research-loop":
         if args.dataset_root is None:
             raise ValueError("--dataset-root is required for research-loop")
+        teacher_provider_config = _resolve_teacher_provider_config(args)
         print(
             run_bounded_research_loop(
                 dataroot=args.dataset_root,
                 artifact_dir=args.artifact_dir,
                 device=args.device,
+                teacher_provider_config=teacher_provider_config,
             )
         )
         return

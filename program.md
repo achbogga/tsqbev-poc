@@ -11,9 +11,10 @@ This repo is allowed to run a bounded local research loop.
 Current priorities:
 
 1. tune a public `nuScenes v1.0-mini` object baseline
-2. record keep/discard decisions for a small fixed recipe set
-3. run official local `mini_val` export/eval for the selected recipe
-4. update docs with measured mini-baseline results
+2. fix routing and seeding pathologies before spending more epochs
+3. bootstrap the student with an external pretrained LiDAR teacher through caches
+4. record keep/discard decisions for a small fixed recipe set
+5. update docs with measured mini-baseline and teacher-bootstrap results
 
 Loop contract:
 
@@ -21,18 +22,23 @@ Loop contract:
 - split scope: `mini_train` / `mini_val`
 - max recipes per invocation: `3`
 - recipe changes allowed:
+  - sparse query-budget allocation across LiDAR / proposal / global seeds
+  - image-backbone family among compact pretrained backbones
+  - frozen vs unfrozen pretrained image backbone
+  - learning rate
   - batch size
   - gradient accumulation
-  - learning rate
-  - frozen vs unfrozen pretrained image backbone
 - real acceptance criteria:
-  - lower validation loss on `mini_val`
+  - higher official `mini_val` `NDS`, then `mAP`
+  - source mix remains genuinely multimodal instead of collapsing to one source
+  - lower validation loss only as a tiebreaker
   - no runtime errors
   - measured forward latency captured in the ledger
 - output artifacts:
   - `research_loop/results.jsonl`
   - `research_loop/summary.json`
-  - best-checkpoint export and `mini_val` evaluation output
+  - per-recipe `mini_val` export and evaluation output
+  - per-recipe source-mix diagnostics
 
 Forbidden:
 

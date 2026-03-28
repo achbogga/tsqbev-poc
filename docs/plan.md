@@ -22,8 +22,12 @@ It is a focused open-source POC for public datasets and deployable research arti
 - Real-data `nuScenes` readiness checks pass.
 - A float32 real-data smoke run on the RTX 5000 completed successfully on a tiny subset, which confirmed the loader and training path are functional on real data.
 - The active local research contract is now bounded `nuScenes v1.0-mini`, not full `v1.0-trainval`.
-- The bounded `v1.0-mini` sweep selected the frozen MobileNetV3 recipe over both a larger-batch variant and an unfrozen-backbone variant.
-- The promoted 4-epoch `v1.0-mini` baseline reached `val total = 24.4006`, `mAP = 1.5376e-05`, and `NDS = 7.6880e-06`.
+- The first bounded `v1.0-mini` sweep established a functioning public baseline but remained near-zero on official metrics.
+- The strengthened bounded `v1.0-mini` sweep fixed the routed query-bank collapse and changed recipe selection to official `mini_val` `NDS`, then `mAP`, then loss.
+- The current best public mini result is the proposal-heavy frozen `EfficientNet-B0` recipe with `val total = 23.6836`, `mAP = 0.0`, and `NDS = 0.0127118571`.
+- The current best source mix is `33.3% LiDAR / 50.0% proposal / 16.7% global`, which is the first stable non-collapsed multimodal routing regime in the repo.
+- The repo now explicitly blocks 10x compute scale-up until the gates in `specs/005-scale-gate-contract.md` are cleared.
+- Optional external LiDAR teacher scaffolding is now present through typed cache/provider contracts and a dataset wrapper, with `CenterPoint-PointPillar` as the first target backend.
 - OpenLane support still needs version alignment against the OpenLane-V2 getting-started instructions before any lane baseline can be treated as final.
 - The bounded mini-dataset research loop is now authorized via `program.md`.
 
@@ -37,6 +41,9 @@ It is a focused open-source POC for public datasets and deployable research arti
 - Verified the public `nuScenes` dataset root and executed real-data smoke training successfully in float32.
 - Added a pretrained MobileNetV3 image-backbone path and batched training.
 - Enabled a bounded `nuScenes v1.0-mini` research loop contract.
+- Added explicit scale-gate and external-teacher bootstrap contracts.
+- Added optional external teacher cache/provider scaffolding for pretrained LiDAR teachers.
+- Added optional external teacher cache/provider scaffolding for LiDAR-strong distillation experiments.
 
 ## Evidence Basis
 

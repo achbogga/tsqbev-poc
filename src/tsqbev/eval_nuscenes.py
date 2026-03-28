@@ -15,13 +15,15 @@ from typing import Any
 
 import numpy as np
 import torch
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, Dataset
 
 from tsqbev.datasets import NuScenesDataset, collate_scene_examples
 from tsqbev.labels import NUSCENES_DETECTION_NAMES
 from tsqbev.model import TSQBEVModel
 from tsqbev.quaternion import quaternion_from_yaw, rotate_xy, yaw_from_rotation_matrix
 from tsqbev.runtime import move_batch, resolve_device
+from tsqbev.teacher_backends import TeacherProviderConfig, build_teacher_provider
+from tsqbev.teacher_dataset import TeacherAugmentedDataset
 
 
 def _load_nuscenes_eval() -> tuple[Any, Any, Any, Any]:
@@ -46,6 +48,7 @@ def export_nuscenes_predictions(
     score_threshold: float = 0.25,
     top_k: int = 300,
     device: str | None = None,
+    teacher_provider_config: TeacherProviderConfig | None = None,
 ) -> Path:
     """Write a nuScenes detection submission JSON for local validation."""
 
@@ -53,7 +56,12 @@ def export_nuscenes_predictions(
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
     resolved_device = resolve_device(device)
-    dataset = NuScenesDataset(dataroot=dataroot, version=version, split=split)
+    dataset: Dataset[Any] = NuScenesDataset(dataroot=dataroot, version=version, split=split)
+    if teacher_provider_config is not None:
+        dataset = TeacherAugmentedDataset(
+            dataset,
+            build_teacher_provider(teacher_provider_config),
+        )
     loader = DataLoader(
         dataset,
         batch_size=1,

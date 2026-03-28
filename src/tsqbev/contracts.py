@@ -103,9 +103,48 @@ class TeacherTargets:
 
     object_features: Tensor | None = None
     object_boxes: Tensor | None = None
+    object_labels: Tensor | None = None
+    object_scores: Tensor | None = None
     lane_features: Tensor | None = None
     router_logits: Tensor | None = None
     valid_mask: Tensor | None = None
+
+    def validate(self, batch_size: int) -> None:
+        if self.object_features is not None:
+            _check_rank("teacher object_features", self.object_features, 3)
+            if self.object_features.shape[0] != batch_size:
+                raise ValueError("teacher object_features batch mismatch")
+        if self.object_boxes is not None:
+            _check_rank("teacher object_boxes", self.object_boxes, 3)
+            if self.object_boxes.shape[0] != batch_size:
+                raise ValueError("teacher object_boxes batch mismatch")
+            if self.object_boxes.shape[-1] != 9:
+                raise ValueError("teacher object_boxes must use 9 parameters")
+        if self.object_labels is not None:
+            _check_rank("teacher object_labels", self.object_labels, 2)
+            if self.object_labels.shape[0] != batch_size:
+                raise ValueError("teacher object_labels batch mismatch")
+        if self.object_scores is not None:
+            _check_rank("teacher object_scores", self.object_scores, 2)
+            if self.object_scores.shape[0] != batch_size:
+                raise ValueError("teacher object_scores batch mismatch")
+        if self.router_logits is not None:
+            _check_rank("teacher router_logits", self.router_logits, 2)
+            if self.router_logits.shape[0] != batch_size:
+                raise ValueError("teacher router_logits batch mismatch")
+        if self.valid_mask is not None:
+            _check_rank("teacher valid_mask", self.valid_mask, 2)
+            if self.valid_mask.shape[0] != batch_size:
+                raise ValueError("teacher valid_mask batch mismatch")
+        if self.object_boxes is not None and self.object_labels is not None:
+            if self.object_boxes.shape[:2] != self.object_labels.shape:
+                raise ValueError("teacher object_boxes/object_labels shape mismatch")
+        if self.object_boxes is not None and self.object_scores is not None:
+            if self.object_boxes.shape[:2] != self.object_scores.shape:
+                raise ValueError("teacher object_boxes/object_scores shape mismatch")
+        if self.object_boxes is not None and self.valid_mask is not None:
+            if self.object_boxes.shape[:2] != self.valid_mask.shape:
+                raise ValueError("teacher object_boxes/valid_mask shape mismatch")
 
 
 @dataclass(slots=True)
@@ -204,3 +243,5 @@ class SceneBatch:
             self.lane_targets.validate(self.batch_size)
         if self.map_priors is not None:
             self.map_priors.validate(self.batch_size)
+        if self.teacher_targets is not None:
+            self.teacher_targets.validate(self.batch_size)

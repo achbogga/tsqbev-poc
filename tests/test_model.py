@@ -61,6 +61,39 @@ def test_model_supports_torchvision_backbone(synthetic_batch) -> None:
         time_delta_s=synthetic_batch.time_delta_s[:1],
         od_targets=None,
         lane_targets=None,
+        teacher_targets=replace(
+            synthetic_batch.teacher_targets,
+            object_features=synthetic_batch.teacher_targets.object_features[:1]
+            if synthetic_batch.teacher_targets is not None
+            and synthetic_batch.teacher_targets.object_features is not None
+            else None,
+            object_boxes=synthetic_batch.teacher_targets.object_boxes[:1]
+            if synthetic_batch.teacher_targets is not None
+            and synthetic_batch.teacher_targets.object_boxes is not None
+            else None,
+            object_labels=synthetic_batch.teacher_targets.object_labels[:1]
+            if synthetic_batch.teacher_targets is not None
+            and synthetic_batch.teacher_targets.object_labels is not None
+            else None,
+            object_scores=synthetic_batch.teacher_targets.object_scores[:1]
+            if synthetic_batch.teacher_targets is not None
+            and synthetic_batch.teacher_targets.object_scores is not None
+            else None,
+            lane_features=synthetic_batch.teacher_targets.lane_features[:1]
+            if synthetic_batch.teacher_targets is not None
+            and synthetic_batch.teacher_targets.lane_features is not None
+            else None,
+            router_logits=synthetic_batch.teacher_targets.router_logits[:1]
+            if synthetic_batch.teacher_targets is not None
+            and synthetic_batch.teacher_targets.router_logits is not None
+            else None,
+            valid_mask=synthetic_batch.teacher_targets.valid_mask[:1]
+            if synthetic_batch.teacher_targets is not None
+            and synthetic_batch.teacher_targets.valid_mask is not None
+            else None,
+        )
+        if synthetic_batch.teacher_targets is not None
+        else None,
         map_priors=replace(
             synthetic_batch.map_priors,
             tokens=synthetic_batch.map_priors.tokens[:1],
@@ -72,3 +105,11 @@ def test_model_supports_torchvision_backbone(synthetic_batch) -> None:
     )
     outputs = model(batch)
     assert outputs["object_logits"].shape[0] == 1
+
+
+def test_model_can_replace_lidar_seeds_with_teacher_targets(synthetic_batch) -> None:
+    config = ModelConfig.small().model_copy(update={"teacher_seed_mode": "replace_lidar"})
+    model = TSQBEVModel(config)
+    outputs = model(synthetic_batch)
+    seed_bank = outputs["seed_bank"]
+    assert (seed_bank.source_ids == 0).any()
