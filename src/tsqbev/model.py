@@ -11,6 +11,12 @@ References:
   https://arxiv.org/pdf/2211.10581
 - PersFormer lane-centric reasoning:
   https://arxiv.org/abs/2203.11089
+- torchvision pretrained model API:
+  https://pytorch.org/vision/stable/models.html
+- MobileNetV3:
+  https://openaccess.thecvf.com/content_ICCV_2019/papers/Howard_Searching_for_MobileNetV3_ICCV_2019_paper.pdf
+- EfficientNet:
+  https://proceedings.mlr.press/v97/tan19a/tan19a.pdf
 """
 
 from __future__ import annotations
@@ -20,6 +26,12 @@ from typing import cast
 import torch
 from torch import nn
 from torch.nn import functional as F
+from torchvision.models import (
+    EfficientNet_B0_Weights,
+    MobileNet_V3_Large_Weights,
+    efficientnet_b0,
+    mobilenet_v3_large,
+)
 
 from tsqbev.config import ModelConfig
 from tsqbev.contracts import (
@@ -67,6 +79,83 @@ class TinyImageBackbone(nn.Module):
             batch, views, self.config.model_dim, f16.shape[-2], f16.shape[-1]
         )
         return [f8, f16]
+
+
+class TorchvisionImageBackbone(nn.Module):
+    """Two-scale image backbone backed by official torchvision weights."""
+
+    def __init__(self, config: ModelConfig) -> None:
+        super().__init__()
+        self.config = config
+        self.freeze_backbone = config.freeze_image_backbone
+        if config.image_backbone == "mobilenet_v3_large":
+            weights = (
+                MobileNet_V3_Large_Weights.DEFAULT if config.pretrained_image_backbone else None
+            )
+            self.extractor = mobilenet_v3_large(weights=weights).features
+            self.low_stage_index = 4
+            self.high_stage_index = 12
+            low_channels = 40
+            high_channels = 112
+        elif config.image_backbone == "efficientnet_b0":
+            weights = EfficientNet_B0_Weights.DEFAULT if config.pretrained_image_backbone else None
+            self.extractor = efficientnet_b0(weights=weights).features
+            self.low_stage_index = 3
+            self.high_stage_index = 5
+            low_channels = 40
+            high_channels = 112
+        else:  # pragma: no cover - guarded by config validation and factory selection.
+            raise ValueError(f"unsupported torchvision image backbone: {config.image_backbone}")
+        if self.freeze_backbone:
+            self.extractor.requires_grad_(False)
+            self.extractor.eval()
+        self.proj8 = nn.Conv2d(low_channels, config.model_dim, kernel_size=1)
+        self.proj16 = nn.Conv2d(high_channels, config.model_dim, kernel_size=1)
+
+    def _extract_multiscale(self, images: Tensor) -> tuple[Tensor, Tensor]:
+        low: Tensor | None = None
+        high: Tensor | None = None
+        x = images
+        for index, layer in enumerate(self.extractor):
+            x = layer(x)
+            if index == self.low_stage_index:
+                low = x
+            if index == self.high_stage_index:
+                high = x
+                break
+        if low is None or high is None:
+            raise RuntimeError(
+                "torchvision backbone did not emit the requested multiscale features"
+            )
+        return low, high
+
+    def train(self, mode: bool = True) -> TorchvisionImageBackbone:
+        super().train(mode)
+        if self.freeze_backbone:
+            self.extractor.eval()
+        return self
+
+    def forward(self, images: Tensor) -> list[Tensor]:
+        batch, views = images.shape[:2]
+        x = images.reshape(batch * views, *images.shape[2:])
+        if self.freeze_backbone:
+            with torch.no_grad():
+                f8, f16 = self._extract_multiscale(x)
+        else:
+            f8, f16 = self._extract_multiscale(x)
+        f8 = self.proj8(f8).reshape(batch, views, self.config.model_dim, f8.shape[-2], f8.shape[-1])
+        f16 = self.proj16(f16).reshape(
+            batch, views, self.config.model_dim, f16.shape[-2], f16.shape[-1]
+        )
+        return [f8, f16]
+
+
+def build_image_backbone(config: ModelConfig) -> nn.Module:
+    """Construct the configured image backbone."""
+
+    if config.image_backbone == "tiny":
+        return TinyImageBackbone(config)
+    return TorchvisionImageBackbone(config)
 
 
 class ProposalHead(nn.Module):
@@ -242,7 +331,7 @@ class TSQBEVCore(nn.Module):
     def __init__(self, config: ModelConfig) -> None:
         super().__init__()
         self.config = config
-        self.backbone = TinyImageBackbone(config)
+        self.backbone = build_image_backbone(config)
         self.proposal_head = ProposalHead(config)
         self.proposal_init = ProposalRayInitializer(config)
         self.global_seeds = LearnedGlobalSeeds(config)

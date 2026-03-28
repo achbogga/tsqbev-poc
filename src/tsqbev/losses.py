@@ -103,14 +103,15 @@ class DetectionSetCriterion(nn.Module):
         if batch.od_targets is None:
             return {"object_cls": zero, "object_box": zero}
 
-        batch_size, queries, classes = object_logits.shape
+        batch_size, queries, _classes = object_logits.shape
         target_classes = torch.zeros_like(object_logits)
         total_box = zero
         total_gt = 0
 
         for batch_index in range(batch_size):
-            target_boxes = batch.od_targets.boxes_3d[batch_index]
-            target_labels = batch.od_targets.labels[batch_index]
+            valid = batch.od_targets.valid_mask[batch_index]
+            target_boxes = batch.od_targets.boxes_3d[batch_index][valid]
+            target_labels = batch.od_targets.labels[batch_index][valid]
             if target_boxes.numel() == 0:
                 continue
 

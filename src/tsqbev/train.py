@@ -10,6 +10,7 @@ References:
 from __future__ import annotations
 
 import json
+import time
 from collections.abc import Sized
 from pathlib import Path
 from typing import Any, cast
@@ -21,14 +22,19 @@ from torch.utils.data import DataLoader, Dataset, Subset
 
 from tsqbev.checkpoints import save_model_checkpoint
 from tsqbev.config import ModelConfig
-from tsqbev.datasets import NuScenesDataset, OpenLaneDataset, collate_single_scene_example
+from tsqbev.datasets import NuScenesDataset, OpenLaneDataset, collate_scene_examples
 from tsqbev.losses import MultitaskCriterion
 from tsqbev.model import TSQBEVModel
 from tsqbev.runtime import move_batch, resolve_device
 
 
 def _format_metrics(metrics: dict[str, float]) -> str:
-    return ", ".join(f"{name}={value:.4f}" for name, value in metrics.items())
+    visible = []
+    for name, value in metrics.items():
+        if name != "total" and abs(value) < 1e-8:
+            continue
+        visible.append(f"{name}={value:.4f}")
+    return ", ".join(visible)
 
 
 def _to_float_metrics(losses: dict[str, torch.Tensor]) -> dict[str, float]:
@@ -139,24 +145,29 @@ def _write_history(artifact_dir: Path, history: list[dict[str, object]]) -> None
     (artifact_dir / "history.json").write_text(json.dumps(history, indent=2))
 
 
-def _make_loader(dataset: Dataset, shuffle: bool, num_workers: int) -> DataLoader:
+def _make_loader(
+    dataset: Dataset,
+    shuffle: bool,
+    num_workers: int,
+    batch_size: int,
+) -> DataLoader:
     if num_workers > 0:
         return DataLoader(
             dataset,
-            batch_size=1,
+            batch_size=batch_size,
             shuffle=shuffle,
             num_workers=num_workers,
-            collate_fn=collate_single_scene_example,
+            collate_fn=collate_scene_examples,
             pin_memory=torch.cuda.is_available(),
             persistent_workers=True,
             prefetch_factor=2,
         )
     return DataLoader(
         dataset,
-        batch_size=1,
+        batch_size=batch_size,
         shuffle=shuffle,
         num_workers=0,
-        collate_fn=collate_single_scene_example,
+        collate_fn=collate_scene_examples,
         pin_memory=torch.cuda.is_available(),
     )
 
@@ -173,6 +184,7 @@ def fit_nuscenes(
     weight_decay: float = 1e-4,
     grad_accum_steps: int = 8,
     num_workers: int = 4,
+    batch_size: int = 1,
     device: str | None = None,
     max_train_samples: int | None = None,
     max_val_samples: int | None = None,
@@ -182,19 +194,51 @@ def fit_nuscenes(
     """Fit the public object-detection baseline on nuScenes train/val."""
 
     resolved_device = resolve_device(device)
+    if resolved_device.type == "cuda":
+        torch.backends.cuda.matmul.allow_tf32 = True
+        torch.backends.cudnn.allow_tf32 = True
+        torch.backends.cudnn.benchmark = True
     amp_enabled = bool(use_amp) and resolved_device.type == "cuda"
     model_config = config if config is not None else ModelConfig()
+    print(f"[setup] loading nuScenes train split={train_split} from {dataroot}", flush=True)
+    start_time = time.perf_counter()
     train_dataset = _subset_if_requested(
         NuScenesDataset(dataroot=dataroot, version=version, split=train_split),
         max_train_samples,
     )
+    print(
+        f"[setup] loaded train split in {time.perf_counter() - start_time:.2f}s",
+        flush=True,
+    )
+    print(f"[setup] loading nuScenes val split={val_split} from {dataroot}", flush=True)
+    start_time = time.perf_counter()
     val_dataset = _subset_if_requested(
         NuScenesDataset(dataroot=dataroot, version=version, split=val_split),
         max_val_samples,
     )
-    train_loader = _make_loader(train_dataset, shuffle=True, num_workers=num_workers)
-    val_loader = _make_loader(val_dataset, shuffle=False, num_workers=num_workers)
+    print(
+        f"[setup] loaded val split in {time.perf_counter() - start_time:.2f}s",
+        flush=True,
+    )
+    train_loader = _make_loader(
+        train_dataset,
+        shuffle=True,
+        num_workers=num_workers,
+        batch_size=batch_size,
+    )
+    val_loader = _make_loader(
+        val_dataset,
+        shuffle=False,
+        num_workers=num_workers,
+        batch_size=batch_size,
+    )
 
+    print(
+        f"[setup] building model backbone={model_config.image_backbone} "
+        f"pretrained_backbone={model_config.pretrained_image_backbone} "
+        f"freeze_backbone={model_config.freeze_image_backbone}",
+        flush=True,
+    )
     model = TSQBEVModel(model_config).to(resolved_device)
     criterion = MultitaskCriterion()
     optimizer = AdamW(model.parameters(), lr=lr, weight_decay=weight_decay)
@@ -208,7 +252,11 @@ def fit_nuscenes(
     for epoch in range(1, epochs + 1):
         print(
             f"[train] epoch={epoch}/{epochs} device={resolved_device.type} "
-            f"train_samples={train_sample_count} val_samples={val_sample_count}",
+            f"train_samples={train_sample_count} val_samples={val_sample_count} "
+            f"batch_size={batch_size} grad_accum_steps={grad_accum_steps} "
+            f"backbone={model_config.image_backbone} "
+            f"pretrained_backbone={model_config.pretrained_image_backbone} "
+            f"freeze_backbone={model_config.freeze_image_backbone}",
             flush=True,
         )
         train_metrics = _train_epoch(
@@ -272,6 +320,7 @@ def fit_openlane(
     weight_decay: float = 1e-4,
     grad_accum_steps: int = 8,
     num_workers: int = 4,
+    batch_size: int = 1,
     device: str | None = None,
     max_train_samples: int | None = None,
     max_val_samples: int | None = None,
@@ -281,8 +330,14 @@ def fit_openlane(
     """Fit the public lane baseline on OpenLane V1."""
 
     resolved_device = resolve_device(device)
+    if resolved_device.type == "cuda":
+        torch.backends.cuda.matmul.allow_tf32 = True
+        torch.backends.cudnn.allow_tf32 = True
+        torch.backends.cudnn.benchmark = True
     amp_enabled = bool(use_amp) and resolved_device.type == "cuda"
     model_config = config if config is not None else ModelConfig(views=1)
+    print(f"[setup] loading OpenLane train split={train_split} from {dataroot}", flush=True)
+    start_time = time.perf_counter()
     train_dataset = _subset_if_requested(
         OpenLaneDataset(
             dataroot=dataroot,
@@ -292,6 +347,12 @@ def fit_openlane(
         ),
         max_train_samples,
     )
+    print(
+        f"[setup] loaded train split in {time.perf_counter() - start_time:.2f}s",
+        flush=True,
+    )
+    print(f"[setup] loading OpenLane val split={val_split} from {dataroot}", flush=True)
+    start_time = time.perf_counter()
     val_dataset = _subset_if_requested(
         OpenLaneDataset(
             dataroot=dataroot,
@@ -301,9 +362,29 @@ def fit_openlane(
         ),
         max_val_samples,
     )
-    train_loader = _make_loader(train_dataset, shuffle=True, num_workers=num_workers)
-    val_loader = _make_loader(val_dataset, shuffle=False, num_workers=num_workers)
+    print(
+        f"[setup] loaded val split in {time.perf_counter() - start_time:.2f}s",
+        flush=True,
+    )
+    train_loader = _make_loader(
+        train_dataset,
+        shuffle=True,
+        num_workers=num_workers,
+        batch_size=batch_size,
+    )
+    val_loader = _make_loader(
+        val_dataset,
+        shuffle=False,
+        num_workers=num_workers,
+        batch_size=batch_size,
+    )
 
+    print(
+        f"[setup] building model backbone={model_config.image_backbone} "
+        f"pretrained_backbone={model_config.pretrained_image_backbone} "
+        f"freeze_backbone={model_config.freeze_image_backbone}",
+        flush=True,
+    )
     model = TSQBEVModel(model_config).to(resolved_device)
     criterion = MultitaskCriterion()
     optimizer = AdamW(model.parameters(), lr=lr, weight_decay=weight_decay)

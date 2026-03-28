@@ -48,6 +48,7 @@ def move_batch(batch: SceneBatch, device: torch.device) -> SceneBatch:
         od_targets = type(od_targets)(
             boxes_3d=od_targets.boxes_3d.to(device),
             labels=od_targets.labels.to(device),
+            valid_mask=od_targets.valid_mask.to(device),
         )
 
     lane_targets = batch.lane_targets
@@ -130,15 +131,23 @@ def compute_training_losses(
     total = object_logits.new_tensor(0.0)
 
     if batch.od_targets is not None:
-        object_count = _match_count(object_boxes, batch.od_targets.boxes_3d)
-        cls_loss = torch.nn.functional.cross_entropy(
-            object_logits[:, :object_count].reshape(-1, object_logits.shape[-1]),
-            batch.od_targets.labels[:, :object_count].reshape(-1),
+        valid_mask = batch.od_targets.valid_mask
+        object_count = min(
+            object_boxes.shape[1],
+            int(valid_mask.sum(dim=1).min().item()),
         )
-        box_loss = torch.nn.functional.smooth_l1_loss(
-            object_boxes[:, :object_count],
-            batch.od_targets.boxes_3d[:, :object_count],
-        )
+        if object_count > 0:
+            cls_loss = torch.nn.functional.cross_entropy(
+                object_logits[:, :object_count].reshape(-1, object_logits.shape[-1]),
+                batch.od_targets.labels[:, :object_count].reshape(-1),
+            )
+            box_loss = torch.nn.functional.smooth_l1_loss(
+                object_boxes[:, :object_count],
+                batch.od_targets.boxes_3d[:, :object_count],
+            )
+        else:
+            cls_loss = object_logits.sum() * 0.0
+            box_loss = object_boxes.sum() * 0.0
         losses["object_cls"] = cls_loss
         losses["object_box"] = box_loss
         total = total + cls_loss + box_loss

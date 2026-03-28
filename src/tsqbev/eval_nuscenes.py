@@ -17,7 +17,7 @@ import numpy as np
 import torch
 from torch.utils.data import DataLoader
 
-from tsqbev.datasets import NuScenesDataset, collate_single_scene_example
+from tsqbev.datasets import NuScenesDataset, collate_scene_examples
 from tsqbev.labels import NUSCENES_DETECTION_NAMES
 from tsqbev.model import TSQBEVModel
 from tsqbev.quaternion import quaternion_from_yaw, rotate_xy, yaw_from_rotation_matrix
@@ -59,7 +59,7 @@ def export_nuscenes_predictions(
         batch_size=1,
         shuffle=False,
         num_workers=0,
-        collate_fn=collate_single_scene_example,
+        collate_fn=collate_scene_examples,
         pin_memory=torch.cuda.is_available(),
     )
 

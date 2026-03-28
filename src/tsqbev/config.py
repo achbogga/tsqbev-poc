@@ -8,7 +8,7 @@ References:
 
 from __future__ import annotations
 
-from typing import Self
+from typing import Literal, Self
 
 from pydantic import BaseModel, Field, model_validator
 
@@ -27,6 +27,9 @@ class ModelConfig(BaseModel):
     """Configuration for the multimodal temporal sparse-query model."""
 
     image_channels: int = 3
+    image_backbone: Literal["tiny", "mobilenet_v3_large", "efficientnet_b0"] = "tiny"
+    pretrained_image_backbone: bool = False
+    freeze_image_backbone: bool = False
     views: int = 6
     model_dim: int = 256
     num_object_classes: int = 10
@@ -61,6 +64,8 @@ class ModelConfig(BaseModel):
             raise ValueError("sample_keypoints must be positive")
         if self.feature_levels not in {1, 2}:
             raise ValueError("feature_levels must be 1 or 2 for the minimal POC")
+        if self.image_backbone == "tiny" and self.pretrained_image_backbone:
+            raise ValueError("the tiny fallback backbone does not have pretrained weights")
         return self
 
     @classmethod
@@ -68,6 +73,9 @@ class ModelConfig(BaseModel):
         """Return a light config for tests and smoke runs."""
 
         return cls(
+            image_backbone="tiny",
+            pretrained_image_backbone=False,
+            freeze_image_backbone=False,
             model_dim=64,
             q_lidar=24,
             q_2d=16,
@@ -79,6 +87,34 @@ class ModelConfig(BaseModel):
             num_depth_bins=4,
             map_input_dim=64,
             pillar=PillarConfig(q_lidar=24),
+        )
+
+    @classmethod
+    def rtx5000_nuscenes_baseline(cls) -> ModelConfig:
+        """Return a conservative pretrained baseline tuned for local RTX 5000 runs.
+
+        References:
+        - torchvision pretrained model API:
+          https://pytorch.org/vision/stable/models.html
+        - MobileNetV3:
+          https://openaccess.thecvf.com/content_ICCV_2019/papers/Howard_Searching_for_MobileNetV3_ICCV_2019_paper.pdf
+        """
+
+        return cls(
+            image_backbone="mobilenet_v3_large",
+            pretrained_image_backbone=True,
+            freeze_image_backbone=True,
+            model_dim=128,
+            q_lidar=96,
+            q_2d=64,
+            q_global=32,
+            max_object_queries=96,
+            lane_queries=32,
+            lane_points=12,
+            proposals_per_view=16,
+            num_depth_bins=6,
+            map_input_dim=128,
+            pillar=PillarConfig(q_lidar=96),
         )
 
 

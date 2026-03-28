@@ -35,7 +35,11 @@ def test_detection_set_criterion_prefers_exact_match(small_config, synthetic_bat
         extrinsics=synthetic_batch.extrinsics,
         ego_pose=synthetic_batch.ego_pose,
         time_delta_s=synthetic_batch.time_delta_s,
-        od_targets=ObjectTargets(boxes_3d=target_boxes, labels=target_labels),
+        od_targets=ObjectTargets(
+            boxes_3d=target_boxes,
+            labels=target_labels,
+            valid_mask=torch.ones_like(target_labels, dtype=torch.bool),
+        ),
     )
     losses = criterion(logits, boxes, batch)
     assert losses["object_box"] < 1e-5

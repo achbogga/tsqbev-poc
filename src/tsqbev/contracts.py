@@ -49,14 +49,18 @@ class ObjectTargets:
 
     boxes_3d: Tensor
     labels: Tensor
+    valid_mask: Tensor
 
     def validate(self, batch_size: int) -> None:
         _check_rank("boxes_3d", self.boxes_3d, 3)
         _check_rank("labels", self.labels, 2)
+        _check_rank("valid_mask", self.valid_mask, 2)
         if self.boxes_3d.shape[0] != batch_size:
             raise ValueError("object targets batch mismatch")
         if self.boxes_3d.shape[-1] != 9:
             raise ValueError("boxes_3d must use 9 parameters")
+        if self.labels.shape != self.valid_mask.shape:
+            raise ValueError("object target labels and valid_mask shape mismatch")
 
 
 @dataclass(slots=True)

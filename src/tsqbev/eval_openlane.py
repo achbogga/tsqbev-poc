@@ -17,7 +17,7 @@ from pathlib import Path
 import torch
 from torch.utils.data import DataLoader
 
-from tsqbev.datasets import OpenLaneDataset, collate_single_scene_example
+from tsqbev.datasets import OpenLaneDataset, collate_scene_examples
 from tsqbev.labels import OPENLANE_DEFAULT_CATEGORY
 from tsqbev.model import TSQBEVModel
 from tsqbev.runtime import move_batch, resolve_device
@@ -46,7 +46,7 @@ def export_openlane_predictions(
         batch_size=1,
         shuffle=False,
         num_workers=0,
-        collate_fn=collate_single_scene_example,
+        collate_fn=collate_scene_examples,
         pin_memory=torch.cuda.is_available(),
     )
 

@@ -14,7 +14,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import numpy as np
 import torch
@@ -22,7 +22,7 @@ from PIL import Image
 from torch.utils.data import Dataset
 from torchvision.transforms.functional import pil_to_tensor
 
-from tsqbev.contracts import LaneTargets, ObjectTargets, SceneBatch
+from tsqbev.contracts import CameraProposals, LaneTargets, ObjectTargets, SceneBatch
 from tsqbev.labels import (
     NUSCENES_CAMERA_NAMES,
     NUSCENES_DETECTION_NAME_TO_INDEX,
@@ -49,20 +49,144 @@ class SceneExample:
     metadata: dict[str, Any]
 
 
+def _pad_rows(tensor: Tensor, target_rows: int) -> Tensor:
+    rows = int(tensor.shape[0])
+    if rows == target_rows:
+        return tensor
+    padded_shape = (target_rows, *tensor.shape[1:])
+    padded = tensor.new_zeros(padded_shape)
+    padded[:rows] = tensor
+    return padded
+
+
+def _collate_object_targets(examples: list[SceneExample]) -> ObjectTargets | None:
+    max_objects = max(
+        (
+            int(example.scene.od_targets.boxes_3d.shape[1])
+            if example.scene.od_targets is not None
+            else 0
+        )
+        for example in examples
+    )
+    if max_objects == 0:
+        return None
+
+    boxes: list[Tensor] = []
+    labels: list[Tensor] = []
+    valid_masks: list[Tensor] = []
+    for example in examples:
+        targets = example.scene.od_targets
+        if targets is None:
+            boxes.append(example.scene.images.new_zeros(max_objects, 9))
+            labels.append(torch.zeros(max_objects, dtype=torch.long))
+            valid_masks.append(torch.zeros(max_objects, dtype=torch.bool))
+            continue
+        boxes_3d = targets.boxes_3d.squeeze(0)
+        label_ids = targets.labels.squeeze(0)
+        valid_mask = targets.valid_mask.squeeze(0)
+        boxes.append(_pad_rows(boxes_3d, max_objects))
+        labels.append(_pad_rows(label_ids, max_objects))
+        valid_masks.append(_pad_rows(valid_mask, max_objects))
+
+    return ObjectTargets(
+        boxes_3d=torch.stack(boxes, dim=0),
+        labels=torch.stack(labels, dim=0),
+        valid_mask=torch.stack(valid_masks, dim=0),
+    )
+
+
+def _collate_lane_targets(examples: list[SceneExample]) -> LaneTargets | None:
+    max_lanes = max(
+        (
+            int(example.scene.lane_targets.polylines.shape[1])
+            if example.scene.lane_targets is not None
+            else 0
+        )
+        for example in examples
+    )
+    if max_lanes == 0:
+        return None
+
+    lane_points = max(
+        (
+            int(example.scene.lane_targets.polylines.shape[2])
+            if example.scene.lane_targets is not None
+            else 0
+        )
+        for example in examples
+    )
+    polylines: list[Tensor] = []
+    valid_masks: list[Tensor] = []
+    for example in examples:
+        targets = example.scene.lane_targets
+        if targets is None:
+            polylines.append(example.scene.images.new_zeros(max_lanes, lane_points, 3))
+            valid_masks.append(torch.zeros(max_lanes, dtype=torch.bool))
+            continue
+        lane_polylines = targets.polylines.squeeze(0)
+        valid_mask = targets.valid_mask.squeeze(0)
+        padded_polylines = lane_polylines.new_zeros(max_lanes, lane_points, 3)
+        padded_polylines[: lane_polylines.shape[0], : lane_polylines.shape[1]] = lane_polylines
+        polylines.append(padded_polylines)
+        valid_masks.append(_pad_rows(valid_mask, max_lanes))
+
+    return LaneTargets(
+        polylines=torch.stack(polylines, dim=0),
+        valid_mask=torch.stack(valid_masks, dim=0),
+    )
+
+
+def _collate_camera_proposals(examples: list[SceneExample]) -> CameraProposals | None:
+    proposals = [example.scene.camera_proposals for example in examples]
+    if all(proposal is None for proposal in proposals):
+        return None
+    if any(proposal is None for proposal in proposals):
+        raise ValueError("camera proposals must be present for every example or none")
+    concrete_proposals = [cast(CameraProposals, proposal) for proposal in proposals]
+    return CameraProposals(
+        boxes_xyxy=torch.cat([proposal.boxes_xyxy for proposal in concrete_proposals], dim=0),
+        scores=torch.cat([proposal.scores for proposal in concrete_proposals], dim=0),
+    )
+
+
+def collate_scene_examples(examples: list[SceneExample]) -> tuple[SceneBatch, list[dict[str, Any]]]:
+    """Collate real dataset examples into a padded batch."""
+
+    if not examples:
+        raise ValueError("cannot collate an empty example list")
+
+    max_points = max(int(example.scene.lidar_points.shape[1]) for example in examples)
+    lidar_points: list[Tensor] = []
+    lidar_masks: list[Tensor] = []
+    for example in examples:
+        scene = example.scene
+        points = scene.lidar_points.squeeze(0)
+        mask = scene.lidar_mask.squeeze(0)
+        lidar_points.append(_pad_rows(points, max_points))
+        lidar_masks.append(_pad_rows(mask, max_points))
+
+    batch = SceneBatch(
+        images=torch.cat([example.scene.images for example in examples], dim=0),
+        lidar_points=torch.stack(lidar_points, dim=0),
+        lidar_mask=torch.stack(lidar_masks, dim=0),
+        intrinsics=torch.cat([example.scene.intrinsics for example in examples], dim=0),
+        extrinsics=torch.cat([example.scene.extrinsics for example in examples], dim=0),
+        ego_pose=torch.cat([example.scene.ego_pose for example in examples], dim=0),
+        time_delta_s=torch.cat([example.scene.time_delta_s for example in examples], dim=0),
+        camera_proposals=_collate_camera_proposals(examples),
+        od_targets=_collate_object_targets(examples),
+        lane_targets=_collate_lane_targets(examples),
+    )
+    batch.validate()
+    return batch, [example.metadata for example in examples]
+
+
 def collate_single_scene_example(
     examples: list[SceneExample],
 ) -> tuple[SceneBatch, list[dict[str, Any]]]:
-    """Collate a single-example batch.
+    """Backward-compatible alias for the real padded batch collator."""
 
-    The first real baseline is intentionally local and memory-bounded on a 16 GB RTX 5000,
-    so the public training loop uses batch size 1 with gradient accumulation.
-    """
-
-    if len(examples) != 1:
-        raise ValueError("real-dataset collation currently supports batch_size=1 only")
-    scene = examples[0].scene
-    scene.validate()
-    return scene, [examples[0].metadata]
+    return collate_scene_examples(examples)
 
 
 def _image_to_tensor(path: Path, image_size: tuple[int, int]) -> tuple[Tensor, tuple[int, int]]:
@@ -258,6 +382,7 @@ class NuScenesDataset(Dataset[SceneExample]):
             od_targets = ObjectTargets(
                 boxes_3d=torch.tensor(boxes_3d, dtype=torch.float32).unsqueeze(0),
                 labels=torch.tensor(labels, dtype=torch.long).unsqueeze(0),
+                valid_mask=torch.ones(1, len(boxes_3d), dtype=torch.bool),
             )
 
         scene = SceneBatch(

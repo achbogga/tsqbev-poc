@@ -96,6 +96,24 @@ def _model_for_export(default_config: ModelConfig, checkpoint: Path | None) -> T
     return model
 
 
+def _resolve_config(args: argparse.Namespace) -> ModelConfig:
+    if args.preset == "small":
+        config = ModelConfig.small()
+    elif args.preset == "rtx5000-nuscenes":
+        config = ModelConfig.rtx5000_nuscenes_baseline()
+    else:
+        config = ModelConfig()
+
+    updates: dict[str, object] = {}
+    if args.image_backbone is not None:
+        updates["image_backbone"] = args.image_backbone
+    if args.pretrained_image_backbone is not None:
+        updates["pretrained_image_backbone"] = args.pretrained_image_backbone
+    if args.freeze_image_backbone is not None:
+        updates["freeze_image_backbone"] = args.freeze_image_backbone
+    return config.model_copy(update=updates)
+
+
 def _make_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="tsqbev-poc utilities")
     parser.add_argument(
@@ -123,6 +141,26 @@ def _make_parser() -> argparse.ArgumentParser:
     parser.add_argument("--output-path", type=Path, default=Path("artifacts/eval/predictions.json"))
     parser.add_argument("--output-dir", type=Path, default=Path("artifacts/eval"))
     parser.add_argument("--checkpoint", type=Path, default=None)
+    parser.add_argument(
+        "--preset",
+        choices=("default", "small", "rtx5000-nuscenes"),
+        default="default",
+    )
+    parser.add_argument(
+        "--image-backbone",
+        choices=("tiny", "mobilenet_v3_large", "efficientnet_b0"),
+        default=None,
+    )
+    parser.add_argument(
+        "--pretrained-image-backbone",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+    )
+    parser.add_argument(
+        "--freeze-image-backbone",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+    )
     parser.add_argument("--openlane-repo-root", type=Path, default=Path("/tmp/OpenLane"))
     parser.add_argument("--version", type=str, default="v1.0-trainval")
     parser.add_argument("--split", type=str, default="val")
@@ -132,6 +170,7 @@ def _make_parser() -> argparse.ArgumentParser:
     parser.add_argument("--lr", type=float, default=3e-4)
     parser.add_argument("--weight-decay", type=float, default=1e-4)
     parser.add_argument("--grad-accum-steps", type=int, default=8)
+    parser.add_argument("--batch-size", type=int, default=1)
     parser.add_argument("--num-workers", type=int, default=4)
     parser.add_argument("--max-train-samples", type=int, default=None)
     parser.add_argument("--max-val-samples", type=int, default=None)
@@ -179,10 +218,12 @@ def main() -> None:
     if args.command == "train-nuscenes":
         if args.dataset_root is None:
             raise ValueError("--dataset-root is required for train-nuscenes")
+        config = _resolve_config(args)
         print(
             fit_nuscenes(
                 dataroot=args.dataset_root,
                 artifact_dir=args.artifact_dir / "nuscenes",
+                config=config,
                 version=args.version,
                 train_split="train",
                 val_split=args.split,
@@ -190,6 +231,7 @@ def main() -> None:
                 lr=args.lr,
                 weight_decay=args.weight_decay,
                 grad_accum_steps=args.grad_accum_steps,
+                batch_size=args.batch_size,
                 num_workers=args.num_workers,
                 device=args.device,
                 max_train_samples=args.max_train_samples,
@@ -200,10 +242,12 @@ def main() -> None:
     if args.command == "train-openlane":
         if args.dataset_root is None:
             raise ValueError("--dataset-root is required for train-openlane")
+        config = _resolve_config(args)
         print(
             fit_openlane(
                 dataroot=args.dataset_root,
                 artifact_dir=args.artifact_dir / "openlane",
+                config=config,
                 train_split="training",
                 val_split="validation",
                 subset=args.subset,
@@ -211,6 +255,7 @@ def main() -> None:
                 lr=args.lr,
                 weight_decay=args.weight_decay,
                 grad_accum_steps=args.grad_accum_steps,
+                batch_size=args.batch_size,
                 num_workers=args.num_workers,
                 device=args.device,
                 max_train_samples=args.max_train_samples,
@@ -221,7 +266,7 @@ def main() -> None:
     if args.command == "export-nuscenes":
         if args.dataset_root is None:
             raise ValueError("--dataset-root is required for export-nuscenes")
-        model = _model_for_export(ModelConfig(), args.checkpoint)
+        model = _model_for_export(_resolve_config(args), args.checkpoint)
         print(
             {
                 "result_path": str(
@@ -255,7 +300,8 @@ def main() -> None:
     if args.command == "export-openlane":
         if args.dataset_root is None:
             raise ValueError("--dataset-root is required for export-openlane")
-        model = _model_for_export(ModelConfig(views=1), args.checkpoint)
+        config = _resolve_config(args).model_copy(update={"views": 1})
+        model = _model_for_export(config, args.checkpoint)
         print(
             {
                 "pred_dir": str(

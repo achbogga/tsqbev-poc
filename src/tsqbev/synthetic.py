@@ -40,6 +40,7 @@ def make_synthetic_batch(
     od_targets = ObjectTargets(
         boxes_3d=torch.randn(batch_size, max_objects, 9),
         labels=torch.randint(0, config.num_object_classes, (batch_size, max_objects)),
+        valid_mask=torch.ones(batch_size, max_objects, dtype=torch.bool),
     )
     lane_targets = LaneTargets(
         polylines=torch.randn(batch_size, config.lane_queries, config.lane_points, 3),
