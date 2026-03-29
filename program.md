@@ -85,6 +85,7 @@ Required discipline:
 - routed query bank must remain genuinely multimodal
 - record synthetic forward latency for every completed recipe
 - teacher-assisted recipes must be treated as paired ablations, not prose
+- teacher-assisted recipes count only if teacher-cache coverage has been audited first
 - do not call a recipe scale-ready just because it wins the local sweep
 
 ## Required Artifacts

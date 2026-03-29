@@ -40,6 +40,9 @@ Required cacheable outputs:
 
 This is the preferred first mode because it keeps the student runtime simple and reproducible.
 
+The first public ingress path must accept the standard nuScenes detection submission JSON written
+by external/public teacher stacks and convert it into repo-local cache records.
+
 ### Mode B: Optional Online Adapter
 
 The teacher may also be accessed through an optional import-guarded adapter, but only if:
@@ -77,6 +80,7 @@ At minimum, the repo must support the following teacher ablations:
 The external teacher path is worth keeping only if it improves the student on official
 `nuScenes v1.0-mini` validation by at least one of:
 
+- teacher-cache audit coverage `>= 95%` on both `mini_train` and `mini_val`
 - absolute `NDS` lift `>= +0.02`
 - relative `NDS` lift `>= 2x`
 

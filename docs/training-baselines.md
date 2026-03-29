@@ -96,6 +96,19 @@ uv run tsqbev train-nuscenes \
 Optional cached teacher-guided training:
 
 ```bash
+uv run tsqbev cache-teacher-nuscenes \
+  --dataset-root /path/to/nuscenes \
+  --version v1.0-mini \
+  --result-json /path/to/external_teacher_results.json \
+  --teacher-cache-dir /path/to/teacher-cache
+```
+
+This converts a standard nuScenes detection result JSON from an external detector into the local
+`TeacherCacheStore` format expected by the repo.
+
+Then train from the cache:
+
+```bash
 uv run tsqbev train-nuscenes \
   --dataset-root /path/to/nuscenes \
   --artifact-dir artifacts/baselines \
@@ -113,6 +126,27 @@ uv run tsqbev train-nuscenes \
 This expects cached repo-local `TeacherTargets`, not a live heavyweight LiDAR framework in the
 default runtime. The teacher bootstrap contract is documented in
 [`specs/006-lidar-teacher-bootstrap.md`](../specs/006-lidar-teacher-bootstrap.md).
+
+Audit teacher-cache coverage before claiming a teacher-lift result:
+
+```bash
+uv run tsqbev audit-teacher-cache-nuscenes \
+  --dataset-root /path/to/nuscenes \
+  --version v1.0-mini \
+  --split mini_train \
+  --teacher-cache-dir /path/to/teacher-cache \
+  --output-dir artifacts/teacher_cache_audit_train
+
+uv run tsqbev audit-teacher-cache-nuscenes \
+  --dataset-root /path/to/nuscenes \
+  --version v1.0-mini \
+  --split mini_val \
+  --teacher-cache-dir /path/to/teacher-cache \
+  --output-dir artifacts/teacher_cache_audit_val
+```
+
+The exact external OpenPCDet `CenterPoint-PointPillar` runbook is in
+[`docs/openpcdet-centerpoint-teacher.md`](openpcdet-centerpoint-teacher.md).
 
 If the cached teacher outputs include `object_boxes`, `object_labels`, and `object_scores`, the
 teacher-enabled preset replaces the raw LiDAR seed path with projected teacher seeds while still
@@ -221,31 +255,37 @@ Artifact locations:
 
 Strengthened bounded research-loop sweep on `v1.0-mini`:
 
-| Recipe | Val Total | Official mAP | Official NDS | Mean ms | Source Mix | Decision |
-| --- | ---: | ---: | ---: | ---: | --- | --- |
-| `mini_balanced_mbv3_frozen` | 20.9826 | 0.0 | 0.0 | 17.1130 | `50 / 33 / 17` | discard |
-| `mini_propheavy_mbv3_frozen` | 22.4723 | 0.0 | 0.0 | 17.2225 | `33 / 50 / 17` | discard |
-| `mini_propheavy_effb0_frozen` | 23.6836 | 0.0 | `0.0127` | 21.6604 | `33 / 50 / 17` | keep |
+| Recipe | Stage | Val Total | Official mAP | Official NDS | Mean ms | Source Mix | Decision |
+| --- | --- | ---: | ---: | ---: | ---: | --- | --- |
+| `mini_balanced_mbv3_frozen` | baseline | 22.0419 | 0.0 | 0.0 | 17.4492 | `50 / 33 / 17` | discard |
+| `mini_propheavy_mbv3_frozen` | explore | 23.0423 | `3.1083e-04` | `1.5541e-04` | 17.1797 | `33 / 50 / 17` | discard |
+| `mini_propheavy_effb0_frozen` | explore | 24.1645 | 0.0 | 0.0 | 21.6682 | `33 / 50 / 17` | discard |
+| `mini_propheavy_mbv3_frozen_query_boost` | exploit | 20.1352 | `1.1140e-04` | `0.0158` | 17.1938 | `31 / 54 / 15` | promote |
+| `mini_propheavy_mbv3_frozen_lr_down` | exploit | 24.7614 | 0.0 | 0.0 | 17.1298 | `33 / 50 / 17` | discard |
 
-Key change:
+Key changes:
 
 - the strengthened loop now selects by official `mini_val` `NDS`, then `mAP`, then validation
   loss only as a tiebreaker
+- the promoted recipe came from bounded exploitation around the incumbent, not from the initial
+  flat exploration pass
 
 This prevented the repo from incorrectly promoting the lowest-loss recipe, which still had
-`NDS = 0.0`.
+`NDS = 0.0`, and it produced the current best promoted public mini run.
 
 Current answer on scale:
 
 - do **not** scale by 10x compute yet
-- current best official `mini_val` result is promising but still too weak
+- current best completed official `mini_val` result is `NDS = 0.0158068933`, `mAP = 1.1140e-04`
+- no passing overfit-gate artifact is recorded yet
+- no measured teacher-lift artifact is recorded yet
 - see [docs/scaling-gates.md](scaling-gates.md) for the required promotion thresholds
 
 Artifact locations for the strengthened loop:
 
-- sweep ledger: `artifacts/research_v2/research_loop/results.jsonl`
-- sweep ledger TSV: `artifacts/research_v2/research_loop/results.tsv`
-- sweep summary: `artifacts/research_v2/research_loop/summary.json`
+- sweep ledger: `artifacts/research_v3/research_loop/results.jsonl`
+- sweep ledger TSV: `artifacts/research_v3/research_loop/results.tsv`
+- sweep summary: `artifacts/research_v3/research_loop/summary.json`
 
 ## OpenLane Baseline
 

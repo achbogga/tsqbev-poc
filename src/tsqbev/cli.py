@@ -30,7 +30,9 @@ from tsqbev.overfit import run_nuscenes_overfit_gate
 from tsqbev.research import run_bounded_research_loop
 from tsqbev.runtime import benchmark_forward, run_eval_step, run_train_step
 from tsqbev.synthetic import make_synthetic_batch
+from tsqbev.teacher_audit import audit_nuscenes_teacher_cache
 from tsqbev.teacher_backends import TeacherProviderConfig
+from tsqbev.teacher_import import cache_nuscenes_detection_results
 from tsqbev.train import fit_nuscenes, fit_openlane
 from tsqbev.trt import run_trt_benchmark
 
@@ -156,6 +158,8 @@ def _make_parser() -> argparse.ArgumentParser:
             "train-nuscenes",
             "train-openlane",
             "overfit-nuscenes",
+            "cache-teacher-nuscenes",
+            "audit-teacher-cache-nuscenes",
             "export-nuscenes",
             "eval-nuscenes",
             "export-openlane",
@@ -168,6 +172,7 @@ def _make_parser() -> argparse.ArgumentParser:
     parser.add_argument("--output-path", type=Path, default=Path("artifacts/eval/predictions.json"))
     parser.add_argument("--output-dir", type=Path, default=Path("artifacts/eval"))
     parser.add_argument("--checkpoint", type=Path, default=None)
+    parser.add_argument("--result-json", type=Path, default=None)
     parser.add_argument(
         "--preset",
         choices=(
@@ -219,6 +224,7 @@ def _make_parser() -> argparse.ArgumentParser:
     parser.add_argument("--score-threshold", type=float, default=0.25)
     parser.add_argument("--top-k", type=int, default=300)
     parser.add_argument("--subset-size", type=int, default=32)
+    parser.add_argument("--max-audit-samples", type=int, default=None)
     parser.add_argument("--scene-name", type=str, default=None)
     parser.add_argument(
         "--teacher-kind",
@@ -340,6 +346,37 @@ def main() -> None:
                 num_workers=args.num_workers,
                 device=args.device,
                 teacher_provider_config=teacher_provider_config,
+            )
+        )
+        return
+    if args.command == "cache-teacher-nuscenes":
+        if args.dataset_root is None or args.result_json is None:
+            raise ValueError(
+                "--dataset-root and --result-json are required for cache-teacher-nuscenes"
+            )
+        print(
+            cache_nuscenes_detection_results(
+                dataroot=args.dataset_root,
+                version=args.version,
+                result_path=args.result_json,
+                cache_dir=args.teacher_cache_dir or (args.artifact_dir / "teacher_cache"),
+                top_k=args.top_k,
+            )
+        )
+        return
+    if args.command == "audit-teacher-cache-nuscenes":
+        if args.dataset_root is None:
+            raise ValueError("--dataset-root is required for audit-teacher-cache-nuscenes")
+        if args.teacher_cache_dir is None:
+            raise ValueError("--teacher-cache-dir is required for audit-teacher-cache-nuscenes")
+        print(
+            audit_nuscenes_teacher_cache(
+                dataroot=args.dataset_root,
+                version=args.version,
+                split=args.split or _resolve_nuscenes_eval_split(args.version, args.split),
+                cache_dir=args.teacher_cache_dir,
+                max_samples=args.max_audit_samples,
+                output_dir=args.output_dir,
             )
         )
         return

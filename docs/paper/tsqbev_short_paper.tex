@@ -9,13 +9,13 @@
 
 \title{A Minimal Multimodal Temporal Sparse-Query BEV Stack\\with TensorRT Validation on an RTX 5000}
 \author{tsqbev-poc working note}
-\date{March 27, 2026}
+\date{March 29, 2026}
 
 \begin{document}
 \maketitle
 
 \begin{abstract}
-This note describes the current \texttt{tsqbev-poc} architecture, a small public proof of concept for multimodal temporal sparse-query BEV perception. The design combines LiDAR-grounded object seeds, camera-driven sparse refinement, persistent temporal state, a camera-dominant lane branch, optional map priors, and distillation interfaces. The implementation is grounded in verified public sources including DETR3D, PETR/PETRv2, StreamPETR, Sparse4D, CMT, BEVDistill, PersFormer, MapTR, and HotBEV~\cite{detr3d,petr,petrv2,streampetr,sparse4d,cmt,bevdistill,persformer,maptr,hotbev}. We report a successful ONNX-to-TensorRT conversion for the current exportable deployment core, measured latency on a local Quadro RTX 5000, a bounded \texttt{nuScenes v1.0-mini} research sweep, and a promoted 4-epoch \texttt{mini} baseline that reaches nonzero official detection metrics.
+This note describes the current \texttt{tsqbev-poc} architecture, a small public proof of concept for multimodal temporal sparse-query BEV perception. The design combines LiDAR-grounded object seeds, camera-driven sparse refinement, persistent temporal state, a camera-dominant lane branch, optional map priors, and distillation interfaces. The implementation is grounded in verified public sources including DETR3D, PETR/PETRv2, StreamPETR, Sparse4D, CMT, BEVDistill, PersFormer, MapTR, and HotBEV~\cite{detr3d,petr,petrv2,streampetr,sparse4d,cmt,bevdistill,persformer,maptr,hotbev}. We report a successful ONNX-to-TensorRT conversion for the current exportable deployment core, measured latency on a local Quadro RTX 5000, a bounded \texttt{nuScenes v1.0-mini} research sweep, and a promoted exploit-stage mini recipe that reaches nonzero official detection metrics.
 \end{abstract}
 
 \section{Introduction}
@@ -172,14 +172,14 @@ The repository now includes a bounded local research loop on the official \textt
 \toprule
 Run & Epochs & Val total & mAP & NDS \\
 \midrule
-Balanced frozen MobileNetV3 & 6 & 20.9826 & 0.0 & 0.0 \\
-Proposal-heavy frozen MobileNetV3 & 6 & 22.4723 & 0.0 & 0.0 \\
-Proposal-heavy frozen EfficientNet-B0 & 6 & 23.6836 & 0.0 & 0.0127 \\
+Balanced frozen MobileNetV3 & 6 & 22.0419 & 0.0 & 0.0 \\
+Proposal-heavy frozen MobileNetV3 & 6 & 23.0423 & 0.0003 & 0.0002 \\
+Query-boost frozen MobileNetV3 & 6 & 20.1352 & 0.0001 & 0.0158 \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-The strengthened sweep produced the first clearly nonzero official \texttt{NDS} in the repo while keeping a stable multimodal routed query mix of roughly one-third LiDAR, one-half proposal, and one-sixth global queries. That is still not a competitive detector: official \texttt{mAP} remains zero. However, it is meaningful evidence that the direction is now learnable under official metrics rather than only under surrogate validation loss. In particular, the lowest-loss recipe still had \texttt{NDS}=0.0, which justifies ranking recipes by official metrics instead of loss alone.
+The strengthened sweep produced the current best official \texttt{mini\_val} result in the repo while keeping a stable multimodal routed query mix of roughly \texttt{31\%} LiDAR, \texttt{54\%} proposal, and \texttt{15\%} global queries. That is still not a competitive detector: official \texttt{mAP} is nonzero but extremely small. However, it is meaningful evidence that the direction is now learnable under official metrics rather than only under surrogate validation loss. In particular, the exploit-stage query-budget increase beat the earlier explore-stage winner while staying in essentially the same latency envelope.
 
 \section{Limitations}
 These results should be read carefully.
@@ -187,13 +187,13 @@ These results should be read carefully.
 \item They are \textbf{synthetic fixed-shape latency measurements}, not dataset accuracy results.
 \item The TensorRT numbers apply only to the current \textbf{exportable core}, not the full end-to-end multimodal pipeline.
 \item The \texttt{nuScenes} accuracy results are on the tiny \texttt{v1.0-mini} split only and should be interpreted as a functional public baseline, not as a claim of competitive accuracy.
-\item The current best official \texttt{mini\_val} result still has \texttt{mAP}=0.0, so the repo now explicitly blocks 10x compute scale-up until stronger gates are cleared.
+\item The current best official \texttt{mini\_val} result still has extremely weak detection quality (\texttt{mAP} \(\approx 1.1 \times 10^{-4}\), \texttt{NDS} \(\approx 0.0158\)), so the repo now explicitly blocks 10x compute scale-up until stronger gates are cleared.
 \item Local generated design summaries are treated as internal synthesis only and are not cited directly; this note cites the underlying primary papers, official documentation, and our own public repo artifact instead.
 \item These RTX 5000 numbers should \textbf{not} be reinterpreted as Orin numbers.
 \end{itemize}
 
 \section{Conclusion}
-The current \texttt{tsqbev-poc} repository now satisfies a stronger milestone than the original pre-research target: it has a minimal multimodal sparse-query architecture, a tested export path, a successful TensorRT engine build, a bounded local research loop on \texttt{nuScenes v1.0-mini}, and the first nonzero official \texttt{NDS} under a stabilized multimodal routing regime. The next engineering step is not blind scale. It is to bootstrap the student with a public pretrained external LiDAR teacher, with CenterPoint/OpenPCDet-style models as the first target~\cite{centerpoint,opencpdet}, and require a material official-metric lift before larger-scale training is authorized.
+The current \texttt{tsqbev-poc} repository now satisfies a stronger milestone than the original pre-research target: it has a minimal multimodal sparse-query architecture, a tested export path, a successful TensorRT engine build, a bounded local research loop on \texttt{nuScenes v1.0-mini}, and a promoted exploit-stage recipe with nonzero official \texttt{NDS} and \texttt{mAP} under a stabilized multimodal routing regime. The next engineering step is not blind scale. It is to clear the tiny-subset overfit gate and bootstrap the student with a public pretrained external LiDAR teacher, with CenterPoint/OpenPCDet-style models as the first target~\cite{centerpoint,opencpdet}, and require a material official-metric lift before larger-scale training is authorized.
 
 \begin{thebibliography}{10}
 

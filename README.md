@@ -71,15 +71,20 @@ RTX 5000 latency, batch size `1`, image size `256x704`:
 
 The latency measurements are summarized in [docs/benchmarks/rtx5000.md](docs/benchmarks/rtx5000.md). The TensorRT result applies to the current exportable core only, not the full end-to-end multimodal pipeline.
 
-Latest bounded `nuScenes v1.0-mini` sweep:
+Latest completed bounded `nuScenes v1.0-mini` sweep:
 
-| Run | Key Setting | Val Total | mAP | NDS | Source Mix |
-| --- | --- | ---: | ---: | ---: | --- |
-| Balanced `MobileNetV3-Large` | frozen, `q_lidar=96`, `q_2d=64` | 20.9826 | 0.0 | 0.0 | `50/33/17` |
-| Proposal-heavy `MobileNetV3-Large` | frozen, `q_lidar=64`, `q_2d=96` | 22.4723 | 0.0 | 0.0 | `33/50/17` |
-| Proposal-heavy `EfficientNet-B0` | frozen, `q_lidar=64`, `q_2d=96` | 23.6836 | 0.0 | `0.0127` | `33/50/17` |
+| Run | Stage | Key Setting | Val Total | mAP | NDS | Mean ms | Source Mix | Decision |
+| --- | --- | --- | ---: | ---: | ---: | ---: | --- | --- |
+| Balanced `MobileNetV3-Large` | baseline | frozen, `q_lidar=96`, `q_2d=64` | 22.0419 | 0.0 | 0.0 | 17.4492 | `50/33/17` | discard |
+| Proposal-heavy `MobileNetV3-Large` | explore | frozen, `q_lidar=64`, `q_2d=96` | 23.0423 | `3.1083e-04` | `1.5541e-04` | 17.1797 | `33/50/17` | discard |
+| Proposal-heavy `EfficientNet-B0` | explore | frozen, `q_lidar=64`, `q_2d=96` | 24.1645 | 0.0 | 0.0 | 21.6682 | `33/50/17` | discard |
+| Query-boost `MobileNetV3-Large` | exploit | frozen, `q_lidar=64`, `q_2d=112`, `max_q=112` | 20.1352 | `1.1140e-04` | `0.0158` | 17.1938 | `31/54/15` | promote |
+| Lower-LR `MobileNetV3-Large` | exploit | frozen, lower LR | 24.7614 | 0.0 | 0.0 | 17.1298 | `33/50/17` | discard |
 
-The key change is methodological: the loop now selects by official `mini_val` `NDS`, then `mAP`, then loss. That matters because the lowest-loss recipe still had `NDS = 0.0`, while the proposal-heavy frozen `EfficientNet-B0` recipe reached the first clearly nonzero official `NDS`. The sweep artifacts are summarized in [docs/benchmarks/nuscenes-mini.md](docs/benchmarks/nuscenes-mini.md).
+The loop now selects by official `mini_val` `NDS`, then `mAP`, then loss, and the current best
+recipe came from the exploit stage rather than the initial flat sweep. The promoted mini result is
+the query-boost MobileNetV3 recipe with nonzero official `mAP` and `NDS`. The sweep artifacts are
+summarized in [docs/benchmarks/nuscenes-mini.md](docs/benchmarks/nuscenes-mini.md).
 
 ## Source Grounding
 
@@ -108,6 +113,7 @@ The full source map is in [docs/reference-matrix.md](docs/reference-matrix.md).
 - [nuScenes mini baseline](docs/benchmarks/nuscenes-mini.md)
 - [Scaling gates](docs/scaling-gates.md)
 - [Teacher bootstrap](docs/teacher-bootstrap.md)
+- [OpenPCDet CenterPoint teacher runbook](docs/openpcdet-centerpoint-teacher.md)
 - [Reference matrix](docs/reference-matrix.md)
 - [Public baseline workflow](docs/training-baselines.md)
 - [Implementation plan](docs/plan.md)
@@ -181,6 +187,16 @@ uv run tsqbev research-loop \
 Teacher-assisted training is now scaffolded through cached teacher targets:
 
 ```bash
+uv run tsqbev cache-teacher-nuscenes \
+  --dataset-root /path/to/nuscenes \
+  --version v1.0-mini \
+  --result-json /path/to/external_teacher_results.json \
+  --teacher-cache-dir /path/to/teacher-cache
+```
+
+Then train from the cache:
+
+```bash
 uv run tsqbev train-nuscenes \
   --dataset-root /path/to/nuscenes \
   --preset rtx5000-nuscenes-teacher \
@@ -193,6 +209,20 @@ uv run tsqbev train-nuscenes \
 
 Use `--preset rtx5000-nuscenes-teacher` or `--teacher-seed-mode replace_lidar` when the cached
 teacher outputs include `object_boxes`, `object_labels`, and `object_scores` for seed replacement.
+
+Audit cache coverage before claiming any teacher lift:
+
+```bash
+uv run tsqbev audit-teacher-cache-nuscenes \
+  --dataset-root /path/to/nuscenes \
+  --version v1.0-mini \
+  --split mini_val \
+  --teacher-cache-dir /path/to/teacher-cache \
+  --output-dir artifacts/teacher_cache_audit
+```
+
+The exact external OpenPCDet `CenterPoint-PointPillar` runbook is documented in
+[docs/openpcdet-centerpoint-teacher.md](docs/openpcdet-centerpoint-teacher.md).
 
 For CUDA deployment validation on supported NVIDIA systems:
 
@@ -209,7 +239,9 @@ uv run tsqbev trt-bench
 - ONNX export smoke passing
 - TensorRT engine build validated on RTX 5000
 - strengthened bounded `nuScenes v1.0-mini` sweep recorded with official per-recipe `mini_val` evaluation
+- current best completed `mini_val` result: `NDS = 0.0158`, `mAP = 1.1140e-04`
 - explicit scale gates added; current answer is still "do not scale by 10x compute yet"
+- exact-token overfit gate runner implemented; no passing overfit artifact is recorded yet
 - optional external LiDAR teacher cache/provider scaffolding added and tested
 - bounded mini-dataset research loop enabled via `program.md`
 - research loop upgraded to staged baseline/explore/exploit with `results.tsv`, per-run `manifest.json`, and machine-readable `scale_gate_verdict`

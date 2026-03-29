@@ -16,7 +16,7 @@ The PDF in this directory was built locally after collecting the RTX 5000 measur
 - `artifacts/benchmarks/rtx5000_full_model_default.json`
 - `artifacts/trt/benchmark.json`
 - `artifacts/baselines/research_loop/summary.json`
-- `artifacts/research_v2/research_loop/results.tsv`
-- `artifacts/research_v2/research_loop/summary.json`
+- `artifacts/research_v3/research_loop/results.tsv`
+- `artifacts/research_v3/research_loop/summary.json`
 - `artifacts/baselines/mini_selected/nuscenes/history.json`
 - `artifacts/baselines/mini_selected/eval/nuscenes/metrics_summary.json`

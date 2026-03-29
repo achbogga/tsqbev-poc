@@ -134,6 +134,10 @@ This path keeps the heavy teacher framework outside the core repo. The teacher r
 writes cache records, and the student consumes those records through the optional cache/provider
 surface.
 
+The precise first external teacher runbook, grounded in the official OpenPCDet config and
+evaluation/export path, is documented in
+[docs/openpcdet-centerpoint-teacher.md](openpcdet-centerpoint-teacher.md).
+
 Current repo surfaces:
 
 - `src/tsqbev/teacher_cache.py`
@@ -159,5 +163,8 @@ Current minimum promotion rule:
 
 - absolute `NDS` lift `>= +0.02`, or
 - relative `NDS` lift `>= 2x`
+
+Before any teacher-lift number counts, cache coverage must be audited and reach at least `95%` on
+both `mini_train` and `mini_val`.
 
 The formal contract is in [specs/006-lidar-teacher-bootstrap.md](../specs/006-lidar-teacher-bootstrap.md).

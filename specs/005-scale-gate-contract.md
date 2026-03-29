@@ -7,17 +7,23 @@ direction is both learnable and improving for the right reasons.
 
 ## Current Measured Status
 
-As of the bounded `nuScenes v1.0-mini` sweep recorded under `artifacts/research_v2/`:
+As of the bounded `nuScenes v1.0-mini` sweep recorded under `artifacts/research_v3/`:
 
-- best recipe: proposal-heavy frozen `EfficientNet-B0`
-- official `mini_val` `NDS`: `0.0127118571`
-- official `mini_val` `mAP`: `0.0`
-- final validation total: `23.6836`
-- source mix: `33.3% LiDAR / 50.0% proposal / 16.7% global`
-- synthetic RTX 5000 forward latency: `21.66 ms` mean
+- best recipe: `mini_propheavy_mbv3_frozen_query_boost`
+- official `mini_val` `NDS`: `0.0158068933`
+- official `mini_val` `mAP`: `0.0001114034`
+- final validation total: `20.1352`
+- source mix: `31.25% LiDAR / 53.57% proposal / 15.18% global`
+- synthetic RTX 5000 forward latency: `17.19 ms` mean
 
 This is evidence that the current direction is alive. It is not enough evidence to justify a 10x
 compute scale-up.
+
+No passing artifacts are currently recorded for:
+
+- Gate 2: small-subset overfit
+- Gate 4: teacher-lift
+- Gate 6: repeatability
 
 ## Required Gates Before 10x Compute
 
@@ -84,6 +90,7 @@ the student-only baseline at the same public mini setting.
 
 Minimum criteria:
 
+- teacher-cache audit coverage `>= 95%` on both `mini_train` and `mini_val`
 - absolute `NDS` lift of at least `+0.02`, or
 - relative `NDS` lift of at least `2x`
 

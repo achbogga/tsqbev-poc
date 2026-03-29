@@ -11,22 +11,25 @@ Do **not** scale `tsqbev-poc` by 10x compute yet.
 
 The best bounded `nuScenes v1.0-mini` result so far is:
 
-- recipe: proposal-heavy frozen `EfficientNet-B0`
-- official `mini_val` `NDS`: `0.0127118571`
-- official `mini_val` `mAP`: `0.0`
-- final validation total: `23.6836`
-- source mix: `33.3% LiDAR / 50.0% proposal / 16.7% global`
-- synthetic RTX 5000 forward mean: `21.66 ms`
+- recipe: `mini_propheavy_mbv3_frozen_query_boost`
+- official `mini_val` `NDS`: `0.0158068933`
+- official `mini_val` `mAP`: `0.0001114034`
+- final validation total: `20.1352`
+- source mix: `31.25% LiDAR / 53.57% proposal / 15.18% global`
+- synthetic RTX 5000 forward mean: `17.19 ms`
 
 This is a meaningful improvement over the earlier collapsed-router state, but it is still below
 the threshold for responsible scale-up.
 
 ## Why Not Yet
 
-- the first nonzero official `NDS` is encouraging, but `mAP` is still exactly `0.0`
-- only one recipe has escaped the all-zero official-metric regime
+- the current best run has only a barely nonzero official `mAP`, so the detector is still far from
+  a robust public baseline
+- only one completed promoted recipe has clearly escaped the all-zero official-metric regime
 - the current direction has not yet demonstrated tiny-subset overfit
 - there is not yet a pretrained external LiDAR teacher lift measured against the same mini setup
+- teacher-cache coverage has not yet been audited to the `>= 95%` level on `mini_train` and
+  `mini_val`
 
 ## What Must Happen First
 
@@ -39,5 +42,10 @@ the threshold for responsible scale-up.
 The repo now has a dedicated artifact path for Gate 2:
 
 - `artifacts/gates/overfit_gate/summary.json`
+
+And teacher-cache audits should write:
+
+- `artifacts/teacher_cache_audit_train/summary.json`
+- `artifacts/teacher_cache_audit_val/summary.json`
 
 The formal contract is in [specs/005-scale-gate-contract.md](../specs/005-scale-gate-contract.md).

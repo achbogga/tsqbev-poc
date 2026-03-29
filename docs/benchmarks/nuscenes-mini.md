@@ -1,7 +1,7 @@
 # nuScenes v1.0-mini Baseline
 
 This note records the bounded local research loops and promoted `v1.0-mini` baselines executed on
-March 27-28, 2026.
+March 27-29, 2026.
 
 Grounding:
 
@@ -78,7 +78,7 @@ Baseline artifacts:
 - prediction export: `artifacts/baselines/mini_selected/nuscenes_predictions.json`
 - official eval summary: `artifacts/baselines/mini_selected/eval/nuscenes/metrics_summary.json`
 
-## Sweep V2: Real-Metric Selection
+## Sweep V3: Incumbent-Guided Explore/Exploit
 
 The second bounded loop changed the selection rule. Recipes are now ranked by:
 
@@ -89,7 +89,7 @@ The second bounded loop changed the selection rule. Recipes are now ranked by:
 That change mattered in practice: the lowest-loss recipe still had `NDS = 0.0`, while a
 slightly higher-loss recipe produced the first clearly nonzero official `NDS`.
 
-All V2 sweep runs used:
+All V3 sweep runs used:
 
 - dataset: `nuScenes v1.0-mini`
 - train split: `mini_train`
@@ -100,24 +100,25 @@ All V2 sweep runs used:
 
 | Recipe | Backbone | Query Budget | Val Total | mAP | NDS | Mean ms | Source Mix | Decision |
 | --- | --- | --- | ---: | ---: | ---: | ---: | --- | --- |
-| `mini_balanced_mbv3_frozen` | frozen `MobileNetV3-Large` | `96 / 64 / 32` | 20.9826 | 0.0 | 0.0 | 17.1130 | `50 / 33 / 17` | discard |
-| `mini_propheavy_mbv3_frozen` | frozen `MobileNetV3-Large` | `64 / 96 / 32` | 22.4723 | 0.0 | 0.0 | 17.2225 | `33 / 50 / 17` | discard |
-| `mini_propheavy_effb0_frozen` | frozen `EfficientNet-B0` | `64 / 96 / 32` | 23.6836 | 0.0 | `0.0127` | 21.6604 | `33 / 50 / 17` | keep |
+| `mini_balanced_mbv3_frozen` | frozen `MobileNetV3-Large` | `96 / 64 / 32` | 22.0419 | 0.0 | 0.0 | 17.4492 | `50 / 33 / 17` | discard |
+| `mini_propheavy_mbv3_frozen` | frozen `MobileNetV3-Large` | `64 / 96 / 32` | 23.0423 | `3.1083e-04` | `1.5541e-04` | 17.1797 | `33 / 50 / 17` | discard |
+| `mini_propheavy_effb0_frozen` | frozen `EfficientNet-B0` | `64 / 96 / 32` | 24.1645 | 0.0 | 0.0 | 21.6682 | `33 / 50 / 17` | discard |
+| `mini_propheavy_mbv3_frozen_query_boost` | frozen `MobileNetV3-Large` | `64 / 112 / 32` | 20.1352 | `0.0001114` | `0.0158` | 17.1938 | `31 / 54 / 15` | promote |
+| `mini_propheavy_mbv3_frozen_lr_down` | frozen `MobileNetV3-Large` | `64 / 96 / 32` | 24.7614 | 0.0 | 0.0 | 17.1298 | `33 / 50 / 17` | discard |
 
 Interpretation:
 
 - the router/source-balance fix was necessary but not sufficient
 - simply lowering validation loss is still not enough; official detection metrics can remain zero
-- shifting more sparse budget toward proposal seeds helped only when paired with the stronger image backbone
-- the first nonzero official `NDS` arrived without any external teacher yet, which is evidence that
-  the direction is learnable
-- the model is still not scale-ready because `mAP` remains `0.0`
+- the first exploit-stage `query_boost` mutation materially beat the initial explore-stage winner
+- the promoted recipe now has a clearly nonzero official `NDS` and nonzero official `mAP`
+- the direction is learnable without an external teacher, but it is still far below the scale gate
 
-V2 artifacts:
+V3 artifacts:
 
-- sweep ledger: `artifacts/research_v2/research_loop/results.jsonl`
-- sweep ledger TSV: `artifacts/research_v2/research_loop/results.tsv`
-- sweep summary: `artifacts/research_v2/research_loop/summary.json`
+- sweep ledger: `artifacts/research_v3/research_loop/results.jsonl`
+- sweep ledger TSV: `artifacts/research_v3/research_loop/results.tsv`
+- sweep summary: `artifacts/research_v3/research_loop/summary.json`
 
 ## Scale Decision
 
@@ -125,10 +126,10 @@ Current answer: do **not** scale by 10x compute yet.
 
 The reasons are straightforward:
 
-- best official `mini_val` `NDS` is still only `0.0127`
-- best official `mini_val` `mAP` is still `0.0`
+- best official `mini_val` `NDS` is still only `0.0158`
+- best official `mini_val` `mAP` is still only `1.1140e-04`
 - the model has not yet cleared a deliberate tiny-subset overfit gate
-- a pretrained external LiDAR teacher has not yet been added
+- a pretrained external LiDAR teacher has not yet produced a measured lift artifact
 
 The formal go/no-go rules are in [docs/scaling-gates.md](../scaling-gates.md) and
 [specs/005-scale-gate-contract.md](../../specs/005-scale-gate-contract.md).
