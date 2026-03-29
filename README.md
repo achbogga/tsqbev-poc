@@ -229,6 +229,13 @@ uv run tsqbev audit-teacher-cache-nuscenes \
 The exact external OpenPCDet `CenterPoint-PointPillar` runbook is documented in
 [docs/openpcdet-centerpoint-teacher.md](docs/openpcdet-centerpoint-teacher.md).
 
+Check whether a machine is actually ready for that external teacher path:
+
+```bash
+uv run tsqbev check-openpcdet-env \
+  --openpcdet-repo-root /path/to/OpenPCDet
+```
+
 For CUDA deployment validation on supported NVIDIA systems:
 
 ```bash

@@ -148,6 +148,13 @@ uv run tsqbev audit-teacher-cache-nuscenes \
 The exact external OpenPCDet `CenterPoint-PointPillar` runbook is in
 [`docs/openpcdet-centerpoint-teacher.md`](openpcdet-centerpoint-teacher.md).
 
+Before trying that path on any machine, run the prerequisite check:
+
+```bash
+uv run tsqbev check-openpcdet-env \
+  --openpcdet-repo-root /path/to/OpenPCDet
+```
+
 If the cached teacher outputs include `object_boxes`, `object_labels`, and `object_scores`, the
 teacher-enabled preset replaces the raw LiDAR seed path with projected teacher seeds while still
 keeping the heavy teacher itself outside the default runtime.

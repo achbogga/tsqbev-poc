@@ -26,6 +26,7 @@ from tsqbev.eval_openlane import evaluate_openlane_predictions, export_openlane_
 from tsqbev.export import export_core_to_onnx
 from tsqbev.latency import LatencyPredictor, features_from_config
 from tsqbev.model import TSQBEVModel
+from tsqbev.openpcdet_env import check_openpcdet_environment
 from tsqbev.overfit import run_nuscenes_overfit_gate
 from tsqbev.research import run_bounded_research_loop
 from tsqbev.runtime import benchmark_forward, run_eval_step, run_train_step
@@ -160,6 +161,7 @@ def _make_parser() -> argparse.ArgumentParser:
             "overfit-nuscenes",
             "cache-teacher-nuscenes",
             "audit-teacher-cache-nuscenes",
+            "check-openpcdet-env",
             "export-nuscenes",
             "eval-nuscenes",
             "export-openlane",
@@ -233,6 +235,11 @@ def _make_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--teacher-cache-dir", type=Path, default=None)
     parser.add_argument("--teacher-checkpoint", type=Path, default=None)
+    parser.add_argument(
+        "--openpcdet-repo-root",
+        type=Path,
+        default=Path("/home/achbogga/projects/OpenPCDet_official"),
+    )
     return parser
 
 
@@ -363,6 +370,9 @@ def main() -> None:
                 top_k=args.top_k,
             )
         )
+        return
+    if args.command == "check-openpcdet-env":
+        print(check_openpcdet_environment(args.openpcdet_repo_root))
         return
     if args.command == "audit-teacher-cache-nuscenes":
         if args.dataset_root is None:

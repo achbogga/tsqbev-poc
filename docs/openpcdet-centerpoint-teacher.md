@@ -46,6 +46,13 @@ and PyTorch reports `CUDA_HOME=None`, while the official OpenPCDet `setup.py` bu
 `CUDAExtension` modules. Until a CUDA toolkit is installed or the teacher is generated on another
 machine, this remains a prepared external-teacher path rather than a completed local measurement.
 
+You can reproduce that readiness check from inside `tsqbev-poc`:
+
+```bash
+uv run tsqbev check-openpcdet-env \
+  --openpcdet-repo-root /home/achbogga/projects/OpenPCDet_official
+```
+
 ## Dataset Layout
 
 OpenPCDet expects a repo-local data root at `data/nuscenes`, with the actual nuScenes tree inside
