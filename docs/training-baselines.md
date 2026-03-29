@@ -226,6 +226,31 @@ This command trains and evaluates on the exact same fixed token subset and write
 The evaluation path is still grounded in the official nuScenes metric stack, but restricted to the
 explicit token subset instead of an entire named split.
 
+First recorded result:
+
+- verdict: fail
+- train-total ratio: `0.5079`
+- same-subset official `NDS`: `0.0003752`
+- same-subset official `mAP`: `0.0007504`
+- `car AP @ 4.0m`: `0.0`
+- detailed note: [docs/benchmarks/nuscenes-overfit-gate.md](benchmarks/nuscenes-overfit-gate.md)
+
+Latest measured overfit-gate result on the current promoted mini architecture:
+
+| Metric | Value |
+| --- | ---: |
+| Final train total / initial train total | `0.5079` |
+| Same-subset official `NDS` | `0.0003752` |
+| Same-subset official `mAP` | `0.0007504` |
+| Nonzero classes | `1` |
+| `car AP @ 4.0m` | `0.0` |
+| Decision | fail |
+
+Artifact locations:
+
+- `artifacts/gates/overfit_gate/summary.json`
+- `artifacts/gates/overfit_gate/eval/metrics_summary.json`
+
 ## Recorded Mini Results
 
 Historical first bounded research-loop sweep on `v1.0-mini`:

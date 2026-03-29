@@ -21,12 +21,20 @@ The best bounded `nuScenes v1.0-mini` result so far is:
 This is a meaningful improvement over the earlier collapsed-router state, but it is still below
 the threshold for responsible scale-up.
 
+The latest measured 32-sample overfit gate also failed:
+
+- train-total ratio: `0.5079`
+- same-subset official `NDS`: `0.0003752`
+- same-subset official `mAP`: `0.0007504`
+- only `1` class was nonzero, and `car AP @ 4.0m` remained `0.0`
+- artifact: `artifacts/gates/overfit_gate/summary.json`
+
 ## Why Not Yet
 
 - the current best run has only a barely nonzero official `mAP`, so the detector is still far from
   a robust public baseline
 - only one completed promoted recipe has clearly escaped the all-zero official-metric regime
-- the current direction has not yet demonstrated tiny-subset overfit
+- the current direction has now been tested on the tiny-subset overfit gate and failed it
 - there is not yet a pretrained external LiDAR teacher lift measured against the same mini setup
 - teacher-cache coverage has not yet been audited to the `>= 95%` level on `mini_train` and
   `mini_val`
@@ -42,6 +50,7 @@ the threshold for responsible scale-up.
 The repo now has a dedicated artifact path for Gate 2:
 
 - `artifacts/gates/overfit_gate/summary.json`
+- `docs/benchmarks/nuscenes-overfit-gate.md`
 
 And teacher-cache audits should write:
 

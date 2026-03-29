@@ -12,6 +12,11 @@ Primary sources:
 - OpenPCDet nuScenes evaluation/export path:
   <https://github.com/open-mmlab/OpenPCDet/blob/master/pcdet/datasets/nuscenes/nuscenes_dataset.py>
 
+Local verification note:
+
+- the runbook below was checked against official OpenPCDet commit
+  `233f849829b6ac19afb8af8837a0246890908755` on March 29, 2026
+
 ## Chosen First Teacher
 
 Use the official OpenPCDet `CenterPoint-PointPillar` nuScenes baseline first:

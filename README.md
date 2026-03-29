@@ -86,6 +86,10 @@ recipe came from the exploit stage rather than the initial flat sweep. The promo
 the query-boost MobileNetV3 recipe with nonzero official `mAP` and `NDS`. The sweep artifacts are
 summarized in [docs/benchmarks/nuscenes-mini.md](docs/benchmarks/nuscenes-mini.md).
 
+The current scale-up answer is still "not yet": the first measured 32-sample overfit gate failed
+with `train_ratio=0.5079`, same-subset `NDS=0.0003752`, and same-subset `mAP=0.0007504`. See
+[docs/scaling-gates.md](docs/scaling-gates.md).
+
 ## Source Grounding
 
 Primary references include:
@@ -111,6 +115,7 @@ The full source map is in [docs/reference-matrix.md](docs/reference-matrix.md).
 - [Architecture](docs/architecture.md)
 - [RTX 5000 latency benchmark](docs/benchmarks/rtx5000.md)
 - [nuScenes mini baseline](docs/benchmarks/nuscenes-mini.md)
+- [nuScenes overfit gate](docs/benchmarks/nuscenes-overfit-gate.md)
 - [Scaling gates](docs/scaling-gates.md)
 - [Teacher bootstrap](docs/teacher-bootstrap.md)
 - [OpenPCDet CenterPoint teacher runbook](docs/openpcdet-centerpoint-teacher.md)
@@ -241,7 +246,7 @@ uv run tsqbev trt-bench
 - strengthened bounded `nuScenes v1.0-mini` sweep recorded with official per-recipe `mini_val` evaluation
 - current best completed `mini_val` result: `NDS = 0.0158`, `mAP = 1.1140e-04`
 - explicit scale gates added; current answer is still "do not scale by 10x compute yet"
-- exact-token overfit gate runner implemented; no passing overfit artifact is recorded yet
+- exact-token overfit gate recorded; current verdict is fail
 - optional external LiDAR teacher cache/provider scaffolding added and tested
 - bounded mini-dataset research loop enabled via `program.md`
 - research loop upgraded to staged baseline/explore/exploit with `results.tsv`, per-run `manifest.json`, and machine-readable `scale_gate_verdict`

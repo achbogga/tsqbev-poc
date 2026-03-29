@@ -40,7 +40,8 @@ It is a focused open-source POC for public datasets and deployable research arti
   recipe, explicit `promote/discard/crash` semantics, and a machine-readable `scale_gate_verdict`.
 - The repo now also contains a dedicated `nuScenes` overfit-gate runner that trains and evaluates
   on the exact same fixed token subset through the official metric stack.
-- No passing overfit-gate artifact is recorded yet.
+- The first measured overfit-gate artifact failed, with `train_total_ratio = 0.5079`,
+  same-subset `NDS = 0.0003752`, same-subset `mAP = 0.0007504`, and no nonzero `car AP @ 4.0m`.
 - OpenLane support still needs version alignment against the OpenLane-V2 getting-started instructions before any lane baseline can be treated as final.
 - The bounded mini-dataset research loop is now authorized via `program.md`.
 
