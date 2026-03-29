@@ -34,6 +34,10 @@ It is a focused open-source POC for public datasets and deployable research arti
   into repo-local teacher-cache records.
 - The repo now has an explicit teacher-cache audit path for `mini_train` / `mini_val` coverage
   before any teacher-lift claim is allowed.
+- The exact OpenPCDet teacher runbook is documented, but the current workstation still lacks a
+  CUDA toolkit (`CUDA_HOME=None`, no `nvcc`), so the official OpenPCDet build remains blocked
+  locally until that machine-level dependency is installed or the teacher cache is generated
+  elsewhere.
 - The bounded mini loop now mirrors the strongest transferable `autoresearch` mechanics more closely:
   incumbent-first execution, bounded exploration then exploitation, append-only `results.jsonl` and
   `results.tsv`, per-run `manifest.json`, a fixed comparable `max_train_steps=960` budget per

@@ -38,6 +38,14 @@ Keep OpenPCDet in its own environment.
 Do not add OpenPCDet, `spconv`, or other heavy sparse-3D dependencies to the default
 `tsqbev-poc` environment.
 
+## Current Local Status
+
+This runbook is documented precisely, but it has not yet been executed end to end on the current
+workstation. The blocking local fact is that the machine currently has no CUDA toolkit on `PATH`
+and PyTorch reports `CUDA_HOME=None`, while the official OpenPCDet `setup.py` builds multiple
+`CUDAExtension` modules. Until a CUDA toolkit is installed or the teacher is generated on another
+machine, this remains a prepared external-teacher path rather than a completed local measurement.
+
 ## Dataset Layout
 
 OpenPCDet expects a repo-local data root at `data/nuscenes`, with the actual nuScenes tree inside
