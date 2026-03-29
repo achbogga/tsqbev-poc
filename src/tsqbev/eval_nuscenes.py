@@ -10,6 +10,7 @@ References:
 from __future__ import annotations
 
 import json
+import time
 from pathlib import Path
 from typing import Any
 
@@ -48,6 +49,7 @@ def export_nuscenes_predictions(
     score_threshold: float = 0.25,
     top_k: int = 300,
     device: str | None = None,
+    sample_tokens: list[str] | None = None,
     teacher_provider_config: TeacherProviderConfig | None = None,
 ) -> Path:
     """Write a nuScenes detection submission JSON for local validation."""
@@ -56,7 +58,12 @@ def export_nuscenes_predictions(
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
     resolved_device = resolve_device(device)
-    dataset: Dataset[Any] = NuScenesDataset(dataroot=dataroot, version=version, split=split)
+    dataset: Dataset[Any] = NuScenesDataset(
+        dataroot=dataroot,
+        version=version,
+        split=split,
+        sample_tokens=sample_tokens,
+    )
     if teacher_provider_config is not None:
         dataset = TeacherAugmentedDataset(
             dataset,
@@ -134,6 +141,7 @@ def evaluate_nuscenes_predictions(
     split: str,
     result_path: str | Path,
     output_dir: str | Path,
+    sample_tokens: list[str] | None = None,
 ) -> dict[str, object]:
     """Run the official nuScenes local validation metrics on a result JSON."""
 
@@ -142,6 +150,13 @@ def evaluate_nuscenes_predictions(
     output_dir.mkdir(parents=True, exist_ok=True)
 
     nusc = NuScenes(version=version, dataroot=str(dataroot), verbose=False)
+    if sample_tokens is not None:
+        return _evaluate_nuscenes_predictions_subset(
+            nusc=nusc,
+            result_path=result_path,
+            output_dir=output_dir,
+            sample_tokens=sample_tokens,
+        )
     evaluator = DetectionEval(
         nusc=nusc,
         config=config_factory("detection_cvpr_2019"),
@@ -151,3 +166,97 @@ def evaluate_nuscenes_predictions(
         verbose=False,
     )
     return evaluator.main(plot_examples=0, render_curves=False)
+
+
+def _evaluate_nuscenes_predictions_subset(
+    nusc: Any,
+    result_path: str | Path,
+    output_dir: Path,
+    sample_tokens: list[str],
+) -> dict[str, object]:
+    """Evaluate an exact token subset using the official nuScenes metric stack.
+
+    References:
+    - DetectionEval implementation:
+      https://github.com/nutonomy/nuscenes-devkit/blob/master/python-sdk/nuscenes/eval/detection/evaluate.py
+    - common loader helpers:
+      https://github.com/nutonomy/nuscenes-devkit/blob/master/python-sdk/nuscenes/eval/common/loaders.py
+    """
+
+    from nuscenes.eval.common.config import config_factory
+    from nuscenes.eval.common.loaders import (
+        add_center_dist,
+        filter_eval_boxes,
+        load_gt_of_sample_tokens,
+        load_prediction_of_sample_tokens,
+    )
+    from nuscenes.eval.detection.algo import accumulate, calc_ap, calc_tp
+    from nuscenes.eval.detection.constants import TP_METRICS
+    from nuscenes.eval.detection.data_classes import (
+        DetectionBox,
+        DetectionMetricDataList,
+        DetectionMetrics,
+    )
+
+    cfg = config_factory("detection_cvpr_2019")
+    pred_boxes, meta = load_prediction_of_sample_tokens(
+        str(result_path),
+        cfg.max_boxes_per_sample,
+        DetectionBox,
+        sample_tokens=sample_tokens,
+        verbose=False,
+    )
+    gt_boxes = load_gt_of_sample_tokens(nusc, sample_tokens, DetectionBox, verbose=False)
+    if set(pred_boxes.sample_tokens) != set(gt_boxes.sample_tokens):
+        raise ValueError("subset prediction tokens do not match subset ground-truth tokens")
+
+    pred_boxes = add_center_dist(nusc, pred_boxes)
+    gt_boxes = add_center_dist(nusc, gt_boxes)
+    pred_boxes = filter_eval_boxes(nusc, pred_boxes, cfg.class_range, verbose=False)
+    gt_boxes = filter_eval_boxes(nusc, gt_boxes, cfg.class_range, verbose=False)
+
+    start_time = time.time()
+    metric_data_list = DetectionMetricDataList()
+    for class_name in cfg.class_names:
+        for dist_th in cfg.dist_ths:
+            metric_data = accumulate(
+                gt_boxes,
+                pred_boxes,
+                class_name,
+                cfg.dist_fcn_callable,
+                dist_th,
+            )
+            metric_data_list.set(class_name, dist_th, metric_data)
+
+    metrics = DetectionMetrics(cfg)
+    for class_name in cfg.class_names:
+        for dist_th in cfg.dist_ths:
+            metric_data = metric_data_list[(class_name, dist_th)]
+            metrics.add_label_ap(
+                class_name,
+                dist_th,
+                calc_ap(metric_data, cfg.min_recall, cfg.min_precision),
+            )
+        for metric_name in TP_METRICS:
+            metric_data = metric_data_list[(class_name, cfg.dist_th_tp)]
+            if class_name in ["traffic_cone"] and metric_name in [
+                "attr_err",
+                "vel_err",
+                "orient_err",
+            ]:
+                tp = np.nan
+            elif class_name in ["barrier"] and metric_name in ["attr_err", "vel_err"]:
+                tp = np.nan
+            else:
+                tp = calc_tp(metric_data, cfg.min_recall, metric_name)
+            metrics.add_label_tp(class_name, metric_name, tp)
+    metrics.add_runtime(time.time() - start_time)
+
+    metrics_summary = metrics.serialize()
+    metrics_summary["meta"] = meta.copy()
+    metrics_summary["evaluated_sample_tokens"] = list(sample_tokens)
+    (output_dir / "metrics_summary.json").write_text(json.dumps(metrics_summary, indent=2))
+    (output_dir / "metrics_details.json").write_text(
+        json.dumps(metric_data_list.serialize(), indent=2)
+    )
+    return metrics_summary

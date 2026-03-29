@@ -147,6 +147,24 @@ uv run tsqbev check-data --dataset-root /path/to/dataset/root
 
 The full workflow for `nuScenes` and `OpenLane` is documented in [docs/training-baselines.md](docs/training-baselines.md). Full `v1.0-trainval` accuracy is not published yet; the repo currently reports measured `v1.0-mini` results only.
 
+The repo now also has a dedicated tiny-subset overfit gate for `nuScenes`, which evaluates the
+exact same fixed token subset used for training:
+
+```bash
+uv run tsqbev overfit-nuscenes \
+  --dataset-root /path/to/nuscenes \
+  --artifact-dir artifacts/gates \
+  --preset rtx5000-nuscenes-query-boost \
+  --version v1.0-mini \
+  --train-split mini_train \
+  --subset-size 32 \
+  --epochs 128 \
+  --max-train-steps 1024 \
+  --batch-size 4 \
+  --grad-accum-steps 1 \
+  --device cuda
+```
+
 The active bounded research loop is currently scoped to `nuScenes v1.0-mini` only and now follows
 the strongest transferable ideas from Karpathy's `autoresearch`: one incumbent, a fixed comparable
 train-step budget, bounded exploration, bounded exploitation, append-only ledgers, and explicit

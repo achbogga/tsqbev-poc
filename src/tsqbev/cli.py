@@ -26,6 +26,7 @@ from tsqbev.eval_openlane import evaluate_openlane_predictions, export_openlane_
 from tsqbev.export import export_core_to_onnx
 from tsqbev.latency import LatencyPredictor, features_from_config
 from tsqbev.model import TSQBEVModel
+from tsqbev.overfit import run_nuscenes_overfit_gate
 from tsqbev.research import run_bounded_research_loop
 from tsqbev.runtime import benchmark_forward, run_eval_step, run_train_step
 from tsqbev.synthetic import make_synthetic_batch
@@ -102,6 +103,8 @@ def _resolve_config(args: argparse.Namespace) -> ModelConfig:
         config = ModelConfig.small()
     elif args.preset == "rtx5000-nuscenes-teacher":
         config = ModelConfig.rtx5000_nuscenes_teacher_bootstrap()
+    elif args.preset == "rtx5000-nuscenes-query-boost":
+        config = ModelConfig.rtx5000_nuscenes_query_boost()
     elif args.preset == "rtx5000-nuscenes":
         config = ModelConfig.rtx5000_nuscenes_baseline()
     else:
@@ -152,6 +155,7 @@ def _make_parser() -> argparse.ArgumentParser:
             "check-data",
             "train-nuscenes",
             "train-openlane",
+            "overfit-nuscenes",
             "export-nuscenes",
             "eval-nuscenes",
             "export-openlane",
@@ -166,7 +170,13 @@ def _make_parser() -> argparse.ArgumentParser:
     parser.add_argument("--checkpoint", type=Path, default=None)
     parser.add_argument(
         "--preset",
-        choices=("default", "small", "rtx5000-nuscenes", "rtx5000-nuscenes-teacher"),
+        choices=(
+            "default",
+            "small",
+            "rtx5000-nuscenes",
+            "rtx5000-nuscenes-query-boost",
+            "rtx5000-nuscenes-teacher",
+        ),
         default="default",
     )
     parser.add_argument(
@@ -208,6 +218,8 @@ def _make_parser() -> argparse.ArgumentParser:
     parser.add_argument("--max-experiments", type=int, default=5)
     parser.add_argument("--score-threshold", type=float, default=0.25)
     parser.add_argument("--top-k", type=int, default=300)
+    parser.add_argument("--subset-size", type=int, default=32)
+    parser.add_argument("--scene-name", type=str, default=None)
     parser.add_argument(
         "--teacher-kind",
         choices=("cache", "openpcdet-centerpoint-pointpillar", "openpcdet-centerpoint-voxel"),
@@ -302,6 +314,32 @@ def main() -> None:
                 device=args.device,
                 max_train_samples=args.max_train_samples,
                 max_val_samples=args.max_val_samples,
+            )
+        )
+        return
+    if args.command == "overfit-nuscenes":
+        if args.dataset_root is None:
+            raise ValueError("--dataset-root is required for overfit-nuscenes")
+        config = _resolve_config(args)
+        teacher_provider_config = _resolve_teacher_provider_config(args)
+        print(
+            run_nuscenes_overfit_gate(
+                dataroot=args.dataset_root,
+                artifact_dir=args.artifact_dir,
+                config=config,
+                version=args.version,
+                split=args.train_split or "mini_train",
+                subset_size=args.subset_size,
+                scene_name=args.scene_name,
+                epochs=args.epochs,
+                max_train_steps=args.max_train_steps or 1024,
+                lr=args.lr,
+                weight_decay=args.weight_decay,
+                grad_accum_steps=args.grad_accum_steps,
+                batch_size=args.batch_size,
+                num_workers=args.num_workers,
+                device=args.device,
+                teacher_provider_config=teacher_provider_config,
             )
         )
         return

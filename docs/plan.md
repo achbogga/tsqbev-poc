@@ -32,6 +32,8 @@ It is a focused open-source POC for public datasets and deployable research arti
   incumbent-first execution, bounded exploration then exploitation, append-only `results.jsonl` and
   `results.tsv`, per-run `manifest.json`, a fixed comparable `max_train_steps=960` budget per
   recipe, explicit `promote/discard/crash` semantics, and a machine-readable `scale_gate_verdict`.
+- The repo now also contains a dedicated `nuScenes` overfit-gate runner that trains and evaluates
+  on the exact same fixed token subset through the official metric stack.
 - OpenLane support still needs version alignment against the OpenLane-V2 getting-started instructions before any lane baseline can be treated as final.
 - The bounded mini-dataset research loop is now authorized via `program.md`.
 

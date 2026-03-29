@@ -18,3 +18,12 @@ def test_rtx5000_teacher_bootstrap_enables_teacher_seed_mode() -> None:
     config = ModelConfig.rtx5000_nuscenes_teacher_bootstrap()
     assert config.image_backbone == "mobilenet_v3_large"
     assert config.teacher_seed_mode == "replace_lidar"
+
+
+def test_rtx5000_query_boost_matches_current_best_mini_direction() -> None:
+    config = ModelConfig.rtx5000_nuscenes_query_boost()
+    assert config.image_backbone == "mobilenet_v3_large"
+    assert config.freeze_image_backbone is True
+    assert config.q_lidar == 64
+    assert config.q_2d == 112
+    assert config.max_object_queries == 112

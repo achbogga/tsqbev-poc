@@ -36,4 +36,8 @@ the threshold for responsible scale-up.
 4. Preserve the deployment path while improving quality.
 5. Repeat the best recipe and verify stability.
 
+The repo now has a dedicated artifact path for Gate 2:
+
+- `artifacts/gates/overfit_gate/summary.json`
+
 The formal contract is in [specs/005-scale-gate-contract.md](../specs/005-scale-gate-contract.md).

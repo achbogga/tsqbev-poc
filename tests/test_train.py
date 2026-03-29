@@ -102,3 +102,40 @@ def test_fit_nuscenes_respects_max_train_steps(
 
     assert result["train_steps"] == 1
     assert result["epochs"] == 1
+
+
+def test_fit_nuscenes_passes_explicit_sample_tokens(
+    monkeypatch,
+    small_config,
+    tmp_path: Path,
+) -> None:
+    batch = make_synthetic_batch(small_config, batch_size=1, with_teacher=False)
+    example = SceneExample(scene=batch, metadata={"sample_token": "sample-1"})
+    seen_tokens: list[list[str] | None] = []
+
+    def fake_nuscenes_dataset(**kwargs: object) -> _RepeatedDataset:
+        sample_tokens = kwargs.get("sample_tokens")
+        assert sample_tokens is None or isinstance(sample_tokens, list)
+        seen_tokens.append(sample_tokens)
+        return _RepeatedDataset(example, length=1)
+
+    monkeypatch.setattr("tsqbev.train.NuScenesDataset", fake_nuscenes_dataset)
+
+    result = fit_nuscenes(
+        dataroot=tmp_path,
+        artifact_dir=tmp_path / "artifacts",
+        config=small_config,
+        version="v1.0-mini",
+        train_split="mini_train",
+        val_split="mini_train",
+        train_sample_tokens=["tok-a", "tok-b"],
+        val_sample_tokens=["tok-a", "tok-b"],
+        epochs=1,
+        batch_size=1,
+        num_workers=0,
+        device="cpu",
+        log_every_steps=None,
+    )
+
+    assert result["epochs"] == 1
+    assert seen_tokens == [["tok-a", "tok-b"], ["tok-a", "tok-b"]]

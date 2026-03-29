@@ -164,6 +164,34 @@ Expected metric family from the official devkit:
 - `mAVE`
 - `mAAE`
 
+## nuScenes Overfit Gate
+
+Run the dedicated 32-sample overfit gate on the current promoted mini architecture:
+
+```bash
+uv run tsqbev overfit-nuscenes \
+  --dataset-root /path/to/nuscenes \
+  --artifact-dir artifacts/gates \
+  --preset rtx5000-nuscenes-query-boost \
+  --version v1.0-mini \
+  --train-split mini_train \
+  --subset-size 32 \
+  --epochs 128 \
+  --max-train-steps 1024 \
+  --batch-size 4 \
+  --grad-accum-steps 1 \
+  --device cuda
+```
+
+This command trains and evaluates on the exact same fixed token subset and writes:
+
+- `artifacts/gates/overfit_gate/subset_tokens.json`
+- `artifacts/gates/overfit_gate/summary.json`
+- `artifacts/gates/overfit_gate/eval/metrics_summary.json`
+
+The evaluation path is still grounded in the official nuScenes metric stack, but restricted to the
+explicit token subset instead of an entire named split.
+
 ## Recorded Mini Results
 
 Historical first bounded research-loop sweep on `v1.0-mini`:

@@ -278,6 +278,7 @@ class NuScenesDataset(Dataset[SceneExample]):
         version: str = "v1.0-trainval",
         split: str = "train",
         image_size: tuple[int, int] = (256, 704),
+        sample_tokens: list[str] | None = None,
         verbose: bool = False,
     ) -> None:
         super().__init__()
@@ -287,16 +288,18 @@ class NuScenesDataset(Dataset[SceneExample]):
         self.split = split
         self.image_size = image_size
         self.nusc = NuScenes(version=version, dataroot=str(self.dataroot), verbose=verbose)
-
-        scene_names = set(create_splits_scenes(verbose=False)[split])
-        scene_token_to_name = {scene["token"]: scene["name"] for scene in self.nusc.scene}
-        split_samples = [
-            sample
-            for sample in self.nusc.sample
-            if scene_token_to_name[sample["scene_token"]] in scene_names
-        ]
-        ordered_samples = sorted(split_samples, key=lambda item: item["timestamp"])
-        self.sample_tokens = [sample["token"] for sample in ordered_samples]
+        if sample_tokens is not None:
+            self.sample_tokens = list(sample_tokens)
+        else:
+            scene_names = set(create_splits_scenes(verbose=False)[split])
+            scene_token_to_name = {scene["token"]: scene["name"] for scene in self.nusc.scene}
+            split_samples = [
+                sample
+                for sample in self.nusc.sample
+                if scene_token_to_name[sample["scene_token"]] in scene_names
+            ]
+            ordered_samples = sorted(split_samples, key=lambda item: item["timestamp"])
+            self.sample_tokens = [sample["token"] for sample in ordered_samples]
 
     def __len__(self) -> int:
         return len(self.sample_tokens)

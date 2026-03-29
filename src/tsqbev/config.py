@@ -126,6 +126,27 @@ class ModelConfig(BaseModel):
             update={"teacher_seed_mode": "replace_lidar"}
         )
 
+    @classmethod
+    def rtx5000_nuscenes_query_boost(cls) -> ModelConfig:
+        """Return the current best local mini recipe configuration.
+
+        This matches the promoted query-boost exploitation recipe from the bounded
+        `v1.0-mini` loop: proposal-heavy frozen MobileNetV3 with a small extra
+        query budget.
+        """
+
+        baseline = cls.rtx5000_nuscenes_baseline()
+        return baseline.model_copy(
+            update={
+                "q_lidar": 64,
+                "q_2d": 112,
+                "q_global": 32,
+                "max_object_queries": 112,
+                "proposals_per_view": 32,
+                "pillar": baseline.pillar.model_copy(update={"q_lidar": 64}),
+            }
+        )
+
 
 class LatencyPredictorConfig(BaseModel):
     """Simple latency-predictor coefficients and gates."""

@@ -210,6 +210,8 @@ def fit_nuscenes(
     version: str = "v1.0-trainval",
     train_split: str | None = None,
     val_split: str | None = None,
+    train_sample_tokens: list[str] | None = None,
+    val_sample_tokens: list[str] | None = None,
     epochs: int = 4,
     lr: float = 3e-4,
     weight_decay: float = 1e-4,
@@ -244,7 +246,12 @@ def fit_nuscenes(
     )
     start_time = time.perf_counter()
     train_dataset = _subset_if_requested(
-        NuScenesDataset(dataroot=dataroot, version=version, split=resolved_train_split),
+        NuScenesDataset(
+            dataroot=dataroot,
+            version=version,
+            split=resolved_train_split,
+            sample_tokens=train_sample_tokens,
+        ),
         max_train_samples,
     )
     train_dataset = maybe_attach_teacher_targets(train_dataset, teacher_provider_config)
@@ -258,7 +265,12 @@ def fit_nuscenes(
     )
     start_time = time.perf_counter()
     val_dataset = _subset_if_requested(
-        NuScenesDataset(dataroot=dataroot, version=version, split=resolved_val_split),
+        NuScenesDataset(
+            dataroot=dataroot,
+            version=version,
+            split=resolved_val_split,
+            sample_tokens=val_sample_tokens,
+        ),
         max_val_samples,
     )
     val_dataset = maybe_attach_teacher_targets(val_dataset, teacher_provider_config)
@@ -377,6 +389,7 @@ def fit_nuscenes(
         "teacher_provider": (
             teacher_provider_config.kind if teacher_provider_config is not None else None
         ),
+        "history": history,
     }
 
 
