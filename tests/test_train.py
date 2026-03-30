@@ -139,3 +139,42 @@ def test_fit_nuscenes_passes_explicit_sample_tokens(
 
     assert result["epochs"] == 1
     assert seen_tokens == [["tok-a", "tok-b"], ["tok-a", "tok-b"]]
+
+
+def test_fit_nuscenes_warm_starts_from_init_checkpoint(
+    monkeypatch,
+    small_config,
+    tmp_path: Path,
+) -> None:
+    batch = make_synthetic_batch(small_config, batch_size=1, with_teacher=False)
+    example = SceneExample(scene=batch, metadata={"sample_token": "sample-1"})
+    loaded: list[str] = []
+
+    def fake_nuscenes_dataset(**kwargs: object) -> _RepeatedDataset:
+        del kwargs
+        return _RepeatedDataset(example, length=1)
+
+    monkeypatch.setattr("tsqbev.train.NuScenesDataset", fake_nuscenes_dataset)
+    monkeypatch.setattr(
+        "tsqbev.train.load_weights_into_model_from_checkpoint",
+        lambda model, checkpoint_path, map_location="cpu": loaded.append(str(checkpoint_path)),
+    )
+    init_checkpoint = tmp_path / "init.pt"
+
+    result = fit_nuscenes(
+        dataroot=tmp_path,
+        artifact_dir=tmp_path / "artifacts",
+        config=small_config,
+        version="v1.0-mini",
+        train_split="mini_train",
+        val_split="mini_val",
+        epochs=1,
+        batch_size=1,
+        num_workers=0,
+        device="cpu",
+        log_every_steps=None,
+        init_checkpoint=init_checkpoint,
+    )
+
+    assert result["epochs"] == 1
+    assert loaded == [str(init_checkpoint)]
