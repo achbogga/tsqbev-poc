@@ -10,11 +10,13 @@ References:
 from __future__ import annotations
 
 import json
+import random
 import time
 from collections.abc import Sized
 from pathlib import Path
 from typing import Any, Literal, cast
 
+import numpy as np
 import torch
 from torch.optim import AdamW
 from torch.optim.lr_scheduler import CosineAnnealingLR, LambdaLR
@@ -85,6 +87,24 @@ def _make_scheduler(
     if optimizer_schedule == "constant":
         return LambdaLR(optimizer, lr_lambda=lambda _step: 1.0)
     return CosineAnnealingLR(optimizer, T_max=max(epochs, 1))
+
+
+def set_global_seed(seed: int | None) -> None:
+    """Seed Python, NumPy, and Torch RNGs for repeatable bounded runs."""
+
+    if seed is None:
+        return
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(seed)
+
+
+def _seed_worker(worker_id: int) -> None:
+    worker_seed = torch.initial_seed() % (2**32)
+    random.seed(worker_seed + worker_id)
+    np.random.seed(worker_seed + worker_id)
 
 
 def _teacher_anchor_schedule_value(
@@ -240,7 +260,12 @@ def _make_loader(
     shuffle: bool,
     num_workers: int,
     batch_size: int,
+    seed: int | None = None,
 ) -> DataLoader:
+    generator = None
+    if seed is not None:
+        generator = torch.Generator()
+        generator.manual_seed(seed)
     if num_workers > 0:
         return DataLoader(
             dataset,
@@ -251,6 +276,8 @@ def _make_loader(
             pin_memory=torch.cuda.is_available(),
             persistent_workers=True,
             prefetch_factor=2,
+            generator=generator,
+            worker_init_fn=_seed_worker,
         )
     return DataLoader(
         dataset,
@@ -259,6 +286,7 @@ def _make_loader(
         num_workers=0,
         collate_fn=collate_scene_examples,
         pin_memory=torch.cuda.is_available(),
+        generator=generator,
     )
 
 
@@ -281,6 +309,7 @@ def fit_nuscenes(
     max_train_samples: int | None = None,
     max_val_samples: int | None = None,
     max_train_steps: int | None = None,
+    seed: int | None = None,
     teacher_provider_config: TeacherProviderConfig | None = None,
     init_checkpoint: str | Path | None = None,
     use_amp: bool = False,
@@ -316,6 +345,7 @@ def fit_nuscenes(
             torch.backends.cuda.matmul.allow_tf32 = True
             torch.backends.cudnn.allow_tf32 = True
             torch.backends.cudnn.benchmark = True
+        set_global_seed(seed)
         amp_enabled = bool(use_amp) and resolved_device.type == "cuda"
         model_config = config if config is not None else ModelConfig()
         resolved_train_split, resolved_val_split = resolve_nuscenes_splits(
@@ -418,6 +448,7 @@ def fit_nuscenes(
                         "max_train_steps": max_train_steps,
                         "max_train_samples": max_train_samples,
                         "max_val_samples": max_val_samples,
+                        "seed": seed,
                         "init_checkpoint": (
                             str(init_checkpoint) if init_checkpoint is not None else None
                         ),
@@ -659,6 +690,7 @@ def fit_nuscenes(
             "amp_enabled": amp_enabled,
             "epochs": epochs_run,
             "max_train_steps": max_train_steps,
+            "seed": seed,
             "train_steps": train_steps_completed,
             "version": version,
             "train_split": resolved_train_split,
@@ -742,6 +774,7 @@ def fit_openlane(
     device: str | None = None,
     max_train_samples: int | None = None,
     max_val_samples: int | None = None,
+    seed: int | None = None,
     use_amp: bool = False,
     log_every_steps: int | None = 100,
     tracker: ExperimentTracker | None = None,
@@ -759,6 +792,7 @@ def fit_openlane(
             torch.backends.cuda.matmul.allow_tf32 = True
             torch.backends.cudnn.allow_tf32 = True
             torch.backends.cudnn.benchmark = True
+        set_global_seed(seed)
         amp_enabled = bool(use_amp) and resolved_device.type == "cuda"
         model_config = config if config is not None else ModelConfig(views=1)
         print(f"[setup] loading OpenLane train split={train_split} from {dataroot}", flush=True)
@@ -796,12 +830,14 @@ def fit_openlane(
             shuffle=True,
             num_workers=num_workers,
             batch_size=batch_size,
+            seed=seed,
         )
         val_loader = _make_loader(
             val_dataset,
             shuffle=False,
             num_workers=num_workers,
             batch_size=batch_size,
+            seed=None if seed is None else seed + 1,
         )
 
         train_sample_count = len(cast(Sized, train_dataset))
@@ -829,6 +865,7 @@ def fit_openlane(
                 config_payload={
                     "model": model_config.model_dump(),
                     "train": {
+                        "seed": seed,
                         "epochs": epochs,
                         "lr": lr,
                         "weight_decay": weight_decay,
@@ -910,6 +947,7 @@ def fit_openlane(
         result = {
             "device": resolved_device.type,
             "amp_enabled": amp_enabled,
+            "seed": seed,
             "epochs": epochs,
             "artifact_dir": str(artifact_root),
             "checkpoint_path": str(checkpoint_path),

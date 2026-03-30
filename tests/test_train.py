@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import torch
+
 from tsqbev.datasets import SceneExample
 from tsqbev.synthetic import make_synthetic_batch
 from tsqbev.teacher_backends import TeacherProviderConfig
@@ -12,6 +14,7 @@ from tsqbev.train import (
     fit_nuscenes,
     maybe_attach_teacher_targets,
     resolve_nuscenes_splits,
+    set_global_seed,
 )
 
 
@@ -105,6 +108,14 @@ def test_teacher_anchor_schedule_value_decays_after_bootstrap() -> None:
         bootstrap_epochs=4,
         decay_epochs=8,
     ) == 0.1
+
+
+def test_set_global_seed_makes_torch_sampling_repeatable() -> None:
+    set_global_seed(1337)
+    first = torch.randn(4)
+    set_global_seed(1337)
+    second = torch.randn(4)
+    assert torch.equal(first, second)
 
 
 def test_maybe_attach_teacher_targets_wraps_dataset_when_cache_is_configured(

@@ -258,6 +258,7 @@ def _make_parser() -> argparse.ArgumentParser:
     parser.add_argument("--grad-accum-steps", type=int, default=8)
     parser.add_argument("--batch-size", type=int, default=1)
     parser.add_argument("--num-workers", type=int, default=4)
+    parser.add_argument("--seed", type=int, default=1337)
     parser.add_argument("--max-train-samples", type=int, default=None)
     parser.add_argument("--max-val-samples", type=int, default=None)
     parser.add_argument("--device", type=str, default=None)
@@ -363,6 +364,7 @@ def main() -> None:
                 batch_size=args.batch_size,
                 num_workers=args.num_workers,
                 device=args.device,
+                seed=args.seed,
                 max_train_samples=args.max_train_samples,
                 max_val_samples=args.max_val_samples,
                 teacher_provider_config=teacher_provider_config,
@@ -388,6 +390,7 @@ def main() -> None:
                 batch_size=args.batch_size,
                 num_workers=args.num_workers,
                 device=args.device,
+                seed=args.seed,
                 max_train_samples=args.max_train_samples,
                 max_val_samples=args.max_val_samples,
             )
@@ -415,6 +418,7 @@ def main() -> None:
                 batch_size=args.batch_size,
                 num_workers=args.num_workers,
                 device=args.device,
+                seed=args.seed,
                 teacher_provider_config=teacher_provider_config,
                 optimizer_schedule=(
                     args.optimizer_schedule if args.optimizer_schedule is not None else "constant"
