@@ -15,6 +15,21 @@ The repo is meant to:
 The repo is not a final large-scale production training system.
 It is a focused open-source POC for public datasets and deployable research artifacts.
 
+## Standing Research Directives
+
+These are durable repo-level instructions:
+
+- review every important design decision from first principles before extending it
+- use primary papers, official repos, and official weights for unstable SOTA areas
+- treat KD as a large design space, not a single tactic
+- prefer the smallest high-ROI experiment that can falsify the current bottleneck hypothesis
+- keep moving after each bounded result until the next step is no longer clearly justified
+- stop and reassess when the current branch turns into a rabbit hole
+
+The repo now also carries a lightweight `token_burn_score` rule in `AGENTS.md`, `program.md`, and
+`specs/004-research-loop-contract.md` so each direction is explicitly scored on expected ROI,
+integration cost, uncertainty, and evidence gain before more time or compute is spent.
+
 ## Current Status
 
 - The public repo is bootstrapped, tested, and published on GitHub.

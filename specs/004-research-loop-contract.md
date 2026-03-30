@@ -6,6 +6,49 @@ Enable a bounded local experiment loop that borrows the strongest transferable m
 Andrej Karpathy's public `autoresearch` repo without turning `tsqbev-poc` into an unbounded
 autonomous system.
 
+## Standing Research Policy
+
+The loop must be run with first-principles skepticism:
+
+- re-question material design decisions before extending them
+- assume the current bottleneck diagnosis may be wrong until supported by local evidence
+- move quickly with bounded experiments, not with vague open-ended exploration
+- refresh the design space with primary papers, official repos, and official weights when
+  progress stalls, especially for KD, teacher-student design, pretrained backbones, query design,
+  multimodal fusion, and deployment tradeoffs
+
+The loop must treat KD as a menu of candidate mechanisms, not a single checkbox. Candidate
+directions include logits, feature, lightweight `1x1` alignment, relational, online, mutual,
+self-distillation, and teacher-anchor transfer.
+
+## ROI And Token-Burn Rule
+
+Every active direction must record:
+
+- the bottleneck being targeted
+- the expected lift
+- the integration cost
+- the evidence already available
+- the stopping condition
+
+Every active direction must also maintain a lightweight `token_burn_score`:
+
+- `expected_roi`: `1-5`
+- `integration_cost`: `1-5`
+- `uncertainty`: `1-5`
+- `evidence_gain`: `1-5`
+- `token_burn_score = integration_cost + uncertainty - expected_roi - evidence_gain`
+
+Boundary:
+
+- `<= -2`: continue aggressively
+- `-1` to `2`: continue, but force a checkpoint after the next bounded result
+- `>= 3`: stop and reassess before spending more time or compute
+
+The loop must stop and reassess when the active branch becomes a rabbit hole, including repeated
+bounded failures without new evidence or a clear mismatch between the measured bottleneck and the
+current intervention.
+
 ## Active Scope
 
 - dataset: `nuScenes v1.0-mini`
@@ -44,6 +87,8 @@ Every run must record:
 - parent recipe, if any
 - hypothesis
 - mutation reason
+- targeted bottleneck
+- token-burn score
 - git SHA
 - UTC timestamp
 - exact canonical CLI command

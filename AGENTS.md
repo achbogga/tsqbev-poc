@@ -1,0 +1,112 @@
+# TSQBEV Research Agent Rules
+
+This file captures standing research instructions for this repo so they do not need to be
+repeated in chat.
+
+## Core Research Stance
+
+- question every design decision from first principles before extending it
+- assume the current design may be wrong until local evidence says otherwise
+- move fast, but only with bounded, evidence-backed steps
+- fix small issues immediately when they are clearly blocking progress
+- do not stop at a single result; continue to the next highest-ROI step unless a boundary is hit
+
+## Literature And Source Discipline
+
+For any unstable or competitive design area, especially:
+
+- knowledge distillation
+- teacher-student training
+- pretrained backbones and foundation encoders
+- proposal/query design
+- multimodal fusion
+- deployment/runtime tradeoffs
+
+the agent must consult:
+
+- primary papers
+- official codebases
+- official pretrained weights when available
+
+The repo should prefer primary-source citations over secondary summaries. Novel repo-specific claims
+must cite the local artifact, code path, or paper draft in this repo.
+
+## KD Exploration Rule
+
+The repo must treat KD as a broad design space, not a single technique. At minimum, candidate
+directions include:
+
+- logits distillation
+- feature distillation, including lightweight alignment such as `1x1` projection layers
+- box/query distillation
+- relational distillation
+- online or mutual distillation
+- self-distillation
+- teacher-anchor or teacher-proposal transfer
+
+The active KD choice must be justified by ROI, not by completeness.
+
+## ROI Rule
+
+Before starting a new direction, record:
+
+- the bottleneck being targeted
+- the expected lift
+- the integration cost
+- the evidence already available
+- the stopping condition
+
+Prefer the smallest coherent change that can falsify the current hypothesis quickly.
+
+## Token-Burn Score
+
+Every nontrivial direction should maintain a `token_burn_score` using this rubric:
+
+- `expected_roi`: `1-5`
+- `integration_cost`: `1-5`
+- `uncertainty`: `1-5`
+- `evidence_gain`: `1-5`
+- `token_burn_score = integration_cost + uncertainty - expected_roi - evidence_gain`
+
+Interpretation:
+
+- `<= -2`: proceed aggressively
+- `-1` to `2`: proceed, but checkpoint after the next bounded result
+- `>= 3`: stop and reassess before spending more time or compute
+
+The score does not need to be numerically perfect. It exists to force explicit ROI thinking and
+to prevent rabbit holes.
+
+## Rabbit-Hole Boundary
+
+Stop and reassess when any of these are true:
+
+- the same hypothesis has failed in two bounded runs without new evidence
+- the measured bottleneck has shifted and the current branch no longer targets it
+- implementation complexity is growing faster than evidence quality
+- the `token_burn_score` is `>= 3`
+
+When stopping, write down:
+
+- what was tried
+- what changed in the evidence
+- why the direction is no longer the best next move
+
+## Research Loop Expectations
+
+The bounded research loop must:
+
+- remain evidence-first and append-only
+- promote only on official metrics or clearly defined gate outcomes
+- preserve failed runs
+- compare teacher-off and teacher-on paths honestly
+- use web/literature review to refresh the design space when local progress stalls
+
+## Repo Update Rule
+
+When a standing research rule changes, update:
+
+- `AGENTS.md`
+- `program.md`
+- the relevant `specs/*.md`
+- any user-facing docs whose interpretation would otherwise drift

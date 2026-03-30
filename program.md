@@ -10,6 +10,45 @@ Reference workflow:
 This repo is allowed to run a bounded local research loop, but only under the stricter contract
 below.
 
+## Standing Research Directives
+
+These instructions are durable repo policy, not one-off chat guidance.
+
+- challenge every material design decision from first principles before extending it
+- treat the current design as provisional until local evidence supports it
+- move fast with bounded changes; do not spend large effort on unfalsifiable ideas
+- browse primary papers, official repos, and official weights for unstable SOTA areas such as KD,
+  pretrained backbones, query design, multimodal fusion, and deployment tradeoffs
+- treat KD as a broad menu, not a single method: logits, feature, `1x1` alignment, relational,
+  online, mutual, self-distillation, and teacher-anchor transfer are all in scope
+- prefer the highest-ROI falsifiable change first, not the most fashionable or largest one
+- fix small blockers immediately when they are clearly slowing the loop
+- do not stop after one run if the next step is clear and bounded
+- stop and reassess when the direction becomes a rabbit hole
+
+## Token-Burn Discipline
+
+Every nontrivial direction must maintain a lightweight `token_burn_score`:
+
+- `expected_roi`: `1-5`
+- `integration_cost`: `1-5`
+- `uncertainty`: `1-5`
+- `evidence_gain`: `1-5`
+- `token_burn_score = integration_cost + uncertainty - expected_roi - evidence_gain`
+
+Interpretation:
+
+- `<= -2`: proceed aggressively
+- `-1` to `2`: proceed, but checkpoint after the next bounded result
+- `>= 3`: stop and reassess before spending more time or compute
+
+Rabbit-hole boundary:
+
+- two bounded failures on the same hypothesis without new evidence
+- measured bottleneck changed and the branch no longer targets it
+- implementation complexity is rising faster than evidence quality
+- `token_burn_score >= 3`
+
 ## Setup
 
 Before any invocation:
@@ -57,6 +96,7 @@ Follow the strongest transferable ideas from `karpathy/autoresearch`, adapted to
 - record the hypothesis and mutation reason for every run
 - advance only when official metrics improve
 - preserve failed runs in the ledger instead of deleting evidence
+- record the active bottleneck and token-burn score for each direction under investigation
 
 The active local loop shape is:
 
