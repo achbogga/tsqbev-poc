@@ -21,6 +21,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Literal, cast
 
+import numpy as np
 import torch
 from torch.utils.data import DataLoader, Dataset
 
@@ -28,6 +29,7 @@ from tsqbev.checkpoints import load_model_from_checkpoint
 from tsqbev.config import ModelConfig
 from tsqbev.datasets import NuScenesDataset, collate_scene_examples
 from tsqbev.eval_nuscenes import evaluate_nuscenes_predictions, export_nuscenes_predictions
+from tsqbev.quaternion import rotation_matrix_from_quaternion
 from tsqbev.research_guard import ensure_research_loop_enabled
 from tsqbev.runtime import benchmark_forward, move_batch, resolve_device
 from tsqbev.teacher_backends import TeacherProviderConfig, build_teacher_provider
@@ -744,38 +746,71 @@ def _percentile(values: list[float], percentile: float) -> float:
     return float(ordered[lower] * (1.0 - weight) + ordered[upper] * weight)
 
 
-def _prediction_geometry_diagnostics(result_path: Path) -> dict[str, float]:
+def _prediction_geometry_diagnostics(
+    result_path: Path,
+    *,
+    dataroot: Path,
+    version: str,
+) -> dict[str, float]:
     payload = json.loads(result_path.read_text())
     results = payload.get("results", {})
     if not isinstance(results, dict):
         raise ValueError("nuScenes result JSON must contain a results dictionary")
 
     box_counts: list[float] = []
-    translation_norms: list[float] = []
-    for sample_predictions in results.values():
+    ego_translation_norms: list[float] = []
+
+    # Result JSON translations are stored in the nuScenes global frame. Geometry sanity
+    # should be measured in the ego frame instead, otherwise normal map coordinates
+    # look like pathological range explosions.
+    from nuscenes.nuscenes import NuScenes
+
+    nusc = NuScenes(version=version, dataroot=str(dataroot), verbose=False)
+    ego_transform_cache: dict[str, tuple[np.ndarray, np.ndarray]] = {}
+
+    for sample_token, sample_predictions in results.items():
         if not isinstance(sample_predictions, list):
             continue
         box_counts.append(float(len(sample_predictions)))
+        if sample_token not in ego_transform_cache:
+            sample = nusc.get("sample", sample_token)
+            lidar_token = sample["data"]["LIDAR_TOP"]
+            sample_data = nusc.get("sample_data", lidar_token)
+            ego_pose = nusc.get("ego_pose", sample_data["ego_pose_token"])
+            rotation = rotation_matrix_from_quaternion(ego_pose["rotation"])
+            translation = np.asarray(ego_pose["translation"], dtype=np.float32)
+            rotation_t = rotation.T
+            ego_transform_cache[sample_token] = (
+                rotation_t,
+                -(rotation_t @ translation),
+            )
+        rotation_t, translation_t = ego_transform_cache[sample_token]
         for prediction in sample_predictions:
             if not isinstance(prediction, dict):
                 continue
             translation = prediction.get("translation", [0.0, 0.0, 0.0])
             if not isinstance(translation, list) or len(translation) != 3:
                 continue
-            x, y, z = (float(component) for component in translation)
-            translation_norms.append((x * x + y * y + z * z) ** 0.5)
+            global_xyz = np.asarray(
+                [float(component) for component in translation],
+                dtype=np.float32,
+            )
+            ego_xyz = rotation_t @ global_xyz + translation_t
+            ego_translation_norms.append(float(np.linalg.norm(ego_xyz)))
 
     return {
         "sample_count": float(len(results)),
         "boxes_per_sample_mean": float(sum(box_counts) / max(len(box_counts), 1)),
         "boxes_per_sample_p95": _percentile(box_counts, 95.0),
         "boxes_per_sample_max": float(max(box_counts) if box_counts else 0.0),
-        "translation_norm_mean": float(
-            sum(translation_norms) / max(len(translation_norms), 1)
+        "ego_translation_norm_mean": float(
+            sum(ego_translation_norms) / max(len(ego_translation_norms), 1)
         ),
-        "translation_norm_p95": _percentile(translation_norms, 95.0),
-        "translation_norm_p99": _percentile(translation_norms, 99.0),
-        "translation_norm_max": float(max(translation_norms) if translation_norms else 0.0),
+        "ego_translation_norm_p95": _percentile(ego_translation_norms, 95.0),
+        "ego_translation_norm_p99": _percentile(ego_translation_norms, 99.0),
+        "ego_translation_norm_max": float(
+            max(ego_translation_norms) if ego_translation_norms else 0.0
+        ),
     }
 
 
@@ -997,8 +1032,8 @@ def _scale_gate_verdict(
     geometry_gate_pass = (
         _metric_float(geometry.get("boxes_per_sample_mean"), float("inf")) <= 40.0
         and _metric_float(geometry.get("boxes_per_sample_p95"), float("inf")) <= 60.0
-        and _metric_float(geometry.get("translation_norm_p99"), float("inf")) <= 120.0
-        and _metric_float(geometry.get("translation_norm_max"), float("inf")) <= 150.0
+        and _metric_float(geometry.get("ego_translation_norm_p99"), float("inf")) <= 120.0
+        and _metric_float(geometry.get("ego_translation_norm_max"), float("inf")) <= 150.0
     )
     gates = {
         "repo_integrity": {
@@ -1051,7 +1086,7 @@ def _scale_gate_verdict(
             "reason": (
                 "exported boxes stayed in a bounded local range"
                 if geometry_gate_pass
-                else "exported boxes are still implausibly far away or too numerous"
+                else "exported boxes are still too numerous or too far away in the ego frame"
             ),
             "boxes_per_sample_mean": _metric_float(
                 geometry.get("boxes_per_sample_mean"), float("inf")
@@ -1062,11 +1097,11 @@ def _scale_gate_verdict(
             "boxes_per_sample_max": _metric_float(
                 geometry.get("boxes_per_sample_max"), float("inf")
             ),
-            "translation_norm_p99": _metric_float(
-                geometry.get("translation_norm_p99"), float("inf")
+            "ego_translation_norm_p99": _metric_float(
+                geometry.get("ego_translation_norm_p99"), float("inf")
             ),
-            "translation_norm_max": _metric_float(
-                geometry.get("translation_norm_max"), float("inf")
+            "ego_translation_norm_max": _metric_float(
+                geometry.get("ego_translation_norm_max"), float("inf")
             ),
         },
         "efficiency_discipline": {
@@ -1318,7 +1353,11 @@ def run_bounded_research_loop(
             )
             durations_s["export"] = time.perf_counter() - start_time
 
-            prediction_geometry = _prediction_geometry_diagnostics(prediction_path)
+            prediction_geometry = _prediction_geometry_diagnostics(
+                prediction_path,
+                dataroot=root,
+                version="v1.0-mini",
+            )
 
             start_time = time.perf_counter()
             evaluation = evaluate_nuscenes_predictions(
@@ -1384,8 +1423,8 @@ def run_bounded_research_loop(
                     "prediction_boxes_mean": _metric_float(
                         prediction_geometry.get("boxes_per_sample_mean", 0.0)
                     ),
-                    "prediction_translation_p99": _metric_float(
-                        prediction_geometry.get("translation_norm_p99", 0.0)
+                    "prediction_ego_translation_p99": _metric_float(
+                        prediction_geometry.get("ego_translation_norm_p99", 0.0)
                     ),
                 },
                 step=epochs_run,

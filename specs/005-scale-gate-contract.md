@@ -92,8 +92,8 @@ Minimum criteria:
 
 - exported boxes per sample mean `<= 40`
 - exported boxes per sample `p95 <= 60`
-- exported translation norm `p99 <= 120 m`
-- exported translation norm max `<= 150 m`
+- exported ego-frame translation norm `p99 <= 120 m`
+- exported ego-frame translation norm max `<= 150 m`
 
 If exported predictions still explode in count or range, scaling is blocked even if official
 metrics are nonzero.

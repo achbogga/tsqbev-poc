@@ -76,6 +76,19 @@ def test_run_bounded_research_loop_writes_autoresearch_ledgers(
         return output_path
 
     monkeypatch.setattr(research, "export_nuscenes_predictions", fake_export)
+    monkeypatch.setattr(
+        research,
+        "_prediction_geometry_diagnostics",
+        lambda *args, **kwargs: {
+            "boxes_per_sample_mean": 12.0,
+            "boxes_per_sample_p95": 14.0,
+            "boxes_per_sample_max": 16.0,
+            "ego_translation_norm_mean": 18.0,
+            "ego_translation_norm_p95": 24.0,
+            "ego_translation_norm_p99": 30.0,
+            "ego_translation_norm_max": 36.0,
+        },
+    )
 
     def fake_eval_predictions(**kwargs: object) -> dict[str, object]:
         result_path = Path(str(kwargs["result_path"]))
@@ -370,8 +383,8 @@ def test_scale_gate_verdict_blocks_pathological_prediction_geometry() -> None:
             "boxes_per_sample_mean": 111.0,
             "boxes_per_sample_p95": 112.0,
             "boxes_per_sample_max": 112.0,
-            "translation_norm_p99": 1833.0,
-            "translation_norm_max": 2042.0,
+            "ego_translation_norm_p99": 1833.0,
+            "ego_translation_norm_max": 2042.0,
         },
     }
     records = [
@@ -390,3 +403,4 @@ def test_scale_gate_verdict_blocks_pathological_prediction_geometry() -> None:
     assert verdict["authorized"] is False
     assert verdict["gates"]["geometry_sanity"]["passed"] is False
     assert verdict["gates"]["geometry_sanity"]["boxes_per_sample_mean"] == 111.0
+    assert verdict["gates"]["geometry_sanity"]["ego_translation_norm_p99"] == 1833.0
