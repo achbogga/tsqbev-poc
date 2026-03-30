@@ -156,6 +156,9 @@ class QuerySeedBank:
     scores: Tensor
     source_ids: Tensor
     keep_logits: Tensor
+    prior_labels: Tensor | None = None
+    prior_scores: Tensor | None = None
+    prior_valid_mask: Tensor | None = None
 
     def validate(self, batch_size: int) -> None:
         _check_rank("embeddings", self.embeddings, 3)
@@ -167,6 +170,18 @@ class QuerySeedBank:
             raise ValueError("seed bank batch mismatch")
         if self.refs_xyz.shape[-1] != 3:
             raise ValueError("refs_xyz must contain xyz")
+        if self.prior_labels is not None:
+            _check_rank("prior_labels", self.prior_labels, 2)
+            if self.prior_labels.shape != self.scores.shape:
+                raise ValueError("prior_labels shape mismatch")
+        if self.prior_scores is not None:
+            _check_rank("prior_scores", self.prior_scores, 2)
+            if self.prior_scores.shape != self.scores.shape:
+                raise ValueError("prior_scores shape mismatch")
+        if self.prior_valid_mask is not None:
+            _check_rank("prior_valid_mask", self.prior_valid_mask, 2)
+            if self.prior_valid_mask.shape != self.scores.shape:
+                raise ValueError("prior_valid_mask shape mismatch")
 
 
 @dataclass(slots=True)

@@ -209,6 +209,9 @@ class TriSourceQueryRouter(nn.Module):
         lidar_queries: Tensor,
         lidar_refs: Tensor,
         lidar_scores: Tensor,
+        lidar_prior_labels: Tensor | None,
+        lidar_prior_scores: Tensor | None,
+        lidar_prior_valid_mask: Tensor | None,
         proposal_queries: Tensor,
         proposal_refs: Tensor,
         proposal_scores: Tensor,
@@ -262,6 +265,30 @@ class TriSourceQueryRouter(nn.Module):
         all_scores = torch.cat(score_groups, dim=1)
         all_valid = torch.cat(valid_groups, dim=1)
         all_source_ids = torch.cat(source_ids, dim=1)
+        if lidar_prior_labels is None:
+            lidar_prior_labels = torch.zeros_like(lidar_scores, dtype=torch.long)
+        if lidar_prior_scores is None:
+            lidar_prior_scores = torch.zeros_like(lidar_scores)
+        if lidar_prior_valid_mask is None:
+            lidar_prior_valid_mask = torch.zeros_like(lidar_scores, dtype=torch.bool)
+        proposal_prior_labels = torch.zeros_like(proposal_scores, dtype=torch.long)
+        proposal_prior_scores = torch.zeros_like(proposal_scores)
+        proposal_prior_valid = torch.zeros_like(proposal_scores, dtype=torch.bool)
+        global_prior_labels = torch.zeros_like(global_scores, dtype=torch.long)
+        global_prior_scores = torch.zeros_like(global_scores)
+        global_prior_valid = torch.zeros_like(global_scores, dtype=torch.bool)
+        all_prior_labels = torch.cat(
+            (lidar_prior_labels, proposal_prior_labels, global_prior_labels),
+            dim=1,
+        )
+        all_prior_scores = torch.cat(
+            (lidar_prior_scores, proposal_prior_scores, global_prior_scores),
+            dim=1,
+        )
+        all_prior_valid = torch.cat(
+            (lidar_prior_valid_mask, proposal_prior_valid, global_prior_valid),
+            dim=1,
+        )
         keep_logits = self.score_head(
             torch.cat((all_queries, all_scores.unsqueeze(-1)), dim=-1)
         ).squeeze(-1)
@@ -398,10 +425,16 @@ class TriSourceQueryRouter(nn.Module):
         gathered_scores = torch.gather(all_scores, 1, top_indices)
         gathered_sources = torch.gather(all_source_ids, 1, top_indices)
         gathered_logits = torch.gather(keep_logits, 1, top_indices)
+        gathered_prior_labels = torch.gather(all_prior_labels, 1, top_indices)
+        gathered_prior_scores = torch.gather(all_prior_scores, 1, top_indices)
+        gathered_prior_valid = torch.gather(all_prior_valid, 1, top_indices)
         return QuerySeedBank(
             embeddings=gathered_queries,
             refs_xyz=gathered_refs,
             scores=gathered_scores,
             source_ids=gathered_sources,
             keep_logits=gathered_logits,
+            prior_labels=gathered_prior_labels,
+            prior_scores=gathered_prior_scores,
+            prior_valid_mask=gathered_prior_valid,
         )

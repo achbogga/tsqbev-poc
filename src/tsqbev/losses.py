@@ -108,6 +108,8 @@ class DetectionSetCriterion(nn.Module):
         yaw_weight: float = 0.5,
         velocity_weight: float = 0.5,
         reference_weight: float = 0.25,
+        teacher_anchor_class_weight: float = 0.5,
+        teacher_anchor_objectness_weight: float = 0.5,
         loss_mode: str = "baseline",
         hard_negative_ratio: int = 3,
         hard_negative_cap: int = 96,
@@ -119,6 +121,8 @@ class DetectionSetCriterion(nn.Module):
         self.yaw_weight = yaw_weight
         self.velocity_weight = velocity_weight
         self.reference_weight = reference_weight
+        self.teacher_anchor_class_weight = teacher_anchor_class_weight
+        self.teacher_anchor_objectness_weight = teacher_anchor_objectness_weight
         self.loss_mode = loss_mode
         self.hard_negative_ratio = hard_negative_ratio
         self.hard_negative_cap = hard_negative_cap
@@ -199,6 +203,9 @@ class DetectionSetCriterion(nn.Module):
         batch: SceneBatch,
         objectness_logits: Tensor | None = None,
         reference_points: Tensor | None = None,
+        teacher_prior_labels: Tensor | None = None,
+        teacher_prior_scores: Tensor | None = None,
+        teacher_prior_valid_mask: Tensor | None = None,
     ) -> dict[str, Tensor]:
         object_logits = object_logits.float()
         object_boxes = object_boxes.float()
@@ -323,11 +330,49 @@ class DetectionSetCriterion(nn.Module):
             float(normalizer),
         )
         box_loss = total_box / float(normalizer)
+        teacher_anchor_cls_loss = zero
+        teacher_anchor_objectness_loss = zero
+        if (
+            teacher_prior_labels is not None
+            and teacher_prior_valid_mask is not None
+            and bool(teacher_prior_valid_mask.any())
+        ):
+            prior_weights = (
+                teacher_prior_scores.float().clamp(0.0, 1.0)
+                if teacher_prior_scores is not None
+                else torch.ones_like(teacher_prior_valid_mask, dtype=object_logits.dtype)
+            )
+            valid = teacher_prior_valid_mask
+            if objectness_logits is not None:
+                teacher_anchor_objectness_loss = (
+                    F.binary_cross_entropy_with_logits(
+                        objectness_logits.float()[valid],
+                        prior_weights[valid],
+                        reduction="none",
+                    )
+                    * prior_weights[valid]
+                ).sum() / prior_weights[valid].sum().clamp_min(1.0)
+                teacher_anchor_objectness_loss = (
+                    teacher_anchor_objectness_loss * self.teacher_anchor_objectness_weight
+                )
+            teacher_anchor_cls_loss = (
+                F.cross_entropy(
+                    object_logits[valid],
+                    teacher_prior_labels[valid].long(),
+                    reduction="none",
+                )
+                * prior_weights[valid]
+            ).sum() / prior_weights[valid].sum().clamp_min(1.0)
+            teacher_anchor_cls_loss = (
+                teacher_anchor_cls_loss * self.teacher_anchor_class_weight
+            )
         return {
             "objectness": objectness_loss,
             "object_cls": cls_loss,
             "object_box": box_loss,
             "object_ref": reference_loss,
+            "object_teacher_anchor_cls": teacher_anchor_cls_loss,
+            "object_teacher_anchor_obj": teacher_anchor_objectness_loss,
         }
 
 
@@ -411,6 +456,9 @@ class MultitaskCriterion(nn.Module):
                 batch,
                 objectness_logits=objectness_logits,
                 reference_points=temporal_state.object_refs,
+                teacher_prior_labels=seed_bank.prior_labels,
+                teacher_prior_scores=seed_bank.prior_scores,
+                teacher_prior_valid_mask=seed_bank.prior_valid_mask,
             )
         )
         losses.update(self.lane(lane_logits, lane_polylines, batch))

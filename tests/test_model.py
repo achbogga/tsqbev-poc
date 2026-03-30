@@ -130,6 +130,10 @@ def test_model_can_replace_lidar_seeds_with_teacher_targets(synthetic_batch) -> 
     outputs = model(synthetic_batch)
     seed_bank = outputs["seed_bank"]
     assert (seed_bank.source_ids == 0).any()
+    assert seed_bank.prior_valid_mask is not None
+    assert bool(seed_bank.prior_valid_mask.any())
+    assert seed_bank.prior_labels is not None
+    assert seed_bank.prior_scores is not None
 
 
 def test_model_can_replace_lidar_refs_with_teacher_targets(synthetic_batch) -> None:

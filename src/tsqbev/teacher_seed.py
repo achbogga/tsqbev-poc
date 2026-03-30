@@ -40,7 +40,10 @@ class TeacherSeedEncoder(nn.Module):
             nn.Linear(config.model_dim, config.model_dim),
         )
 
-    def forward(self, teacher: TeacherTargets | None) -> tuple[Tensor, Tensor, Tensor] | None:
+    def encode_with_priors(
+        self,
+        teacher: TeacherTargets | None,
+    ) -> tuple[Tensor, Tensor, Tensor, Tensor, Tensor, Tensor] | None:
         if teacher is None:
             return None
         if (
@@ -62,6 +65,9 @@ class TeacherSeedEncoder(nn.Module):
         )
         refs = torch.zeros(batch, self.config.q_lidar, 3, device=device, dtype=dtype)
         scores = torch.zeros(batch, self.config.q_lidar, device=device, dtype=dtype)
+        prior_labels = torch.zeros(batch, self.config.q_lidar, device=device, dtype=torch.long)
+        prior_scores = torch.zeros(batch, self.config.q_lidar, device=device, dtype=dtype)
+        prior_valid_mask = torch.zeros(batch, self.config.q_lidar, device=device, dtype=torch.bool)
         valid_mask = (
             teacher.valid_mask
             if teacher.valid_mask is not None
@@ -91,5 +97,15 @@ class TeacherSeedEncoder(nn.Module):
             queries[batch_index, :count] = projected
             refs[batch_index, :count] = batch_boxes[:, :3]
             scores[batch_index, :count] = batch_scores
+            prior_labels[batch_index, :count] = batch_labels
+            prior_scores[batch_index, :count] = batch_scores
+            prior_valid_mask[batch_index, :count] = True
 
+        return queries, refs, scores, prior_labels, prior_scores, prior_valid_mask
+
+    def forward(self, teacher: TeacherTargets | None) -> tuple[Tensor, Tensor, Tensor] | None:
+        encoded = self.encode_with_priors(teacher)
+        if encoded is None:
+            return None
+        queries, refs, scores, _prior_labels, _prior_scores, _prior_valid_mask = encoded
         return queries, refs, scores

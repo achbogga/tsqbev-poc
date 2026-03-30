@@ -294,10 +294,42 @@ class ObjectHead(nn.Module):
         self.size = nn.Linear(config.model_dim, 3)
         self.yaw = nn.Linear(config.model_dim, 2)
         self.velocity = nn.Linear(config.model_dim, 2)
+        self.anchor_objectness_scale = nn.Parameter(torch.tensor(1.0))
+        self.anchor_class_scale = nn.Parameter(torch.tensor(1.0))
 
-    def forward(self, queries: Tensor, refs_xyz: Tensor) -> tuple[Tensor, Tensor, Tensor]:
+    def forward(
+        self,
+        queries: Tensor,
+        refs_xyz: Tensor,
+        prior_labels: Tensor | None = None,
+        prior_scores: Tensor | None = None,
+        prior_valid_mask: Tensor | None = None,
+    ) -> tuple[Tensor, Tensor, Tensor]:
         objectness_logits = self.objectness(queries).squeeze(-1)
         class_logits = self.cls(queries)
+        if (
+            prior_labels is not None
+            and prior_scores is not None
+            and prior_valid_mask is not None
+            and bool(prior_valid_mask.any())
+        ):
+            clipped_prior = prior_scores.clamp(0.05, 0.95)
+            prior_logits = torch.logit(clipped_prior)
+            prior_mask = prior_valid_mask.to(dtype=queries.dtype)
+            objectness_logits = (
+                objectness_logits
+                + self.anchor_objectness_scale * prior_logits * prior_mask
+            )
+            one_hot = F.one_hot(
+                prior_labels.to(torch.long),
+                num_classes=class_logits.shape[-1],
+            ).to(dtype=class_logits.dtype)
+            class_logits = class_logits + (
+                self.anchor_class_scale
+                * prior_logits.unsqueeze(-1)
+                * one_hot
+                * prior_mask.unsqueeze(-1)
+            )
 
         center_delta = torch.tanh(self.center_offset(queries)) * _CENTER_OFFSET_RADIUS_M
         centers = refs_xyz + center_delta
@@ -367,6 +399,9 @@ class TSQBEVCore(nn.Module):
         lidar_queries: Tensor,
         lidar_refs: Tensor,
         lidar_scores: Tensor,
+        lidar_prior_labels: Tensor | None = None,
+        lidar_prior_scores: Tensor | None = None,
+        lidar_prior_valid_mask: Tensor | None = None,
         camera_proposals: CameraProposals | None = None,
         proposal_queries: Tensor | None = None,
         proposal_refs: Tensor | None = None,
@@ -394,6 +429,9 @@ class TSQBEVCore(nn.Module):
             lidar_queries,
             lidar_refs,
             lidar_scores,
+            lidar_prior_labels,
+            lidar_prior_scores,
+            lidar_prior_valid_mask,
             proposal_queries,
             proposal_refs,
             proposal_scores,
@@ -404,7 +442,13 @@ class TSQBEVCore(nn.Module):
         sampled = self.sampler(features, seed_bank.refs_xyz, intrinsics, extrinsics)
         fused_queries = self.fusion(seed_bank.embeddings, sampled)
         fused_queries, fused_refs = self.temporal(fused_queries, seed_bank.refs_xyz, state)
-        objectness_logits, object_logits, object_boxes = self.object_head(fused_queries, fused_refs)
+        objectness_logits, object_logits, object_boxes = self.object_head(
+            fused_queries,
+            fused_refs,
+            prior_labels=seed_bank.prior_labels,
+            prior_scores=seed_bank.prior_scores,
+            prior_valid_mask=seed_bank.prior_valid_mask,
+        )
         lane_logits, lane_polylines = self.lane_head(features, fused_queries, map_priors)
         temporal_state = TemporalState(object_queries=fused_queries, object_refs=fused_refs)
         return {
@@ -468,11 +512,24 @@ class TSQBEVModel(nn.Module):
     ) -> dict[str, Tensor | QuerySeedBank | TemporalState]:
         batch.validate()
         teacher_seed_bank = None
+        teacher_prior_labels = None
+        teacher_prior_scores = None
+        teacher_prior_valid_mask = None
         if (
             self.config.teacher_seed_mode == "replace_lidar"
             and self.teacher_seed_encoder is not None
         ):
-            teacher_seed_bank = self.teacher_seed_encoder(batch.teacher_targets)
+            encoded = self.teacher_seed_encoder.encode_with_priors(batch.teacher_targets)
+            if encoded is not None:
+                (
+                    teacher_queries,
+                    teacher_refs,
+                    teacher_scores,
+                    teacher_prior_labels,
+                    teacher_prior_scores,
+                    teacher_prior_valid_mask,
+                ) = encoded
+                teacher_seed_bank = (teacher_queries, teacher_refs, teacher_scores)
         if teacher_seed_bank is None:
             lidar_queries, lidar_refs, lidar_scores = self.lidar_encoder(
                 batch.lidar_points,
@@ -493,6 +550,9 @@ class TSQBEVModel(nn.Module):
             lidar_queries=lidar_queries,
             lidar_refs=lidar_refs,
             lidar_scores=lidar_scores,
+            lidar_prior_labels=teacher_prior_labels,
+            lidar_prior_scores=teacher_prior_scores,
+            lidar_prior_valid_mask=teacher_prior_valid_mask,
             camera_proposals=batch.camera_proposals,
             map_priors=batch.map_priors,
             state=state,

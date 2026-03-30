@@ -107,3 +107,24 @@ def test_multitask_criterion_can_disable_teacher_distillation(
     outputs = model(synthetic_batch)
     losses = criterion(outputs, synthetic_batch)
     assert float(losses["kd_total"]) == 0.0
+
+
+def test_detection_set_criterion_adds_teacher_anchor_prior_losses(
+    small_config,
+    synthetic_batch,
+) -> None:
+    model = TSQBEVModel(small_config.model_copy(update={"teacher_seed_mode": "replace_lidar"}))
+    outputs = model(synthetic_batch)
+    criterion = DetectionSetCriterion()
+    losses = criterion(
+        outputs["object_logits"],
+        outputs["object_boxes"],
+        synthetic_batch,
+        objectness_logits=outputs["objectness_logits"],
+        reference_points=outputs["temporal_state"].object_refs,
+        teacher_prior_labels=outputs["seed_bank"].prior_labels,
+        teacher_prior_scores=outputs["seed_bank"].prior_scores,
+        teacher_prior_valid_mask=outputs["seed_bank"].prior_valid_mask,
+    )
+    assert losses["object_teacher_anchor_cls"] > 0.0
+    assert losses["object_teacher_anchor_obj"] > 0.0

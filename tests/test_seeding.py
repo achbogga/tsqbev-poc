@@ -23,6 +23,9 @@ def test_tri_source_router_keeps_requested_query_budget(small_config: ModelConfi
         lidar_queries,
         lidar_refs,
         lidar_scores,
+        None,
+        None,
+        None,
         proposal_queries,
         proposal_refs,
         proposal_scores,
@@ -53,6 +56,9 @@ def test_tri_source_router_preserves_source_diversity_when_lidar_scores_dominate
         lidar_queries,
         lidar_refs,
         lidar_scores,
+        None,
+        None,
+        None,
         proposal_queries,
         proposal_refs,
         proposal_scores,
@@ -92,6 +98,9 @@ def test_anchor_first_router_prefers_lidar_anchors_when_available(
         lidar_queries,
         lidar_refs,
         lidar_scores,
+        None,
+        None,
+        None,
         proposal_queries,
         proposal_refs,
         proposal_scores,
@@ -101,3 +110,43 @@ def test_anchor_first_router_prefers_lidar_anchors_when_available(
     )
 
     assert torch.all(seed_bank.source_ids == TriSourceQueryRouter.SOURCE_LIDAR)
+
+
+def test_anchor_first_router_preserves_teacher_prior_metadata(
+    small_config: ModelConfig,
+) -> None:
+    config = small_config.model_copy(update={"router_mode": "anchor_first"})
+    router = TriSourceQueryRouter(config)
+    batch = 1
+    lidar_queries = torch.randn(batch, config.q_lidar, config.model_dim)
+    lidar_refs = torch.randn(batch, config.q_lidar, 3)
+    lidar_scores = torch.linspace(0.2, 1.0, config.q_lidar).unsqueeze(0)
+    lidar_prior_labels = torch.arange(config.q_lidar).unsqueeze(0) % config.num_object_classes
+    lidar_prior_scores = torch.linspace(0.3, 0.9, config.q_lidar).unsqueeze(0)
+    lidar_prior_valid_mask = torch.ones(batch, config.q_lidar, dtype=torch.bool)
+    proposal_queries = torch.randn(batch, config.q_2d, config.model_dim)
+    proposal_refs = torch.randn(batch, config.q_2d, 3)
+    proposal_scores = torch.ones(batch, config.q_2d)
+    global_queries = torch.randn(batch, config.q_global, config.model_dim)
+    global_refs = torch.randn(batch, config.q_global, 3)
+    global_scores = torch.ones(batch, config.q_global)
+
+    seed_bank = router(
+        lidar_queries,
+        lidar_refs,
+        lidar_scores,
+        lidar_prior_labels,
+        lidar_prior_scores,
+        lidar_prior_valid_mask,
+        proposal_queries,
+        proposal_refs,
+        proposal_scores,
+        global_queries,
+        global_refs,
+        global_scores,
+    )
+
+    assert seed_bank.prior_valid_mask is not None
+    assert torch.all(seed_bank.prior_valid_mask)
+    assert seed_bank.prior_labels is not None
+    assert seed_bank.prior_scores is not None

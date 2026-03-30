@@ -62,6 +62,18 @@ def test_teacher_seed_encoder_projects_cached_teacher_boxes(small_config, synthe
     assert scores.shape == (synthetic_batch.batch_size, small_config.q_lidar)
 
 
+def test_teacher_seed_encoder_preserves_teacher_priors(small_config, synthetic_batch) -> None:
+    assert synthetic_batch.teacher_targets is not None
+    encoder = TeacherSeedEncoder(small_config)
+    encoded = encoder.encode_with_priors(synthetic_batch.teacher_targets)
+    assert encoded is not None
+    _queries, _refs, _scores, prior_labels, prior_scores, prior_valid_mask = encoded
+    assert prior_labels.shape == (synthetic_batch.batch_size, small_config.q_lidar)
+    assert prior_scores.shape == (synthetic_batch.batch_size, small_config.q_lidar)
+    assert prior_valid_mask.shape == (synthetic_batch.batch_size, small_config.q_lidar)
+    assert bool(prior_valid_mask.any())
+
+
 def test_model_can_replace_lidar_with_teacher_seeds(small_config, synthetic_batch) -> None:
     assert synthetic_batch.teacher_targets is not None
     config = small_config.model_copy(update={"teacher_seed_mode": "replace_lidar"})
