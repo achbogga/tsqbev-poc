@@ -276,11 +276,11 @@ def test_warm_start_checkpoint_for_recipe_only_applies_to_compatible_exploit_rec
             incumbent_recipe,
             incumbent_record,
         )
-        is None
+        == "/tmp/incumbent.pt"
     )
 
 
-def test_teacher_lift_compares_teacher_kd_and_teacher_ref_seed() -> None:
+def test_teacher_lift_compares_teacher_kd_and_teacher_seed() -> None:
     records = [
         {
             "run_id": 1,
@@ -302,10 +302,10 @@ def test_teacher_lift_compares_teacher_kd_and_teacher_ref_seed() -> None:
         },
         {
             "run_id": 3,
-            "recipe": "baseline_teacher_ref_seed",
+            "recipe": "baseline_teacher_seed",
             "status": "completed",
             "use_teacher_provider": True,
-            "teacher_seed_mode": "replace_lidar_refs",
+            "teacher_seed_mode": "replace_lidar",
             "evaluation": _fake_eval(0.04, 0.003),
             "val": {"total": 18.5},
         },
@@ -316,6 +316,77 @@ def test_teacher_lift_compares_teacher_kd_and_teacher_ref_seed() -> None:
     assert teacher_lift["paired"] is True
     assert teacher_lift["passed"] is True
     assert teacher_lift["baseline_recipe"] == "baseline"
-    assert teacher_lift["teacher_recipe"] == "baseline_teacher_ref_seed"
+    assert teacher_lift["teacher_recipe"] == "baseline_teacher_seed"
     assert teacher_lift["comparisons"]["teacher_kd"]["nds"] == 0.025
+    assert teacher_lift["comparisons"]["teacher_seed"]["nds"] == 0.04
     assert teacher_lift["comparisons"]["teacher_ref_seed"]["nds"] == 0.04
+
+
+def test_exploitation_candidates_prioritize_teacher_paths_when_teacher_available() -> None:
+    incumbent = research.ResearchRecipe(
+        name="carryover_recipe",
+        note="incumbent",
+        hypothesis="incumbent",
+        mutation_reason="incumbent",
+        config=ModelConfig.rtx5000_nuscenes_baseline(),
+        stage="baseline",
+    )
+    incumbent_record = {
+        "recipe": incumbent.name,
+        "source_mix": {"lidar": 0.33, "proposal": 0.50, "global": 0.17},
+        "checkpoint_path": "/tmp/incumbent.pt",
+        "evaluation": _fake_eval(0.02, 0.001),
+        "val": {"total": 20.0},
+    }
+    teacher_provider = research.TeacherProviderConfig(
+        kind="cache",
+        cache_dir="/tmp/cache",
+    )
+
+    candidates = research._build_exploitation_recipes(
+        incumbent,
+        incumbent_record,
+        teacher_provider,
+        remaining_budget=3,
+    )
+    assert [candidate.name for candidate in candidates] == [
+        f"{incumbent.name}_teacher_kd",
+        f"{incumbent.name}_teacher_seed",
+        f"{incumbent.name}_query_boost",
+    ]
+
+
+def test_scale_gate_verdict_blocks_pathological_prediction_geometry() -> None:
+    promoted_record = {
+        "evaluation": _fake_eval(0.02, 0.001, car_ap_4m=0.01),
+        "source_mix": {"lidar": 0.33, "proposal": 0.50, "global": 0.17},
+        "source_mix_diagnostics": {
+            "average": {"lidar": 0.33, "proposal": 0.50, "global": 0.17},
+            "per_batch": [{"lidar": 0.33, "proposal": 0.50, "global": 0.17}] * 8,
+            "batches_measured": 8,
+        },
+        "benchmark": {"mean_ms": 20.0},
+        "prediction_geometry": {
+            "boxes_per_sample_mean": 111.0,
+            "boxes_per_sample_p95": 112.0,
+            "boxes_per_sample_max": 112.0,
+            "translation_norm_p99": 1833.0,
+            "translation_norm_max": 2042.0,
+        },
+    }
+    records = [
+        {
+            "status": "completed",
+            "use_teacher_provider": False,
+            "teacher_seed_mode": "off",
+            "evaluation": _fake_eval(0.01, 0.001),
+            "val": {"total": 20.0},
+        },
+        promoted_record,
+    ]
+
+    verdict = research._scale_gate_verdict(promoted_record, records)
+
+    assert verdict["authorized"] is False
+    assert verdict["gates"]["geometry_sanity"]["passed"] is False
+    assert verdict["gates"]["geometry_sanity"]["boxes_per_sample_mean"] == 111.0

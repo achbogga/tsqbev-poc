@@ -109,7 +109,7 @@ summarized in [docs/benchmarks/nuscenes-mini.md](docs/benchmarks/nuscenes-mini.m
 teacher-backed bounded run in `artifacts/research_teacher_v1/research_loop/`.
 The `replace_lidar` teacher row above should no longer be treated as valid evidence on the current
 branch: batching used to drop `teacher_targets`, so teacher lift is being rerun with the fixed
-collator, score-weighted teacher class and box supervision, and the newer `replace_lidar_refs`
+collator, geometry-aware teacher class and box supervision, and the stronger `replace_lidar`
 mode.
 The same loop is also tracked in W&B when credentials are available; hyperparameter and
 performance sweeps stay grouped within the same architecture-family project, while materially
@@ -251,7 +251,7 @@ uv run tsqbev train-nuscenes \
   --teacher-cache-dir /path/to/teacher-cache
 ```
 
-Use `--preset rtx5000-nuscenes-teacher` or `--teacher-seed-mode replace_lidar_refs` when the
+Use `--preset rtx5000-nuscenes-teacher` or `--teacher-seed-mode replace_lidar` when the
 cached teacher outputs include `object_boxes`, `object_labels`, and `object_scores` for reference
 replacement. Keep `replace_lidar` as the harsher full seed-replacement ablation.
 

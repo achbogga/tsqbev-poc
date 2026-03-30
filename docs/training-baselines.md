@@ -173,7 +173,7 @@ Teacher-backed local mini research now follows a stricter rule than the original
 
 - one teacher-off baseline must run in the same bounded invocation
 - one teacher-on `KD-only` recipe must run on the same architecture
-- one teacher-on `replace_lidar_refs` recipe is the preferred geometry exploit
+- one teacher-on `replace_lidar` recipe is the preferred geometry exploit
 
 The older `research_teacher_v1` evidence is historical only. It used a path that was later found to
 drop `teacher_targets` during batched collation, so it must not be used as the basis for a
@@ -189,8 +189,8 @@ uv run tsqbev check-openpcdet-env \
 If the cached teacher outputs include `object_boxes`, `object_labels`, and `object_scores`, the
 teacher-enabled student now uses them in two low-cost ways:
 
-- score-weighted teacher box distillation
-- score-weighted teacher class supervision for aligned student queries
+- geometry-aware teacher box distillation
+- geometry-aware teacher class supervision for aligned student queries
 
 When teacher seeding is enabled, the default teacher geometry mode is still to replace only the
 LiDAR reference centers while preserving the student LiDAR query embeddings. The harsher full

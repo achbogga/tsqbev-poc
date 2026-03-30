@@ -42,8 +42,12 @@ It is a focused open-source POC for public datasets and deployable research arti
 - The earlier teacher-lift artifact was invalidated after a batched-collation bug was found to
   drop `teacher_targets` from real dataset batches.
 - The corrected teacher-backed path now carries teacher targets through batching, uses
-  score-weighted teacher class and box supervision, and requires a same-invocation paired
-  teacher-off / teacher-KD / teacher-ref-seed comparison before any lift claim is accepted.
+  geometry-aware teacher class and box supervision, and requires a same-invocation paired
+  teacher-off / teacher-KD / teacher-seed comparison before any lift claim is accepted.
+- The detection path now includes bounded center refinement around query refs, explicit objectness
+  ranking, and exported-prediction geometry diagnostics in the research loop.
+- The bounded research loop now hard-blocks promotion when exported boxes are too numerous or too
+  far away, even if surrogate losses or official metrics improve.
 - The bounded mini loop now mirrors the strongest transferable `autoresearch` mechanics more closely:
   incumbent-first execution, bounded exploration then exploitation, append-only `results.jsonl` and
   `results.tsv`, per-run `manifest.json`, a fixed comparable `max_train_steps=960` budget per

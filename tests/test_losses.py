@@ -41,7 +41,10 @@ def test_detection_set_criterion_prefers_exact_match(small_config, synthetic_bat
             valid_mask=torch.ones_like(target_labels, dtype=torch.bool),
         ),
     )
-    losses = criterion(logits, boxes, batch)
+    objectness = torch.full((synthetic_batch.batch_size, small_config.max_object_queries), -8.0)
+    objectness[batch_indices, :2] = 8.0
+    losses = criterion(logits, boxes, batch, objectness_logits=objectness)
+    assert losses["objectness"] < 5e-2
     assert losses["object_box"] < 1e-5
     assert losses["object_cls"] < 5e-2
 

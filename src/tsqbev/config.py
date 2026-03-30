@@ -123,7 +123,7 @@ class ModelConfig(BaseModel):
         """Return the local baseline with external teacher seeds enabled."""
 
         return cls.rtx5000_nuscenes_baseline().model_copy(
-            update={"teacher_seed_mode": "replace_lidar_refs"}
+            update={"teacher_seed_mode": "replace_lidar"}
         )
 
     @classmethod

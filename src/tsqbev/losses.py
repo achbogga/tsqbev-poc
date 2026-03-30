@@ -86,6 +86,7 @@ class DetectionSetCriterion(nn.Module):
         size_weight: float = 1.0,
         yaw_weight: float = 0.5,
         velocity_weight: float = 0.5,
+        reference_weight: float = 0.25,
     ) -> None:
         super().__init__()
         self.class_weight = class_weight
@@ -93,18 +94,34 @@ class DetectionSetCriterion(nn.Module):
         self.size_weight = size_weight
         self.yaw_weight = yaw_weight
         self.velocity_weight = velocity_weight
+        self.reference_weight = reference_weight
 
     def forward(
-        self, object_logits: Tensor, object_boxes: Tensor, batch: SceneBatch
+        self,
+        object_logits: Tensor,
+        object_boxes: Tensor,
+        batch: SceneBatch,
+        objectness_logits: Tensor | None = None,
+        reference_points: Tensor | None = None,
     ) -> dict[str, Tensor]:
         object_logits = object_logits.float()
         object_boxes = object_boxes.float()
         zero = _zero_with_grad(object_logits)
         if batch.od_targets is None:
-            return {"object_cls": zero, "object_box": zero}
+            return {
+                "objectness": zero,
+                "object_cls": zero,
+                "object_box": zero,
+                "object_ref": zero,
+            }
 
         batch_size, queries, _classes = object_logits.shape
         target_classes = torch.zeros_like(object_logits)
+        target_objectness = (
+            torch.zeros_like(objectness_logits.float())
+            if objectness_logits is not None
+            else None
+        )
         total_box = zero
         total_gt = 0
 
@@ -116,6 +133,10 @@ class DetectionSetCriterion(nn.Module):
                 continue
 
             class_probs = object_logits[batch_index].sigmoid()
+            if objectness_logits is not None:
+                class_probs = (
+                    class_probs * objectness_logits[batch_index].float().sigmoid().unsqueeze(-1)
+                )
             class_cost = 1.0 - class_probs[:, target_labels]
             center_cost = torch.cdist(
                 object_boxes[batch_index, :, :3], target_boxes[:, :3], p=1
@@ -140,17 +161,48 @@ class DetectionSetCriterion(nn.Module):
             if pred_index.numel() == 0:
                 continue
             target_classes[batch_index, pred_index, target_labels[target_index]] = 1.0
+            if target_objectness is not None:
+                target_objectness[batch_index, pred_index] = 1.0
             total_box = total_box + F.smooth_l1_loss(
                 object_boxes[batch_index, pred_index], target_boxes[target_index], reduction="sum"
             )
             total_gt += int(target_index.numel())
 
         normalizer = max(total_gt, 1)
+        objectness_loss = zero
+        if objectness_logits is not None:
+            objectness_loss = F.binary_cross_entropy_with_logits(
+                objectness_logits.float(),
+                target_objectness if target_objectness is not None else torch.zeros_like(
+                    objectness_logits.float()
+                ),
+                reduction="sum",
+            ) / float(normalizer)
+        reference_loss = zero
+        if reference_points is not None and target_objectness is not None:
+            unmatched = (target_objectness < 0.5).float()
+            if float(unmatched.sum()) > 0.0:
+                reference_loss = (
+                    (
+                        F.smooth_l1_loss(
+                            object_boxes[..., :3],
+                            reference_points.float(),
+                            reduction="none",
+                        ).sum(dim=-1)
+                        * unmatched
+                    ).sum()
+                    / unmatched.sum().clamp_min(1.0)
+                ) * self.reference_weight
         cls_loss = F.binary_cross_entropy_with_logits(
             object_logits, target_classes, reduction="sum"
         ) / float(normalizer)
         box_loss = total_box / float(normalizer)
-        return {"object_cls": cls_loss, "object_box": box_loss}
+        return {
+            "objectness": objectness_loss,
+            "object_cls": cls_loss,
+            "object_box": box_loss,
+            "object_ref": reference_loss,
+        }
 
 
 class LaneSetCriterion(nn.Module):
@@ -219,11 +271,20 @@ class MultitaskCriterion(nn.Module):
         object_boxes = cast(Tensor, outputs["object_boxes"])
         lane_logits = cast(Tensor, outputs["lane_logits"])
         lane_polylines = cast(Tensor, outputs["lane_polylines"])
+        objectness_logits = cast(Tensor | None, outputs.get("objectness_logits"))
         temporal_state = cast(TemporalState, outputs["temporal_state"])
         seed_bank = cast(QuerySeedBank, outputs["seed_bank"])
 
         losses = {}
-        losses.update(self.detection(object_logits, object_boxes, batch))
+        losses.update(
+            self.detection(
+                object_logits,
+                object_boxes,
+                batch,
+                objectness_logits=objectness_logits,
+                reference_points=temporal_state.object_refs,
+            )
+        )
         losses.update(self.lane(lane_logits, lane_polylines, batch))
         losses.update(
             self.distillation(

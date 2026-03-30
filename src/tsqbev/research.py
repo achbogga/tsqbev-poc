@@ -288,8 +288,8 @@ def _make_teacher_kd_recipe(
         name=f"{recipe.name}_teacher_kd",
         note="turn on cached teacher-guided supervision without changing seed geometry",
         hypothesis=(
-            "score-weighted teacher box and class supervision should improve ranking and "
-            "localization before more invasive seed mutations"
+            "geometry-aware teacher supervision should improve ranking and localization "
+            "before more invasive seed mutations"
         ),
         mutation_reason="enable teacher cache supervision as a paired ablation",
         stage=stage,
@@ -384,18 +384,16 @@ def _make_query_boost_recipe(
 
 
 def _make_teacher_seed_recipe(recipe: ResearchRecipe) -> ResearchRecipe:
-    config = _updated_config(recipe.config, teacher_seed_mode="replace_lidar_refs")
+    config = _updated_config(recipe.config, teacher_seed_mode="replace_lidar")
     return _clone_recipe(
         recipe,
-        name=f"{recipe.name}_teacher_ref_seed",
-        note="replace LiDAR reference centers with cached external teacher centers",
+        name=f"{recipe.name}_teacher_seed",
+        note="replace LiDAR seeds with cached external teacher-guided seeds",
         hypothesis=(
-            "a strong external LiDAR teacher should improve geometric grounding without "
-            "discarding the student's learned LiDAR query embeddings"
+            "a strong external LiDAR teacher should improve geometric grounding while "
+            "keeping the student architecture unchanged"
         ),
-        mutation_reason=(
-            "inject teacher geometry into the LiDAR reference path as a paired ablation"
-        ),
+        mutation_reason="inject teacher geometry into the full LiDAR seed path",
         config=config,
         stage="exploit",
         use_teacher_provider=True,
@@ -434,10 +432,12 @@ def _build_exploitation_recipes(
         _make_lr_down_recipe(incumbent_recipe),
     ]
     if teacher_provider_config is not None:
-        if not incumbent_recipe.use_teacher_provider:
-            candidates.insert(0, _make_teacher_kd_recipe(incumbent_recipe, stage="exploit"))
-        elif incumbent_recipe.config.teacher_seed_mode == "off":
-            candidates.insert(0, _make_teacher_seed_recipe(incumbent_recipe))
+        candidates = [
+            _make_teacher_kd_recipe(incumbent_recipe, stage="exploit"),
+            _make_teacher_seed_recipe(incumbent_recipe),
+            _make_query_boost_recipe(incumbent_recipe, source_mix=source_mix),
+            _make_lr_down_recipe(incumbent_recipe),
+        ]
     if incumbent_recipe.config.freeze_image_backbone:
         candidates.append(_make_unfreeze_recipe(incumbent_recipe))
     deduped: list[ResearchRecipe] = []
@@ -483,8 +483,6 @@ def _warm_start_checkpoint_for_recipe(
     if recipe.config.image_backbone != incumbent_recipe.config.image_backbone:
         return None
     if recipe.config.model_dim != incumbent_recipe.config.model_dim:
-        return None
-    if recipe.use_teacher_provider != incumbent_recipe.use_teacher_provider:
         return None
     checkpoint_path = incumbent_record.get("checkpoint_path")
     return str(checkpoint_path) if checkpoint_path is not None else None
@@ -733,6 +731,54 @@ def _measure_source_mix(
     }
 
 
+def _percentile(values: list[float], percentile: float) -> float:
+    if not values:
+        return 0.0
+    ordered = sorted(values)
+    if len(ordered) == 1:
+        return float(ordered[0])
+    rank = (len(ordered) - 1) * percentile / 100.0
+    lower = int(rank)
+    upper = min(lower + 1, len(ordered) - 1)
+    weight = rank - lower
+    return float(ordered[lower] * (1.0 - weight) + ordered[upper] * weight)
+
+
+def _prediction_geometry_diagnostics(result_path: Path) -> dict[str, float]:
+    payload = json.loads(result_path.read_text())
+    results = payload.get("results", {})
+    if not isinstance(results, dict):
+        raise ValueError("nuScenes result JSON must contain a results dictionary")
+
+    box_counts: list[float] = []
+    translation_norms: list[float] = []
+    for sample_predictions in results.values():
+        if not isinstance(sample_predictions, list):
+            continue
+        box_counts.append(float(len(sample_predictions)))
+        for prediction in sample_predictions:
+            if not isinstance(prediction, dict):
+                continue
+            translation = prediction.get("translation", [0.0, 0.0, 0.0])
+            if not isinstance(translation, list) or len(translation) != 3:
+                continue
+            x, y, z = (float(component) for component in translation)
+            translation_norms.append((x * x + y * y + z * z) ** 0.5)
+
+    return {
+        "sample_count": float(len(results)),
+        "boxes_per_sample_mean": float(sum(box_counts) / max(len(box_counts), 1)),
+        "boxes_per_sample_p95": _percentile(box_counts, 95.0),
+        "boxes_per_sample_max": float(max(box_counts) if box_counts else 0.0),
+        "translation_norm_mean": float(
+            sum(translation_norms) / max(len(translation_norms), 1)
+        ),
+        "translation_norm_p95": _percentile(translation_norms, 95.0),
+        "translation_norm_p99": _percentile(translation_norms, 99.0),
+        "translation_norm_max": float(max(translation_norms) if translation_norms else 0.0),
+    }
+
+
 def _select_better_record(
     current_best: dict[str, Any] | None,
     candidate: dict[str, Any],
@@ -841,7 +887,7 @@ def _teacher_lift(records: list[dict[str, Any]]) -> dict[str, Any]:
         for record in records
         if record.get("status") == "completed"
         and bool(record.get("use_teacher_provider"))
-        and record.get("teacher_seed_mode") == "replace_lidar_refs"
+        and record.get("teacher_seed_mode") in {"replace_lidar", "replace_lidar_refs"}
     ]
     if not base_records or (not teacher_kd_records and not teacher_seed_records):
         return {
@@ -862,7 +908,7 @@ def _teacher_lift(records: list[dict[str, Any]]) -> dict[str, Any]:
     best_teacher_recipe: str | None = None
     for label, pool in (
         ("teacher_kd", teacher_kd_records),
-        ("teacher_ref_seed", teacher_seed_records),
+        ("teacher_seed", teacher_seed_records),
     ):
         if not pool:
             continue
@@ -882,6 +928,8 @@ def _teacher_lift(records: list[dict[str, Any]]) -> dict[str, Any]:
             best_lift = abs_lift
             best_lift_ratio = rel_lift
             best_teacher_recipe = str(best_teacher.get("recipe"))
+    if "teacher_seed" in comparisons and "teacher_ref_seed" not in comparisons:
+        comparisons["teacher_ref_seed"] = comparisons["teacher_seed"]
     passed = best_lift >= 0.02 or best_lift_ratio >= 2.0
     return {
         "paired": True,
@@ -922,6 +970,8 @@ def _scale_gate_verdict(
     assert isinstance(tp_errors, dict)
     benchmark = promoted_record.get("benchmark", {})
     assert isinstance(benchmark, dict)
+    geometry = promoted_record.get("prediction_geometry", {})
+    assert isinstance(geometry, dict)
 
     source_mix_pass = bool(per_batch) and all(
         float(batch.get("lidar", 0.0)) >= 0.2
@@ -944,6 +994,12 @@ def _scale_gate_verdict(
     trans_err = tp_errors.get("trans_err")
     translation_gate_pass = isinstance(trans_err, int | float) and float(trans_err) < 1.0
     teacher_lift = _teacher_lift(records)
+    geometry_gate_pass = (
+        _metric_float(geometry.get("boxes_per_sample_mean"), float("inf")) <= 40.0
+        and _metric_float(geometry.get("boxes_per_sample_p95"), float("inf")) <= 60.0
+        and _metric_float(geometry.get("translation_norm_p99"), float("inf")) <= 120.0
+        and _metric_float(geometry.get("translation_norm_max"), float("inf")) <= 150.0
+    )
     gates = {
         "repo_integrity": {
             "passed": False,
@@ -990,6 +1046,29 @@ def _scale_gate_verdict(
             "translation_error": trans_err,
         },
         "teacher_lift": teacher_lift,
+        "geometry_sanity": {
+            "passed": geometry_gate_pass,
+            "reason": (
+                "exported boxes stayed in a bounded local range"
+                if geometry_gate_pass
+                else "exported boxes are still implausibly far away or too numerous"
+            ),
+            "boxes_per_sample_mean": _metric_float(
+                geometry.get("boxes_per_sample_mean"), float("inf")
+            ),
+            "boxes_per_sample_p95": _metric_float(
+                geometry.get("boxes_per_sample_p95"), float("inf")
+            ),
+            "boxes_per_sample_max": _metric_float(
+                geometry.get("boxes_per_sample_max"), float("inf")
+            ),
+            "translation_norm_p99": _metric_float(
+                geometry.get("translation_norm_p99"), float("inf")
+            ),
+            "translation_norm_max": _metric_float(
+                geometry.get("translation_norm_max"), float("inf")
+            ),
+        },
         "efficiency_discipline": {
             "passed": float(benchmark.get("mean_ms", float("inf"))) <= 25.0,
             "reason": (
@@ -1042,6 +1121,13 @@ def _recommended_next_steps(
         recommendations.append(
             "continue the staged mini loop around the current incumbent instead of "
             "moving to trainval"
+        )
+    geometry = promoted_record.get("prediction_geometry", {})
+    if isinstance(geometry, dict) and _metric_float(
+        geometry.get("boxes_per_sample_mean"), float("inf")
+    ) > 40.0:
+        recommendations.append(
+            "fix the bounded object head so exported boxes stay near their seed refs"
         )
     if float(promoted_record.get("benchmark", {}).get("mean_ms", float("inf"))) <= 25.0:
         recommendations.append("preserve the current latency envelope while chasing geometry gains")
@@ -1232,6 +1318,8 @@ def run_bounded_research_loop(
             )
             durations_s["export"] = time.perf_counter() - start_time
 
+            prediction_geometry = _prediction_geometry_diagnostics(prediction_path)
+
             start_time = time.perf_counter()
             evaluation = evaluate_nuscenes_predictions(
                 dataroot=root,
@@ -1265,6 +1353,7 @@ def run_bounded_research_loop(
                     "benchmark": bench,
                     "checkpoint_path": str(checkpoint_path),
                     "prediction_path": str(prediction_path),
+                    "prediction_geometry": prediction_geometry,
                     "evaluation": evaluation,
                     "source_mix": source_mix_diagnostics["average"],
                     "source_mix_diagnostics": source_mix_diagnostics,
@@ -1292,6 +1381,12 @@ def run_bounded_research_loop(
                     "source_mix_lidar": _metric_float(average_mix.get("lidar", 0.0)),
                     "source_mix_proposal": _metric_float(average_mix.get("proposal", 0.0)),
                     "source_mix_global": _metric_float(average_mix.get("global", 0.0)),
+                    "prediction_boxes_mean": _metric_float(
+                        prediction_geometry.get("boxes_per_sample_mean", 0.0)
+                    ),
+                    "prediction_translation_p99": _metric_float(
+                        prediction_geometry.get("translation_norm_p99", 0.0)
+                    ),
                 },
                 step=epochs_run,
             )
@@ -1352,13 +1447,19 @@ def run_bounded_research_loop(
             and incumbent_recipe is not None
         ):
             remaining_budget = max_experiments - len(candidate_queue)
+            existing_recipe_names = {candidate.name for candidate in candidate_queue}
+            exploitation_candidates = _build_exploitation_recipes(
+                incumbent_recipe,
+                incumbent_record,
+                teacher_provider_config,
+                remaining_budget,
+            )
             candidate_queue.extend(
-                _build_exploitation_recipes(
-                    incumbent_recipe,
-                    incumbent_record,
-                    teacher_provider_config,
-                    remaining_budget,
-                )
+                [
+                    candidate
+                    for candidate in exploitation_candidates
+                    if candidate.name not in existing_recipe_names
+                ][:remaining_budget]
             )
         recipe_index += 1
 

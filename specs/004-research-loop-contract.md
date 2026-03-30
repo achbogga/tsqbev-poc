@@ -25,7 +25,7 @@ autonomous system.
 - compact pretrained image-backbone family
 - pretrained image-backbone freeze policy
 - optional cache-backed external teacher provider
-- teacher usage mode: `off`, `KD-only`, `KD + teacher-ref-seed`
+- teacher usage mode: `off`, `KD-only`, `KD + teacher-seed`
 - batch size
 - gradient accumulation
 - learning rate
@@ -56,6 +56,7 @@ Every run must record:
 - synthetic forward latency measurement for each completed recipe
 - official `mini_val` export/eval for each completed recipe
 - per-run source-mix diagnostics from the selected sparse query bank
+- per-run prediction-geometry diagnostics from the exported `mini_val` result JSON
 
 ## Decision Semantics
 
@@ -75,6 +76,9 @@ Exactly one record may end a completed invocation with `final_decision = promote
 The loop may not keep a recipe purely because it has a lower surrogate loss if its official
 `mini_val` metrics are worse.
 
+The loop may not promote a recipe whose exported predictions are still geometrically implausible,
+even if `NDS`, `mAP`, or validation loss improve.
+
 ## Teacher Comparison Rule
 
 If a teacher cache is available for the invocation, the loop must produce at least one valid paired
@@ -82,7 +86,7 @@ comparison on the same mini setup:
 
 - teacher-off student baseline
 - teacher-on `KD-only` variant with the same architecture
-- teacher-on `teacher-ref-seed` variant when compatible
+- teacher-on `teacher-seed` variant when compatible
 
 Teacher-lift claims are invalid if teacher targets are not present in the collated training batch
 or if the comparison mixes different backbones or incompatible parent recipes.
@@ -94,6 +98,7 @@ Every completed invocation must emit a machine-readable `scale_gate_verdict` in 
 This verdict must at minimum report:
 
 - source-mix stability status
+- geometry sanity status
 - mini generalization status
 - teacher-lift status
 - efficiency status

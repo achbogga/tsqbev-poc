@@ -33,6 +33,8 @@ The latest measured 32-sample overfit gate also failed:
 
 - the current best run has only a barely nonzero official `mAP`, so the detector is still far from
   a robust public baseline
+- the repo now measures prediction-geometry sanity explicitly, and pathological exported box counts
+  or translation ranges block promotion
 - only one completed promoted recipe has clearly escaped the all-zero official-metric regime
 - the current direction has now been tested on the tiny-subset overfit gate and failed it
 - there is not yet a pretrained external LiDAR teacher lift measured against the same mini setup

@@ -32,7 +32,7 @@ Allowed mutation surfaces:
 - learning rate
 - batch size
 - gradient accumulation
-- optional cached external LiDAR teacher guidance, including reference replacement
+- optional cached external LiDAR teacher guidance, including full seed replacement
 
 Read-only surfaces during the loop:
 
@@ -84,6 +84,7 @@ Secondary metrics:
 Required discipline:
 
 - routed query bank must remain genuinely multimodal
+- exported predictions must remain geometrically sane in count and range
 - record synthetic forward latency for every completed recipe
 - teacher-assisted recipes must be treated as paired ablations, not prose
 - teacher-assisted recipes count only if teacher-cache coverage has been audited first

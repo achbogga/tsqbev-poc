@@ -22,6 +22,7 @@ compute scale-up.
 No passing artifacts are currently recorded for:
 
 - Gate 2: small-subset overfit
+- Gate 3A: geometry sanity
 - Gate 4: teacher-lift
 - Gate 6: repeatability
 
@@ -82,6 +83,20 @@ The promoted public mini recipe must clear all of the following on `mini_train /
 
 The intent is not to claim competitiveness. The intent is to reject directions that still only
 look good through surrogate losses.
+
+### Gate 3A: Geometry Sanity
+
+The promoted mini recipe must not rely on pathological exported predictions to achieve its score.
+
+Minimum criteria:
+
+- exported boxes per sample mean `<= 40`
+- exported boxes per sample `p95 <= 60`
+- exported translation norm `p99 <= 120 m`
+- exported translation norm max `<= 150 m`
+
+If exported predictions still explode in count or range, scaling is blocked even if official
+metrics are nonzero.
 
 ### Gate 4: Teacher-Lift
 

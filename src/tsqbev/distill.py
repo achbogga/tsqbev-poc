@@ -9,6 +9,7 @@ References:
 
 from __future__ import annotations
 
+import numpy as np
 import torch
 from torch import nn
 from torch.nn import functional as F
@@ -16,6 +17,11 @@ from torch.nn import functional as F
 from tsqbev.contracts import QuerySeedBank, TeacherTargets
 
 Tensor = torch.Tensor
+
+try:  # pragma: no cover - SciPy is exercised in real data runs.
+    from scipy.optimize import linear_sum_assignment
+except ImportError:  # pragma: no cover
+    linear_sum_assignment = None
 
 
 def _zero_with_grad(tensor: Tensor) -> Tensor:
@@ -32,40 +38,83 @@ def _masked_mean(tensor: Tensor, mask: Tensor | None) -> Tensor:
     return (tensor * weight).sum() / weight.sum().clamp_min(1.0)
 
 
+def _greedy_assignment(cost: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    rows: list[int] = []
+    cols: list[int] = []
+    remaining_rows = set(range(cost.shape[0]))
+    remaining_cols = set(range(cost.shape[1]))
+    while remaining_rows and remaining_cols:
+        best_row = -1
+        best_col = -1
+        best_cost = float("inf")
+        for row in remaining_rows:
+            for col in remaining_cols:
+                current = float(cost[row, col])
+                if current < best_cost:
+                    best_row = row
+                    best_col = col
+                    best_cost = current
+        rows.append(best_row)
+        cols.append(best_col)
+        remaining_rows.remove(best_row)
+        remaining_cols.remove(best_col)
+    return np.asarray(rows, dtype=np.int64), np.asarray(cols, dtype=np.int64)
+
+
+def _linear_sum_assignment(cost: Tensor) -> tuple[Tensor, Tensor]:
+    cost_np = cost.detach().cpu().numpy()
+    if linear_sum_assignment is not None:
+        row_ind, col_ind = linear_sum_assignment(cost_np)
+    else:  # pragma: no cover - only used when SciPy is absent.
+        row_ind, col_ind = _greedy_assignment(cost_np)
+    device = cost.device
+    return (
+        torch.from_numpy(np.asarray(row_ind, dtype=np.int64)).to(device=device),
+        torch.from_numpy(np.asarray(col_ind, dtype=np.int64)).to(device=device),
+    )
+
+
 def _teacher_selection_indices(
+    query_refs: Tensor,
+    object_logits: Tensor,
     teacher: TeacherTargets,
-    target_count: int,
 ) -> tuple[Tensor, Tensor]:
     scores = teacher.object_scores
-    if scores is None:
-        raise ValueError("teacher object_scores are required for top-k alignment")
+    boxes = teacher.object_boxes
+    if scores is None or boxes is None:
+        raise ValueError("teacher object_boxes/object_scores are required for geometry alignment")
     mask = teacher.valid_mask
     if mask is None:
         mask = torch.ones_like(scores, dtype=torch.bool)
     if mask.shape != scores.shape:
         raise ValueError("teacher valid_mask/object_scores shape mismatch")
 
-    batch_size, teacher_count = scores.shape
-    indices = torch.zeros(batch_size, target_count, dtype=torch.long, device=scores.device)
-    keep_mask = torch.zeros(batch_size, target_count, dtype=torch.bool, device=scores.device)
-    position_bias = torch.linspace(
-        0.0,
-        -1e-6 * max(teacher_count - 1, 0),
-        steps=max(teacher_count, 1),
-        device=scores.device,
-        dtype=scores.dtype,
-    )
+    batch_size, target_count = query_refs.shape[:2]
+    indices = torch.zeros(batch_size, target_count, dtype=torch.long, device=query_refs.device)
+    keep_mask = torch.zeros(batch_size, target_count, dtype=torch.bool, device=query_refs.device)
+
     for batch_index in range(batch_size):
         valid = mask[batch_index]
-        valid_count = int(valid.sum().item())
-        if valid_count == 0:
+        if not bool(valid.any()):
             continue
-        keep = min(target_count, valid_count)
-        ranking = scores[batch_index] + position_bias
-        ranking = ranking.masked_fill(~valid, float("-inf"))
-        top_indices = torch.topk(ranking, k=keep, dim=0).indices
-        indices[batch_index, :keep] = top_indices
-        keep_mask[batch_index, :keep] = True
+
+        teacher_positions = torch.nonzero(valid, as_tuple=False).squeeze(-1)
+        teacher_boxes = boxes[batch_index][valid]
+        teacher_scores = scores[batch_index][valid].clamp(0.0, 1.0)
+        geo_cost = torch.cdist(query_refs[batch_index], teacher_boxes[:, :3], p=1)
+        total_cost = geo_cost + 0.1 * (1.0 - teacher_scores).unsqueeze(0)
+
+        if teacher.object_labels is not None:
+            class_probs = object_logits[batch_index].sigmoid()
+            teacher_labels = teacher.object_labels[batch_index][valid]
+            class_cost = 1.0 - class_probs[:, teacher_labels]
+            total_cost = total_cost + 0.5 * class_cost
+
+        pred_index, teacher_index = _linear_sum_assignment(total_cost)
+        if pred_index.numel() == 0:
+            continue
+        indices[batch_index, pred_index] = teacher_positions[teacher_index]
+        keep_mask[batch_index, pred_index] = True
     return indices, keep_mask
 
 
@@ -102,12 +151,19 @@ def _gather_teacher_vector(
 
 
 def _align_teacher_targets(
+    query_refs: Tensor,
+    object_logits: Tensor,
     object_queries: Tensor,
     object_boxes: Tensor,
     teacher: TeacherTargets,
 ) -> tuple[TeacherTargets, Tensor]:
     target_count = int(object_boxes.shape[1])
-    indices, keep_mask = _teacher_selection_indices(teacher, target_count)
+    if target_count == 0:
+        empty_mask = torch.zeros(
+            object_boxes.shape[:2], dtype=torch.bool, device=object_boxes.device
+        )
+        return teacher, empty_mask
+    indices, keep_mask = _teacher_selection_indices(query_refs, object_logits, teacher)
     aligned = TeacherTargets(
         object_features=_gather_teacher_rows(teacher.object_features, indices, keep_mask),
         object_boxes=_gather_teacher_rows(teacher.object_boxes, indices, keep_mask),
@@ -166,7 +222,23 @@ class DistillationObjective(nn.Module):
                 "kd_logits": zero,
             }
 
-        aligned_teacher, mask = _align_teacher_targets(object_queries, object_boxes, teacher)
+        aligned_teacher, mask = _align_teacher_targets(
+            seed_bank.refs_xyz,
+            object_logits,
+            object_queries,
+            object_boxes,
+            teacher,
+        )
+        if (
+            aligned_teacher.object_features is not None
+            and aligned_teacher.object_features.shape != object_queries.shape
+        ):
+            aligned_teacher.object_features = None
+        if (
+            aligned_teacher.object_boxes is not None
+            and aligned_teacher.object_boxes.shape != object_boxes.shape
+        ):
+            aligned_teacher.object_boxes = None
         feature_loss = zero
         if aligned_teacher.object_features is not None:
             feature_loss = (

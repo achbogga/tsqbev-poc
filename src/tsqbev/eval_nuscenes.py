@@ -27,6 +27,19 @@ from tsqbev.teacher_backends import TeacherProviderConfig, build_teacher_provide
 from tsqbev.teacher_dataset import TeacherAugmentedDataset
 
 
+def _rank_detection_queries(
+    class_logits: torch.Tensor, objectness_logits: torch.Tensor | None
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """Return objectness-aware per-query scores and class ids."""
+
+    class_scores, class_ids = class_logits.sigmoid().max(dim=-1)
+    if objectness_logits is None:
+        objectness_scores = torch.ones_like(class_scores)
+    else:
+        objectness_scores = objectness_logits.sigmoid()
+    return class_scores * objectness_scores, class_ids
+
+
 def _load_nuscenes_eval() -> tuple[Any, Any, Any, Any]:
     try:
         from nuscenes.eval.detection.config import config_factory
@@ -86,19 +99,25 @@ def export_nuscenes_predictions(
         outputs = model(batch)
         logits = outputs["object_logits"]
         boxes = outputs["object_boxes"]
+        objectness_logits = outputs.get("objectness_logits")
         assert isinstance(logits, torch.Tensor)
         assert isinstance(boxes, torch.Tensor)
+        if objectness_logits is not None and not isinstance(objectness_logits, torch.Tensor):
+            raise TypeError("objectness_logits must be a tensor when present")
 
         metadata = metadata_list[0]
         sample_token = str(metadata["sample_token"])
         ego_to_global = np.asarray(metadata["ego_to_global"], dtype=np.float32)
         ego_yaw = yaw_from_rotation_matrix(ego_to_global[:3, :3])
 
-        class_scores, class_ids = logits[0].sigmoid().max(dim=-1)
-        order = torch.argsort(class_scores, descending=True)
+        combined_scores, class_ids = _rank_detection_queries(
+            logits[0],
+            objectness_logits[0] if isinstance(objectness_logits, torch.Tensor) else None,
+        )
+        order = torch.argsort(combined_scores, descending=True)
         sample_results: list[dict[str, object]] = []
         for query_index in order[:top_k]:
-            score = float(class_scores[query_index])
+            score = float(combined_scores[query_index])
             if score < score_threshold:
                 continue
             raw_box = boxes[0, query_index].detach().cpu().numpy().astype(np.float32)

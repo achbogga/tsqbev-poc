@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from dataclasses import replace
 
+import torch
+
 from tsqbev.config import ModelConfig
 from tsqbev.model import TSQBEVModel
 
@@ -13,6 +15,10 @@ def test_model_forward_shapes(small_config, synthetic_batch) -> None:
         synthetic_batch.batch_size,
         small_config.max_object_queries,
         small_config.num_object_classes,
+    )
+    assert outputs["objectness_logits"].shape == (
+        synthetic_batch.batch_size,
+        small_config.max_object_queries,
     )
     assert outputs["object_boxes"].shape == (
         synthetic_batch.batch_size,
@@ -39,6 +45,17 @@ def test_model_temporal_state_round_trip(small_config, synthetic_batch) -> None:
         second["temporal_state"].object_queries.shape
         == first["temporal_state"].object_queries.shape
     )
+
+
+def test_model_bounded_centers_stay_near_seed_refs(small_config, synthetic_batch) -> None:
+    model = TSQBEVModel(small_config)
+    outputs = model(synthetic_batch)
+    seed_refs = outputs["seed_bank"].refs_xyz
+    centers = outputs["object_boxes"][..., :3]
+    max_offset = (centers - seed_refs).abs().max()
+    assert torch.isfinite(max_offset)
+    assert float(max_offset) <= 8.0 + 1e-5
+    assert torch.all(outputs["object_boxes"][..., 3:6] > 0.0)
 
 
 def test_model_supports_torchvision_backbone(synthetic_batch) -> None:

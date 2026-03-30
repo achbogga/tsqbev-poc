@@ -49,6 +49,10 @@ from tsqbev.teacher_seed import TeacherSeedEncoder
 
 Tensor = torch.Tensor
 
+_CENTER_OFFSET_RADIUS_M = 8.0
+_MIN_BOX_SIZE_M = 0.1
+_VELOCITY_RADIUS_MPS = 25.0
+
 
 class TinyImageBackbone(nn.Module):
     """Two-scale CNN backbone for multi-view image features."""
@@ -280,19 +284,30 @@ class TemporalStateUpdater(nn.Module):
 
 
 class ObjectHead(nn.Module):
-    """Minimal object head."""
+    """Minimal object head with bounded center refinement."""
 
     def __init__(self, config: ModelConfig) -> None:
         super().__init__()
         self.cls = nn.Linear(config.model_dim, config.num_object_classes)
-        self.box = nn.Linear(config.model_dim, 9)
+        self.objectness = nn.Linear(config.model_dim, 1)
+        self.center_offset = nn.Linear(config.model_dim, 3)
+        self.size = nn.Linear(config.model_dim, 3)
+        self.yaw = nn.Linear(config.model_dim, 2)
+        self.velocity = nn.Linear(config.model_dim, 2)
 
-    def forward(self, queries: Tensor, refs_xyz: Tensor) -> tuple[Tensor, Tensor]:
-        logits = self.cls(queries)
-        box_deltas = self.box(queries)
-        boxes = box_deltas.clone()
-        boxes[..., :3] = box_deltas[..., :3] + refs_xyz
-        return logits, boxes
+    def forward(self, queries: Tensor, refs_xyz: Tensor) -> tuple[Tensor, Tensor, Tensor]:
+        objectness_logits = self.objectness(queries).squeeze(-1)
+        class_logits = self.cls(queries)
+
+        center_delta = torch.tanh(self.center_offset(queries)) * _CENTER_OFFSET_RADIUS_M
+        centers = refs_xyz + center_delta
+        sizes = F.softplus(self.size(queries)) + _MIN_BOX_SIZE_M
+        yaw_vec = F.normalize(self.yaw(queries), dim=-1, eps=1e-6)
+        yaw = torch.atan2(yaw_vec[..., 0], yaw_vec[..., 1])
+        velocity = torch.tanh(self.velocity(queries)) * _VELOCITY_RADIUS_MPS
+
+        boxes = torch.cat((centers, sizes, yaw.unsqueeze(-1), velocity), dim=-1)
+        return objectness_logits, class_logits, boxes
 
 
 class LaneHead(nn.Module):
@@ -389,10 +404,11 @@ class TSQBEVCore(nn.Module):
         sampled = self.sampler(features, seed_bank.refs_xyz, intrinsics, extrinsics)
         fused_queries = self.fusion(seed_bank.embeddings, sampled)
         fused_queries, fused_refs = self.temporal(fused_queries, seed_bank.refs_xyz, state)
-        object_logits, object_boxes = self.object_head(fused_queries, fused_refs)
+        objectness_logits, object_logits, object_boxes = self.object_head(fused_queries, fused_refs)
         lane_logits, lane_polylines = self.lane_head(features, fused_queries, map_priors)
         temporal_state = TemporalState(object_queries=fused_queries, object_refs=fused_refs)
         return {
+            "objectness_logits": objectness_logits,
             "object_logits": object_logits,
             "object_boxes": object_boxes,
             "lane_logits": lane_logits,
