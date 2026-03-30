@@ -44,6 +44,9 @@ It is a focused open-source POC for public datasets and deployable research arti
 - The corrected teacher-backed path now carries teacher targets through batching, uses
   geometry-aware teacher class and box supervision, and requires a same-invocation paired
   teacher-off / teacher-KD / teacher-seed comparison before any lift claim is accepted.
+- The current branch now separates teacher-anchor and teacher-KD roles explicitly:
+  teacher-anchor runs use full `replace_lidar` seed replacement with anchor-first routing,
+  while teacher-KD remains a separate paired supervision path.
 - The detection path now includes bounded center refinement around query refs, explicit objectness
   ranking, and exported-prediction geometry diagnostics in the research loop.
 - The bounded research loop now measures exported-prediction geometry in the ego frame, not raw
@@ -62,6 +65,10 @@ It is a focused open-source POC for public datasets and deployable research arti
   overfit run on the same 32-sample subset, which reached `NDS = 0.0401`, `mAP = 0.0214`, and
   `16.92 ms`, but still failed the gate because `car AP @ 4.0m = 0.0` and train-loss reduction
   remained too weak.
+- The next first-principles recovery step is now implemented in code: anchor-first teacher-seed
+  routing plus explicit disabling of extra KD during teacher-anchor runs, because the same teacher
+  should not be asked to serve as both the anchor set and the logits target in a single recovery
+  experiment.
 - The current branch now implements the next ROI recovery slice:
   selected-checkpoint evaluation, focal-style hard-negative detection loss, bounded
   score-threshold / `top_k` calibration, and teacher-seed-first exploitation in the bounded loop.

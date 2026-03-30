@@ -91,6 +91,7 @@ class ResearchRecipe:
     optimizer_schedule: Literal["cosine", "constant"] = "cosine"
     grad_clip_norm: float | None = 1.0
     keep_best_checkpoint: bool = True
+    enable_teacher_distillation: bool = True
     loss_mode: Literal["baseline", "focal_hardneg"] = "baseline"
     hard_negative_ratio: int = 3
     hard_negative_cap: int = 96
@@ -180,6 +181,7 @@ def _updated_config(
     image_backbone: str | None = None,
     pretrained_image_backbone: bool | None = None,
     freeze_image_backbone: bool | None = None,
+    router_mode: str | None = None,
     q_lidar: int | None = None,
     q_2d: int | None = None,
     q_global: int | None = None,
@@ -195,6 +197,8 @@ def _updated_config(
         updates["pretrained_image_backbone"] = pretrained_image_backbone
     if freeze_image_backbone is not None:
         updates["freeze_image_backbone"] = freeze_image_backbone
+    if router_mode is not None:
+        updates["router_mode"] = router_mode
     if q_lidar is not None:
         updates["q_lidar"] = q_lidar
         pillar_updates["q_lidar"] = q_lidar
@@ -236,6 +240,7 @@ def _clone_recipe(
     optimizer_schedule: Literal["cosine", "constant"] | None = None,
     grad_clip_norm: float | None = None,
     keep_best_checkpoint: bool | None = None,
+    enable_teacher_distillation: bool | None = None,
     loss_mode: Literal["baseline", "focal_hardneg"] | None = None,
     hard_negative_ratio: int | None = None,
     hard_negative_cap: int | None = None,
@@ -268,6 +273,11 @@ def _clone_recipe(
         grad_clip_norm=recipe.grad_clip_norm if grad_clip_norm is None else grad_clip_norm,
         keep_best_checkpoint=(
             recipe.keep_best_checkpoint if keep_best_checkpoint is None else keep_best_checkpoint
+        ),
+        enable_teacher_distillation=(
+            recipe.enable_teacher_distillation
+            if enable_teacher_distillation is None
+            else enable_teacher_distillation
         ),
         loss_mode=recipe.loss_mode if loss_mode is None else loss_mode,
         hard_negative_ratio=(
@@ -341,6 +351,7 @@ def _load_previous_incumbent(artifact_root: Path) -> ResearchRecipe | None:
             else None
         ),
         keep_best_checkpoint=bool(selected.get("keep_best_checkpoint", True)),
+        enable_teacher_distillation=bool(selected.get("enable_teacher_distillation", True)),
         loss_mode=cast(
             Literal["baseline", "focal_hardneg"],
             selected.get("loss_mode", "baseline"),
@@ -370,6 +381,7 @@ def _make_teacher_kd_recipe(
         mutation_reason="enable teacher cache supervision as a paired ablation",
         stage=stage,
         use_teacher_provider=True,
+        enable_teacher_distillation=True,
     )
 
 
@@ -463,19 +475,27 @@ def _make_query_boost_recipe(
 
 
 def _make_teacher_seed_recipe(recipe: ResearchRecipe) -> ResearchRecipe:
-    config = _updated_config(recipe.config, teacher_seed_mode="replace_lidar")
+    config = _updated_config(
+        recipe.config,
+        teacher_seed_mode="replace_lidar",
+        router_mode="anchor_first",
+    )
     return _clone_recipe(
         recipe,
         name=f"{recipe.name}_teacher_seed",
-        note="replace LiDAR seeds with cached external teacher-guided seeds",
+        note="use cached external teacher-guided seeds as the anchor-first object set",
         hypothesis=(
-            "a strong external LiDAR teacher should improve geometric grounding while "
-            "keeping the student architecture unchanged"
+            "a strong external LiDAR teacher should ground object anchors directly; "
+            "the student should refine those anchors instead of making them compete "
+            "with the full tri-source bank"
         ),
-        mutation_reason="inject teacher geometry into the full LiDAR seed path",
+        mutation_reason="switch teacher-seeded runs to anchor-first routing and disable extra KD",
         config=config,
         stage="exploit",
         use_teacher_provider=True,
+        enable_teacher_distillation=False,
+        score_threshold_candidates=(0.05, 0.15, 0.25, 0.35),
+        top_k_candidates=(16, 32, 64),
     )
 
 
@@ -586,6 +606,7 @@ def _serialize_recipe(recipe: ResearchRecipe) -> dict[str, Any]:
         "optimizer_schedule": recipe.optimizer_schedule,
         "grad_clip_norm": recipe.grad_clip_norm,
         "keep_best_checkpoint": recipe.keep_best_checkpoint,
+        "enable_teacher_distillation": recipe.enable_teacher_distillation,
         "loss_mode": recipe.loss_mode,
         "hard_negative_ratio": recipe.hard_negative_ratio,
         "hard_negative_cap": recipe.hard_negative_cap,
@@ -1396,6 +1417,7 @@ def run_bounded_research_loop(
                 optimizer_schedule=recipe.optimizer_schedule,
                 grad_clip_norm=recipe.grad_clip_norm,
                 keep_best_checkpoint=recipe.keep_best_checkpoint,
+                enable_teacher_distillation=recipe.enable_teacher_distillation,
                 loss_mode=recipe.loss_mode,
                 hard_negative_ratio=recipe.hard_negative_ratio,
                 hard_negative_cap=recipe.hard_negative_cap,

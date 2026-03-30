@@ -268,62 +268,127 @@ class TriSourceQueryRouter(nn.Module):
         keep_scores = keep_logits + all_scores
 
         keep_count = self.config.max_object_queries
-        source_keep_counts = self._source_keep_counts()
-        source_offsets = [
-            0,
-            lidar_queries.shape[1],
-            lidar_queries.shape[1] + proposal_queries.shape[1],
-        ]
         top_indices_rows: list[Tensor] = []
 
-        for batch_index in range(all_queries.shape[0]):
-            selected: list[int] = []
-            selected_mask = torch.zeros(
-                all_queries.shape[1],
-                device=all_queries.device,
-                dtype=torch.bool,
-            )
-            for source_index, (offset, _group_scores, group_valid, keep_for_source) in enumerate(
-                zip(source_offsets, score_groups, valid_groups, source_keep_counts, strict=True)
-            ):
-                del source_index
-                valid_indices = torch.nonzero(group_valid[batch_index], as_tuple=False).squeeze(-1)
-                if valid_indices.numel() == 0 or keep_for_source <= 0:
-                    continue
-                source_keep = min(int(valid_indices.numel()), keep_for_source)
-                source_scores = keep_scores[batch_index, offset + valid_indices]
-                source_order = torch.argsort(source_scores, descending=True)
-                chosen = valid_indices[source_order[:source_keep]] + offset
-                selected.extend(int(index) for index in chosen.tolist())
-                selected_mask[chosen] = True
-
-            if len(selected) < keep_count:
-                remaining_valid = torch.nonzero(
-                    all_valid[batch_index] & ~selected_mask,
-                    as_tuple=False,
+        if self.config.router_mode == "anchor_first":
+            for batch_index in range(all_queries.shape[0]):
+                selected: list[int] = []
+                selected_mask = torch.zeros(
+                    all_queries.shape[1],
+                    device=all_queries.device,
+                    dtype=torch.bool,
                 )
-                remaining_valid = remaining_valid.squeeze(-1)
-                if remaining_valid.numel() > 0:
-                    remaining_scores = keep_scores[batch_index, remaining_valid]
-                    fill_count = min(keep_count - len(selected), int(remaining_valid.numel()))
-                    remaining_order = torch.argsort(remaining_scores, descending=True)
-                    fill = remaining_valid[remaining_order[:fill_count]]
-                    selected.extend(int(index) for index in fill.tolist())
-                    selected_mask[fill] = True
+                lidar_valid_indices = torch.nonzero(
+                    lidar_valid[batch_index],
+                    as_tuple=False,
+                ).squeeze(-1)
+                if lidar_valid_indices.numel() > 0:
+                    lidar_order = torch.argsort(
+                        keep_scores[batch_index, lidar_valid_indices],
+                        descending=True,
+                    )
+                    chosen = lidar_valid_indices[lidar_order[:keep_count]]
+                    selected.extend(int(index) for index in chosen.tolist())
+                    selected_mask[chosen] = True
 
-            if len(selected) < keep_count:
-                remaining_any = torch.nonzero(~selected_mask, as_tuple=False).squeeze(-1)
-                fill_count = min(keep_count - len(selected), int(remaining_any.numel()))
-                if fill_count > 0:
-                    remaining_scores = keep_scores[batch_index, remaining_any]
-                    remaining_order = torch.argsort(remaining_scores, descending=True)
-                    fill = remaining_any[remaining_order[:fill_count]]
-                    selected.extend(int(index) for index in fill.tolist())
+                if len(selected) < keep_count:
+                    remaining_valid = torch.nonzero(
+                        all_valid[batch_index] & ~selected_mask,
+                        as_tuple=False,
+                    ).squeeze(-1)
+                    if remaining_valid.numel() > 0:
+                        remaining_scores = keep_scores[batch_index, remaining_valid]
+                        fill_count = min(keep_count - len(selected), int(remaining_valid.numel()))
+                        remaining_order = torch.argsort(remaining_scores, descending=True)
+                        fill = remaining_valid[remaining_order[:fill_count]]
+                        selected.extend(int(index) for index in fill.tolist())
+                        selected_mask[fill] = True
 
-            selected_tensor = torch.tensor(selected, device=all_queries.device, dtype=torch.long)
-            selected_scores = keep_scores[batch_index, selected_tensor]
-            selected_order = torch.argsort(selected_scores, descending=True)
-            top_indices_rows.append(selected_tensor[selected_order[:keep_count]])
+                if len(selected) < keep_count:
+                    remaining_any = torch.nonzero(~selected_mask, as_tuple=False).squeeze(-1)
+                    fill_count = min(keep_count - len(selected), int(remaining_any.numel()))
+                    if fill_count > 0:
+                        remaining_scores = keep_scores[batch_index, remaining_any]
+                        remaining_order = torch.argsort(remaining_scores, descending=True)
+                        fill = remaining_any[remaining_order[:fill_count]]
+                        selected.extend(int(index) for index in fill.tolist())
+
+                selected_tensor = torch.tensor(
+                    selected,
+                    device=all_queries.device,
+                    dtype=torch.long,
+                )
+                selected_scores = keep_scores[batch_index, selected_tensor]
+                selected_order = torch.argsort(selected_scores, descending=True)
+                top_indices_rows.append(selected_tensor[selected_order[:keep_count]])
+        else:
+            source_keep_counts = self._source_keep_counts()
+            source_offsets = [
+                0,
+                lidar_queries.shape[1],
+                lidar_queries.shape[1] + proposal_queries.shape[1],
+            ]
+            for batch_index in range(all_queries.shape[0]):
+                selected = []
+                selected_mask = torch.zeros(
+                    all_queries.shape[1],
+                    device=all_queries.device,
+                    dtype=torch.bool,
+                )
+                grouped_sources = zip(
+                    source_offsets,
+                    score_groups,
+                    valid_groups,
+                    source_keep_counts,
+                    strict=True,
+                )
+                for source_index, source_group in enumerate(grouped_sources):
+                    offset, _group_scores, group_valid, keep_for_source = source_group
+                    del source_index
+                    valid_indices = torch.nonzero(
+                        group_valid[batch_index],
+                        as_tuple=False,
+                    ).squeeze(-1)
+                    if valid_indices.numel() == 0 or keep_for_source <= 0:
+                        continue
+                    source_keep = min(int(valid_indices.numel()), keep_for_source)
+                    source_scores = keep_scores[batch_index, offset + valid_indices]
+                    source_order = torch.argsort(source_scores, descending=True)
+                    chosen = valid_indices[source_order[:source_keep]] + offset
+                    selected.extend(int(index) for index in chosen.tolist())
+                    selected_mask[chosen] = True
+
+                if len(selected) < keep_count:
+                    remaining_valid = torch.nonzero(
+                        all_valid[batch_index] & ~selected_mask,
+                        as_tuple=False,
+                    )
+                    remaining_valid = remaining_valid.squeeze(-1)
+                    if remaining_valid.numel() > 0:
+                        remaining_scores = keep_scores[batch_index, remaining_valid]
+                        fill_count = min(keep_count - len(selected), int(remaining_valid.numel()))
+                        remaining_order = torch.argsort(remaining_scores, descending=True)
+                        fill = remaining_valid[remaining_order[:fill_count]]
+                        selected.extend(int(index) for index in fill.tolist())
+                        selected_mask[fill] = True
+
+                if len(selected) < keep_count:
+                    remaining_any = torch.nonzero(~selected_mask, as_tuple=False).squeeze(-1)
+                    fill_count = min(keep_count - len(selected), int(remaining_any.numel()))
+                    if fill_count > 0:
+                        remaining_scores = keep_scores[batch_index, remaining_any]
+                        remaining_order = torch.argsort(remaining_scores, descending=True)
+                        fill = remaining_any[remaining_order[:fill_count]]
+                        selected.extend(int(index) for index in fill.tolist())
+
+                selected_tensor = torch.tensor(
+                    selected,
+                    device=all_queries.device,
+                    dtype=torch.long,
+                )
+                selected_scores = keep_scores[batch_index, selected_tensor]
+                selected_order = torch.argsort(selected_scores, descending=True)
+                top_indices_rows.append(selected_tensor[selected_order[:keep_count]])
 
         top_indices = torch.stack(top_indices_rows, dim=0)
         query_index = top_indices.unsqueeze(-1).expand(-1, -1, self.config.model_dim)

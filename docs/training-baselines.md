@@ -173,7 +173,7 @@ Teacher-backed local mini research now follows a stricter rule than the original
 
 - one teacher-off baseline must run in the same bounded invocation
 - one teacher-on `KD-only` recipe must run on the same architecture
-- one teacher-on `replace_lidar` recipe is the preferred geometry exploit
+- one teacher-on `replace_lidar` teacher-anchor recipe is the preferred geometry exploit
 
 The older `research_teacher_v1` evidence is historical only. It used a path that was later found to
 drop `teacher_targets` during batched collation, so it must not be used as the basis for a
@@ -193,9 +193,10 @@ teacher-enabled student now uses them in two low-cost ways:
 - geometry-aware teacher class supervision for aligned student queries
 
 When teacher seeding is enabled, the preferred geometry mode on the current branch is full
-`replace_lidar` LiDAR-seed replacement. The legacy `replace_lidar_refs` ref-only path remains
-available as an explicit ablation, and all teacher-backed runs still keep the heavy teacher itself
-outside the default runtime.
+`replace_lidar` LiDAR-seed replacement with anchor-first routing. The legacy `replace_lidar_refs`
+ref-only path remains available as an explicit ablation, and all teacher-backed runs still keep
+the heavy teacher itself outside the default runtime. Teacher-anchor runs may disable extra KD so
+the experiment isolates anchor quality from added logits supervision.
 
 Run the bounded local research loop on `v1.0-mini`:
 

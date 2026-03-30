@@ -270,9 +270,7 @@ class DistillationObjective(nn.Module):
                     continue
                 labels = aligned_teacher.object_labels[batch_index][valid]
                 scores = aligned_teacher.object_scores[batch_index][valid].clamp(0.0, 1.0)
-                query_indices = torch.arange(
-                    labels.shape[0], device=labels.device, dtype=torch.long
-                )
+                query_indices = torch.nonzero(valid, as_tuple=False).squeeze(-1)
                 target_classes[batch_index, query_indices, labels] = 1.0
                 score_weights[batch_index, query_indices] = scores
             logits_loss = (

@@ -30,6 +30,7 @@ class ModelConfig(BaseModel):
     image_backbone: Literal["tiny", "mobilenet_v3_large", "efficientnet_b0"] = "tiny"
     pretrained_image_backbone: bool = False
     freeze_image_backbone: bool = False
+    router_mode: Literal["tri_source", "anchor_first"] = "tri_source"
     views: int = 6
     model_dim: int = 256
     num_object_classes: int = 10
@@ -123,7 +124,10 @@ class ModelConfig(BaseModel):
         """Return the local baseline with external teacher seeds enabled."""
 
         return cls.rtx5000_nuscenes_baseline().model_copy(
-            update={"teacher_seed_mode": "replace_lidar"}
+            update={
+                "teacher_seed_mode": "replace_lidar",
+                "router_mode": "anchor_first",
+            }
         )
 
     @classmethod

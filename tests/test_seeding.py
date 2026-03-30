@@ -70,3 +70,34 @@ def test_tri_source_router_preserves_source_diversity_when_lidar_scores_dominate
     }
     assert float(seed_bank.scores.min()) >= 0.0
     assert float(seed_bank.scores.max()) <= 1.0
+
+
+def test_anchor_first_router_prefers_lidar_anchors_when_available(
+    small_config: ModelConfig,
+) -> None:
+    config = small_config.model_copy(update={"router_mode": "anchor_first"})
+    router = TriSourceQueryRouter(config)
+    batch = 1
+    lidar_queries = torch.randn(batch, config.q_lidar, config.model_dim)
+    lidar_refs = torch.randn(batch, config.q_lidar, 3)
+    lidar_scores = torch.linspace(0.2, 1.0, config.q_lidar).unsqueeze(0)
+    proposal_queries = torch.randn(batch, config.q_2d, config.model_dim)
+    proposal_refs = torch.randn(batch, config.q_2d, 3)
+    proposal_scores = torch.ones(batch, config.q_2d)
+    global_queries = torch.randn(batch, config.q_global, config.model_dim)
+    global_refs = torch.randn(batch, config.q_global, 3)
+    global_scores = torch.ones(batch, config.q_global)
+
+    seed_bank = router(
+        lidar_queries,
+        lidar_refs,
+        lidar_scores,
+        proposal_queries,
+        proposal_refs,
+        proposal_scores,
+        global_queries,
+        global_refs,
+        global_scores,
+    )
+
+    assert torch.all(seed_bank.source_ids == TriSourceQueryRouter.SOURCE_LIDAR)

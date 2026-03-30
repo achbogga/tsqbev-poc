@@ -26,8 +26,8 @@ When tracking is enabled, runs are mirrored to Weights & Biases under the entity
 | CI | 🟢 Passing | `ruff`, `mypy`, `pytest` currently pass locally; GitHub Actions badge is wired in |
 | Current mini incumbent | 🟡 Real but weak | `mini_propheavy_mbv3_frozen_query_boost`, `mini_val NDS = 0.01581`, `mAP = 1.11e-04`, `17.19 ms` |
 | Teacher bootstrap | 🟢 Verified | external OpenPCDet `CenterPoint-PointPillar` reached `0.4997 NDS` on `mini_val`; cache coverage is full |
-| Teacher lift into student | 🟡 Partial | corrected 32-sample `replace_lidar` overfit rescue reached `NDS = 0.0401`, `mAP = 0.0214`; paired `mini_val` lift is still unproven |
-| Recovery branch | 🟡 Code-ready | best-checkpoint evaluation, focal hard negatives, bounded calibration, and teacher-seed-first exploitation are implemented and tested |
+| Teacher lift into student | 🟡 Partial | corrected 32-sample teacher-anchor overfit control reached `NDS = 0.0484`, `mAP = 0.0150`; the teacher-KD path is still weak and paired `mini_val` lift is still unproven |
+| Recovery branch | 🟡 Code-ready | best-checkpoint evaluation, focal hard negatives, bounded calibration, anchor-first teacher routing, and explicit teacher-anchor vs teacher-KD separation are implemented and tested |
 | Scale-up readiness | 🔴 Blocked | overfit, repeatability, and mini generalization gates are still failing |
 | Tracking | 🟢 Online | W&B smoke run synced under `achbogga-track` |
 

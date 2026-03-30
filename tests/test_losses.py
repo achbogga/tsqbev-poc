@@ -97,3 +97,13 @@ def test_multitask_criterion_keeps_grad_when_batch_has_no_supervision(
     losses = criterion(outputs, batch)
     assert losses["total"].requires_grad
     losses["total"].backward()
+
+
+def test_multitask_criterion_can_disable_teacher_distillation(
+    small_config, synthetic_batch
+) -> None:
+    model = TSQBEVModel(small_config.model_copy(update={"teacher_seed_mode": "replace_lidar"}))
+    criterion = MultitaskCriterion(enable_distillation=False)
+    outputs = model(synthetic_batch)
+    losses = criterion(outputs, synthetic_batch)
+    assert float(losses["kd_total"]) == 0.0

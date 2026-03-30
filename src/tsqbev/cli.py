@@ -228,6 +228,11 @@ def _make_parser() -> argparse.ArgumentParser:
         default=True,
     )
     parser.add_argument(
+        "--teacher-distillation",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+    )
+    parser.add_argument(
         "--loss-mode",
         choices=("baseline", "focal_hardneg"),
         default="baseline",
@@ -324,6 +329,7 @@ def main() -> None:
                 loss_mode=args.loss_mode,
                 hard_negative_ratio=args.hard_negative_ratio,
                 hard_negative_cap=args.hard_negative_cap,
+                enable_teacher_distillation=args.teacher_distillation,
                 grad_accum_steps=args.grad_accum_steps,
                 batch_size=args.batch_size,
                 num_workers=args.num_workers,
@@ -389,6 +395,7 @@ def main() -> None:
                 loss_mode=args.loss_mode,
                 hard_negative_ratio=args.hard_negative_ratio,
                 hard_negative_cap=args.hard_negative_cap,
+                enable_teacher_distillation=args.teacher_distillation,
                 score_threshold_candidates=tuple(
                     args.score_threshold_candidates
                     if args.score_threshold_candidates is not None

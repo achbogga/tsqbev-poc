@@ -241,6 +241,8 @@ def test_initial_recipes_insert_teacher_kd_when_teacher_is_available(tmp_path: P
     assert recipes[0].name == "carryover_mini_propheavy_effb0_frozen"
     assert recipes[1].name == "carryover_mini_propheavy_effb0_frozen_teacher_seed"
     assert recipes[1].use_teacher_provider is True
+    assert recipes[1].enable_teacher_distillation is False
+    assert recipes[1].config.router_mode == "anchor_first"
 
 
 def test_warm_start_checkpoint_for_recipe_only_applies_to_compatible_exploit_recipe() -> None:
@@ -384,6 +386,10 @@ def test_exploitation_candidates_prioritize_teacher_paths_when_teacher_available
         f"{incumbent.name}_teacher_kd",
         f"{incumbent.name}_focal_hardneg",
     ]
+    assert candidates[0].enable_teacher_distillation is False
+    assert candidates[0].config.router_mode == "anchor_first"
+    assert candidates[0].top_k_candidates == (16, 32, 64)
+    assert candidates[1].enable_teacher_distillation is True
 
 
 def test_scale_gate_verdict_blocks_pathological_prediction_geometry() -> None:

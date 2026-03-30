@@ -386,11 +386,13 @@ class MultitaskCriterion(nn.Module):
         detection: DetectionSetCriterion | None = None,
         lane: LaneSetCriterion | None = None,
         distillation: DistillationObjective | None = None,
+        enable_distillation: bool = True,
     ) -> None:
         super().__init__()
         self.detection = detection if detection is not None else DetectionSetCriterion()
         self.lane = lane if lane is not None else LaneSetCriterion()
         self.distillation = distillation if distillation is not None else DistillationObjective()
+        self.enable_distillation = enable_distillation
 
     def forward(self, outputs: dict[str, object], batch: SceneBatch) -> dict[str, Tensor]:
         object_logits = cast(Tensor, outputs["object_logits"])
@@ -418,7 +420,7 @@ class MultitaskCriterion(nn.Module):
                 object_queries=temporal_state.object_queries,
                 object_boxes=object_boxes,
                 seed_bank=seed_bank,
-                teacher=batch.teacher_targets,
+                teacher=batch.teacher_targets if self.enable_distillation else None,
             )
         )
         total = _zero_with_grad(object_logits) + _zero_with_grad(lane_logits)

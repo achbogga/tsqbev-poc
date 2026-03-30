@@ -268,6 +268,7 @@ def fit_nuscenes(
     loss_mode: Literal["baseline", "focal_hardneg"] = "baseline",
     hard_negative_ratio: int = 3,
     hard_negative_cap: int = 96,
+    enable_teacher_distillation: bool = True,
     tracker: ExperimentTracker | None = None,
     tracking_metadata: TrackingMetadata | None = None,
 ) -> dict[str, object]:
@@ -394,6 +395,7 @@ def fit_nuscenes(
                         "loss_mode": loss_mode,
                         "hard_negative_ratio": hard_negative_ratio,
                         "hard_negative_cap": hard_negative_cap,
+                        "enable_teacher_distillation": enable_teacher_distillation,
                     },
                 },
             )
@@ -420,7 +422,8 @@ def fit_nuscenes(
                 loss_mode=loss_mode,
                 hard_negative_ratio=hard_negative_ratio,
                 hard_negative_cap=hard_negative_cap,
-            )
+            ),
+            enable_distillation=enable_teacher_distillation,
         )
         optimizer = AdamW(model.parameters(), lr=lr, weight_decay=weight_decay)
         scheduler = _make_scheduler(
@@ -578,6 +581,7 @@ def fit_nuscenes(
             "teacher_provider": (
                 teacher_provider_config.kind if teacher_provider_config is not None else None
             ),
+            "enable_teacher_distillation": enable_teacher_distillation,
             "history": history,
         }
         if active_tracker is not None:

@@ -139,6 +139,7 @@ def run_nuscenes_overfit_gate(
     loss_mode: Literal["baseline", "focal_hardneg"] = "baseline",
     hard_negative_ratio: int = 3,
     hard_negative_cap: int = 96,
+    enable_teacher_distillation: bool = True,
     score_threshold_candidates: tuple[float, ...] = (0.05, 0.15, 0.25),
     top_k_candidates: tuple[int, ...] = (32, 64, 112),
 ) -> dict[str, Any]:
@@ -190,6 +191,7 @@ def run_nuscenes_overfit_gate(
                 "loss_mode": loss_mode,
                 "hard_negative_ratio": hard_negative_ratio,
                 "hard_negative_cap": hard_negative_cap,
+                "enable_teacher_distillation": enable_teacher_distillation,
                 "score_threshold_candidates": list(score_threshold_candidates),
                 "top_k_candidates": list(top_k_candidates),
             },
@@ -232,6 +234,7 @@ def run_nuscenes_overfit_gate(
             loss_mode=loss_mode,
             hard_negative_ratio=hard_negative_ratio,
             hard_negative_cap=hard_negative_cap,
+            enable_teacher_distillation=enable_teacher_distillation,
             tracker=tracker,
         )
         checkpoint_path = Path(str(train_result["checkpoint_path"]))

@@ -82,3 +82,44 @@ def test_distillation_objective_uses_geometry_aligned_teacher_rows() -> None:
     assert losses["kd_total"].item() > 0.0
     assert losses["kd_features"].item() > 0.0
     assert losses["kd_boxes"].item() > 0.0
+
+
+def test_distillation_logits_follow_aligned_query_positions() -> None:
+    query_refs = torch.tensor([[[0.0, 0.0, 0.0], [99.0, 0.0, 0.0], [10.0, 0.0, 0.0]]])
+    object_logits = torch.full((1, 3, 3), -8.0)
+    object_logits[0, 0, 0] = 8.0
+    object_logits[0, 2, 1] = 8.0
+    object_queries = torch.zeros(1, 3, 2)
+    object_boxes = torch.zeros(1, 3, 9)
+    seed_bank = QuerySeedBank(
+        embeddings=torch.zeros(1, 3, 4),
+        refs_xyz=query_refs,
+        scores=torch.ones(1, 3),
+        source_ids=torch.zeros(1, 3, dtype=torch.long),
+        keep_logits=torch.zeros(1, 3),
+    )
+    teacher = TeacherTargets(
+        object_features=None,
+        object_boxes=torch.tensor(
+            [
+                [
+                    [0.0, 0.0, 0.0, 1.5, 1.5, 1.5, 0.0, 0.0, 0.0],
+                    [10.0, 0.0, 0.0, 1.0, 1.0, 1.0, 0.0, 0.0, 0.0],
+                ]
+            ]
+        ),
+        object_labels=torch.tensor([[0, 1]]),
+        object_scores=torch.tensor([[0.95, 0.90]]),
+        valid_mask=torch.tensor([[True, True]]),
+    )
+
+    objective = DistillationObjective(feature_weight=0.0, box_weight=0.0, router_weight=0.0)
+    losses = objective(
+        object_logits=object_logits,
+        object_queries=object_queries,
+        object_boxes=object_boxes,
+        seed_bank=seed_bank,
+        teacher=teacher,
+    )
+
+    assert losses["kd_logits"].item() < 1e-2

@@ -25,7 +25,7 @@ autonomous system.
 - compact pretrained image-backbone family
 - pretrained image-backbone freeze policy
 - optional cache-backed external teacher provider
-- teacher usage mode: `off`, `KD-only`, `KD + teacher-seed`
+- teacher usage mode: `off`, `KD-only`, `teacher-anchor`
 - batch size
 - gradient accumulation
 - learning rate
@@ -97,7 +97,13 @@ comparison on the same mini setup:
 
 - teacher-off student baseline
 - teacher-on `KD-only` variant with the same architecture
-- teacher-on `teacher-seed` variant when compatible, treated as the preferred geometry exploit
+- teacher-on `teacher-anchor` variant when compatible, treated as the preferred geometry exploit
+
+Teacher-anchor runs must keep the teacher role narrow:
+
+- cached teacher detections provide the primary LiDAR/object anchors
+- routing must switch to anchor-first selection
+- teacher distillation may be disabled so the run isolates anchor quality from extra KD pressure
 
 Teacher-lift claims are invalid if teacher targets are not present in the collated training batch
 or if the comparison mixes different backbones or incompatible parent recipes.
