@@ -77,5 +77,5 @@ The highest-ROI next experiment is a paired teacher bootstrap:
 
 1. generate a public `CenterPoint-PointPillar` teacher cache on `v1.0-mini`
 2. audit cache coverage on `mini_train` and `mini_val`
-3. rerun the promoted mini recipe with `teacher_seed_mode=replace_lidar`
+3. rerun the promoted mini recipe with `teacher_seed_mode=replace_lidar_refs`
 4. compare teacher-on vs teacher-off on official `mini_val`

@@ -39,7 +39,11 @@ It is a focused open-source POC for public datasets and deployable research arti
   CUDA extensions build, the official pretrained `CenterPoint-PointPillar` checkpoint runs on
   `v1.0-mini`, and the resulting teacher cache covers `323 / 323` `mini_train` samples and
   `81 / 81` `mini_val` samples.
-- A paired teacher-on versus teacher-off bounded mini loop is now in progress against that cache.
+- The earlier teacher-lift artifact was invalidated after a batched-collation bug was found to
+  drop `teacher_targets` from real dataset batches.
+- The corrected teacher-backed path now carries teacher targets through batching, uses
+  score-weighted teacher class and box supervision, and requires a same-invocation paired
+  teacher-off / teacher-KD / teacher-ref-seed comparison before any lift claim is accepted.
 - The bounded mini loop now mirrors the strongest transferable `autoresearch` mechanics more closely:
   incumbent-first execution, bounded exploration then exploitation, append-only `results.jsonl` and
   `results.tsv`, per-run `manifest.json`, a fixed comparable `max_train_steps=960` budget per

@@ -174,6 +174,7 @@ def compute_training_losses(
     if distillation is None:
         distillation = DistillationObjective()
     kd_losses = distillation(
+        object_logits=object_logits,
         object_queries=temporal_state.object_queries,
         object_boxes=object_boxes,
         seed_bank=seed_bank,

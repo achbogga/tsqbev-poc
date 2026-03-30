@@ -87,6 +87,20 @@ def _gather_teacher_rows(
     return aligned
 
 
+def _gather_teacher_vector(
+    tensor: Tensor | None,
+    indices: Tensor,
+    keep_mask: Tensor,
+) -> Tensor | None:
+    if tensor is None:
+        return None
+    if int(indices.max().item()) >= tensor.shape[1]:
+        return None
+    aligned = torch.gather(tensor, dim=1, index=indices)
+    fill_value = 0 if tensor.dtype in (torch.int32, torch.int64, torch.long) else 0.0
+    return aligned.masked_fill(~keep_mask, fill_value)
+
+
 def _align_teacher_targets(
     object_queries: Tensor,
     object_boxes: Tensor,
@@ -97,10 +111,8 @@ def _align_teacher_targets(
     aligned = TeacherTargets(
         object_features=_gather_teacher_rows(teacher.object_features, indices, keep_mask),
         object_boxes=_gather_teacher_rows(teacher.object_boxes, indices, keep_mask),
-        object_labels=None,
-        object_scores=torch.gather(teacher.object_scores, dim=1, index=indices)
-        if teacher.object_scores is not None
-        else None,
+        object_labels=_gather_teacher_vector(teacher.object_labels, indices, keep_mask),
+        object_scores=_gather_teacher_vector(teacher.object_scores, indices, keep_mask),
         lane_features=teacher.lane_features,
         router_logits=teacher.router_logits,
         valid_mask=keep_mask,
@@ -124,15 +136,21 @@ class DistillationObjective(nn.Module):
     """Compute optional distillation losses from teacher cache tensors."""
 
     def __init__(
-        self, feature_weight: float = 1.0, box_weight: float = 1.0, router_weight: float = 0.5
+        self,
+        feature_weight: float = 1.0,
+        box_weight: float = 1.0,
+        router_weight: float = 0.5,
+        class_weight: float = 0.5,
     ) -> None:
         super().__init__()
         self.feature_weight = feature_weight
         self.box_weight = box_weight
         self.router_weight = router_weight
+        self.class_weight = class_weight
 
     def forward(
         self,
+        object_logits: Tensor,
         object_queries: Tensor,
         object_boxes: Tensor,
         seed_bank: QuerySeedBank,
@@ -140,7 +158,13 @@ class DistillationObjective(nn.Module):
     ) -> dict[str, Tensor]:
         zero = _zero_with_grad(object_queries)
         if teacher is None:
-            return {"kd_total": zero, "kd_features": zero, "kd_boxes": zero, "kd_router": zero}
+            return {
+                "kd_total": zero,
+                "kd_features": zero,
+                "kd_boxes": zero,
+                "kd_router": zero,
+                "kd_logits": zero,
+            }
 
         aligned_teacher, mask = _align_teacher_targets(object_queries, object_boxes, teacher)
         feature_loss = zero
@@ -160,6 +184,37 @@ class DistillationObjective(nn.Module):
                 * self.box_weight
             )
 
+        logits_loss = zero
+        if (
+            aligned_teacher.object_labels is not None
+            and aligned_teacher.object_scores is not None
+            and mask.any()
+        ):
+            target_classes = torch.zeros_like(object_logits)
+            score_weights = torch.zeros_like(aligned_teacher.object_scores)
+            for batch_index in range(object_logits.shape[0]):
+                valid = mask[batch_index]
+                if not valid.any():
+                    continue
+                labels = aligned_teacher.object_labels[batch_index][valid]
+                scores = aligned_teacher.object_scores[batch_index][valid].clamp(0.0, 1.0)
+                query_indices = torch.arange(
+                    labels.shape[0], device=labels.device, dtype=torch.long
+                )
+                target_classes[batch_index, query_indices, labels] = 1.0
+                score_weights[batch_index, query_indices] = scores
+            logits_loss = (
+                _masked_mean(
+                    F.binary_cross_entropy_with_logits(
+                        object_logits,
+                        target_classes,
+                        reduction="none",
+                    ),
+                    score_weights.unsqueeze(-1),
+                )
+                * self.class_weight
+            )
+
         router_loss = zero
         if aligned_teacher.router_logits is not None:
             router_loss = (
@@ -167,10 +222,11 @@ class DistillationObjective(nn.Module):
                 * self.router_weight
             )
 
-        total = feature_loss + box_loss + router_loss
+        total = feature_loss + box_loss + router_loss + logits_loss
         return {
             "kd_total": total,
             "kd_features": feature_loss,
             "kd_boxes": box_loss,
             "kd_router": router_loss,
+            "kd_logits": logits_loss,
         }

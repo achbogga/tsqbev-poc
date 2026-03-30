@@ -181,6 +181,36 @@ def test_initial_recipes_can_carry_forward_previous_incumbent(tmp_path: Path) ->
     assert recipes[0].name == "carryover_mini_propheavy_effb0_frozen"
     assert recipes[0].stage == "baseline"
     assert recipes[0].parent_recipe == "mini_propheavy_effb0_frozen"
+    assert recipes[0].use_teacher_provider is False
+
+
+def test_initial_recipes_insert_teacher_kd_when_teacher_is_available(tmp_path: Path) -> None:
+    artifact_root = tmp_path / "research_loop"
+    artifact_root.mkdir(parents=True)
+    summary_path = artifact_root / "summary.json"
+    summary_path.write_text(
+        json.dumps(
+            {
+                "selected_record": {
+                    "recipe": "mini_propheavy_effb0_frozen",
+                    "config": ModelConfig.rtx5000_nuscenes_baseline().model_dump(),
+                    "batch_size": 2,
+                    "grad_accum_steps": 2,
+                    "lr": 2e-4,
+                    "epochs": 6,
+                    "num_workers": 4,
+                    "score_threshold": 0.05,
+                    "top_k": 300,
+                }
+            }
+        )
+    )
+
+    recipes = research._initial_recipes(artifact_root, teacher_provider_available=True)
+
+    assert recipes[0].name == "carryover_mini_propheavy_effb0_frozen"
+    assert recipes[1].name == "carryover_mini_propheavy_effb0_frozen_teacher_kd"
+    assert recipes[1].use_teacher_provider is True
 
 
 def test_warm_start_checkpoint_for_recipe_only_applies_to_compatible_exploit_recipe() -> None:
@@ -212,6 +242,16 @@ def test_warm_start_checkpoint_for_recipe_only_applies_to_compatible_exploit_rec
         stage="exploit",
         parent_recipe="incumbent",
     )
+    teacher_recipe = research.ResearchRecipe(
+        name="incumbent_teacher_kd",
+        note="exploit",
+        hypothesis="exploit",
+        mutation_reason="exploit",
+        config=ModelConfig.rtx5000_nuscenes_baseline(),
+        stage="exploit",
+        parent_recipe="incumbent",
+        use_teacher_provider=True,
+    )
     incumbent_record = {"checkpoint_path": "/tmp/incumbent.pt"}
 
     assert (
@@ -230,3 +270,52 @@ def test_warm_start_checkpoint_for_recipe_only_applies_to_compatible_exploit_rec
         )
         is None
     )
+    assert (
+        research._warm_start_checkpoint_for_recipe(
+            teacher_recipe,
+            incumbent_recipe,
+            incumbent_record,
+        )
+        is None
+    )
+
+
+def test_teacher_lift_compares_teacher_kd_and_teacher_ref_seed() -> None:
+    records = [
+        {
+            "run_id": 1,
+            "recipe": "baseline",
+            "status": "completed",
+            "use_teacher_provider": False,
+            "teacher_seed_mode": "off",
+            "evaluation": _fake_eval(0.01, 0.001),
+            "val": {"total": 20.0},
+        },
+        {
+            "run_id": 2,
+            "recipe": "baseline_teacher_kd",
+            "status": "completed",
+            "use_teacher_provider": True,
+            "teacher_seed_mode": "off",
+            "evaluation": _fake_eval(0.025, 0.002),
+            "val": {"total": 19.0},
+        },
+        {
+            "run_id": 3,
+            "recipe": "baseline_teacher_ref_seed",
+            "status": "completed",
+            "use_teacher_provider": True,
+            "teacher_seed_mode": "replace_lidar_refs",
+            "evaluation": _fake_eval(0.04, 0.003),
+            "val": {"total": 18.5},
+        },
+    ]
+
+    teacher_lift = research._teacher_lift(records)
+
+    assert teacher_lift["paired"] is True
+    assert teacher_lift["passed"] is True
+    assert teacher_lift["baseline_recipe"] == "baseline"
+    assert teacher_lift["teacher_recipe"] == "baseline_teacher_ref_seed"
+    assert teacher_lift["comparisons"]["teacher_kd"]["nds"] == 0.025
+    assert teacher_lift["comparisons"]["teacher_ref_seed"]["nds"] == 0.04

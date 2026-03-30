@@ -13,6 +13,7 @@ def test_distillation_objective_returns_zero_without_teacher(small_config, synth
     outputs = model(synthetic_batch)
     objective = DistillationObjective()
     losses = objective(
+        object_logits=outputs["object_logits"],
         object_queries=outputs["temporal_state"].object_queries,
         object_boxes=outputs["object_boxes"],
         seed_bank=outputs["seed_bank"],
@@ -26,6 +27,7 @@ def test_distillation_objective_uses_teacher_targets(small_config, synthetic_bat
     outputs = model(synthetic_batch)
     objective = DistillationObjective()
     losses = objective(
+        object_logits=outputs["object_logits"],
         object_queries=outputs["temporal_state"].object_queries,
         object_boxes=outputs["object_boxes"],
         seed_bank=outputs["seed_bank"],
@@ -63,6 +65,7 @@ def test_distillation_objective_aligns_variable_teacher_boxes(
     objective = DistillationObjective()
 
     losses = objective(
+        object_logits=outputs["object_logits"],
         object_queries=outputs["temporal_state"].object_queries,
         object_boxes=outputs["object_boxes"],
         seed_bank=outputs["seed_bank"],
@@ -70,3 +73,4 @@ def test_distillation_objective_aligns_variable_teacher_boxes(
     )
 
     assert float(losses["kd_boxes"]) > 0.0
+    assert float(losses["kd_logits"]) >= 0.0

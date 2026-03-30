@@ -227,6 +227,7 @@ class MultitaskCriterion(nn.Module):
         losses.update(self.lane(lane_logits, lane_polylines, batch))
         losses.update(
             self.distillation(
+                object_logits=object_logits,
                 object_queries=temporal_state.object_queries,
                 object_boxes=object_boxes,
                 seed_bank=seed_bank,

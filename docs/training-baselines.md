@@ -169,10 +169,15 @@ The exact external OpenPCDet `CenterPoint-PointPillar` runbook is in
 [`docs/openpcdet-centerpoint-teacher.md`](openpcdet-centerpoint-teacher.md), and the measured
 teacher benchmark is in [`docs/benchmarks/openpcdet-centerpoint-mini.md`](openpcdet-centerpoint-mini.md).
 
-The first paired teacher-on versus teacher-off bounded mini invocation is currently writing to:
+Teacher-backed local mini research now follows a stricter rule than the original bootstrap:
 
-- `artifacts/research_teacher_v1/research_loop_teacher_v1.log`
-- `artifacts/research_teacher_v1/research_loop/`
+- one teacher-off baseline must run in the same bounded invocation
+- one teacher-on `KD-only` recipe must run on the same architecture
+- one teacher-on `replace_lidar_refs` recipe is the preferred geometry exploit
+
+The older `research_teacher_v1` evidence is historical only. It used a path that was later found to
+drop `teacher_targets` during batched collation, so it must not be used as the basis for a
+teacher-lift claim on the current branch.
 
 Before trying that path on any machine, run the prerequisite check:
 
@@ -182,10 +187,15 @@ uv run tsqbev check-openpcdet-env \
 ```
 
 If the cached teacher outputs include `object_boxes`, `object_labels`, and `object_scores`, the
-teacher-enabled preset now defaults to replacing only the LiDAR reference centers while preserving
-the student LiDAR query embeddings. The harsher full seed-replacement path remains available as an
-explicit ablation, and all teacher-backed runs still keep the heavy teacher itself outside the
-default runtime.
+teacher-enabled student now uses them in two low-cost ways:
+
+- score-weighted teacher box distillation
+- score-weighted teacher class supervision for aligned student queries
+
+When teacher seeding is enabled, the default teacher geometry mode is still to replace only the
+LiDAR reference centers while preserving the student LiDAR query embeddings. The harsher full
+seed-replacement path remains available as an explicit ablation, and all teacher-backed runs still
+keep the heavy teacher itself outside the default runtime.
 
 Run the bounded local research loop on `v1.0-mini`:
 

@@ -26,7 +26,7 @@ When tracking is enabled, runs are mirrored to Weights & Biases under the entity
 | CI | 🟢 Passing | `ruff`, `mypy`, `pytest` currently pass locally; GitHub Actions badge is wired in |
 | Current mini incumbent | 🟡 Real but weak | `mini_propheavy_effb0_frozen`, `mini_val NDS = 0.01247`, `mAP = 4.62e-05`, `21.95 ms` |
 | Teacher bootstrap | 🟢 Verified | external OpenPCDet `CenterPoint-PointPillar` reached `0.4997 NDS` on `mini_val`; cache coverage is full |
-| Teacher lift into student | 🔴 Failed | current `replace_lidar` paired ablation regressed to `NDS = 0.0` |
+| Teacher lift into student | 🟡 Rerunning | previous `replace_lidar` evidence was invalidated by a teacher-batch collation bug; the current branch requires paired teacher-off / teacher-KD / teacher-ref-seed evidence |
 | Scale-up readiness | 🔴 Blocked | overfit, repeatability, and mini generalization gates are still failing |
 | Tracking | 🟢 Online | W&B smoke run synced under `achbogga-track` |
 
@@ -107,6 +107,10 @@ proposal-heavy frozen `EfficientNet-B0` recipe. It is a real, reproducible local
 well below the threshold required to justify scaling the training budget. The sweep artifacts are
 summarized in [docs/benchmarks/nuscenes-mini.md](docs/benchmarks/nuscenes-mini.md) and the latest
 teacher-backed bounded run in `artifacts/research_teacher_v1/research_loop/`.
+The `replace_lidar` teacher row above should no longer be treated as valid evidence on the current
+branch: batching used to drop `teacher_targets`, so teacher lift is being rerun with the fixed
+collator, score-weighted teacher class and box supervision, and the newer `replace_lidar_refs`
+mode.
 The same loop is also tracked in W&B when credentials are available; hyperparameter and
 performance sweeps stay grouped within the same architecture-family project, while materially
 different architectures are logged to separate projects.

@@ -72,6 +72,7 @@ class ResearchRecipe:
     config: ModelConfig
     stage: Literal["baseline", "explore", "exploit"] = "explore"
     parent_recipe: str | None = None
+    use_teacher_provider: bool = False
     batch_size: int = 2
     grad_accum_steps: int = 2
     lr: float = 3e-4
@@ -199,6 +200,7 @@ def _clone_recipe(
     config: ModelConfig | None = None,
     stage: Literal["baseline", "explore", "exploit"] = "exploit",
     parent_recipe: str | None = None,
+    use_teacher_provider: bool | None = None,
     batch_size: int | None = None,
     grad_accum_steps: int | None = None,
     lr: float | None = None,
@@ -216,6 +218,9 @@ def _clone_recipe(
         config=config if config is not None else recipe.config,
         stage=stage,
         parent_recipe=recipe.name if parent_recipe is None else parent_recipe,
+        use_teacher_provider=(
+            recipe.use_teacher_provider if use_teacher_provider is None else use_teacher_provider
+        ),
         batch_size=recipe.batch_size if batch_size is None else batch_size,
         grad_accum_steps=recipe.grad_accum_steps if grad_accum_steps is None else grad_accum_steps,
         lr=recipe.lr if lr is None else lr,
@@ -257,6 +262,7 @@ def _load_previous_incumbent(artifact_root: Path) -> ResearchRecipe | None:
         config=config,
         stage="baseline",
         parent_recipe=previous_name,
+        use_teacher_provider=bool(selected.get("use_teacher_provider", False)),
         batch_size=int(selected.get("batch_size", 2)),
         grad_accum_steps=int(selected.get("grad_accum_steps", 2)),
         lr=float(selected.get("lr", 3e-4)),
@@ -272,7 +278,30 @@ def _load_previous_incumbent(artifact_root: Path) -> ResearchRecipe | None:
     )
 
 
-def _initial_recipes(artifact_root: Path) -> list[ResearchRecipe]:
+def _make_teacher_kd_recipe(
+    recipe: ResearchRecipe,
+    *,
+    stage: Literal["baseline", "explore", "exploit"] = "explore",
+) -> ResearchRecipe:
+    return _clone_recipe(
+        recipe,
+        name=f"{recipe.name}_teacher_kd",
+        note="turn on cached teacher-guided supervision without changing seed geometry",
+        hypothesis=(
+            "score-weighted teacher box and class supervision should improve ranking and "
+            "localization before more invasive seed mutations"
+        ),
+        mutation_reason="enable teacher cache supervision as a paired ablation",
+        stage=stage,
+        use_teacher_provider=True,
+    )
+
+
+def _initial_recipes(
+    artifact_root: Path,
+    *,
+    teacher_provider_available: bool = False,
+) -> list[ResearchRecipe]:
     carryover = _load_previous_incumbent(artifact_root)
     if carryover is not None:
         query_boost = _make_query_boost_recipe(
@@ -281,11 +310,18 @@ def _initial_recipes(artifact_root: Path) -> list[ResearchRecipe]:
             stage="explore",
         )
         lr_down = _make_lr_down_recipe(carryover, stage="explore")
-        return [carryover, query_boost, lr_down]
+        recipes = [carryover]
+        if teacher_provider_available:
+            recipes.append(_make_teacher_kd_recipe(carryover, stage="explore"))
+        recipes.extend([query_boost, lr_down])
+        return recipes
     baseline = _baseline_recipe()
     proposal = _proposal_heavy_recipe()
     efficientnet = _efficientnet_recipe(proposal)
-    return [baseline, proposal, efficientnet]
+    recipes = [baseline, proposal, efficientnet]
+    if teacher_provider_available:
+        recipes.insert(1, _make_teacher_kd_recipe(baseline, stage="explore"))
+    return recipes
 
 
 def _make_lr_down_recipe(
@@ -362,6 +398,7 @@ def _make_teacher_seed_recipe(recipe: ResearchRecipe) -> ResearchRecipe:
         ),
         config=config,
         stage="exploit",
+        use_teacher_provider=True,
     )
 
 
@@ -396,8 +433,11 @@ def _build_exploitation_recipes(
         _make_query_boost_recipe(incumbent_recipe, source_mix=source_mix),
         _make_lr_down_recipe(incumbent_recipe),
     ]
-    if teacher_provider_config is not None and incumbent_recipe.config.teacher_seed_mode == "off":
-        candidates.insert(0, _make_teacher_seed_recipe(incumbent_recipe))
+    if teacher_provider_config is not None:
+        if not incumbent_recipe.use_teacher_provider:
+            candidates.insert(0, _make_teacher_kd_recipe(incumbent_recipe, stage="exploit"))
+        elif incumbent_recipe.config.teacher_seed_mode == "off":
+            candidates.insert(0, _make_teacher_seed_recipe(incumbent_recipe))
     if incumbent_recipe.config.freeze_image_backbone:
         candidates.append(_make_unfreeze_recipe(incumbent_recipe))
     deduped: list[ResearchRecipe] = []
@@ -415,6 +455,7 @@ def _serialize_recipe(recipe: ResearchRecipe) -> dict[str, Any]:
         "recipe": recipe.name,
         "stage": recipe.stage,
         "parent_recipe": recipe.parent_recipe,
+        "use_teacher_provider": recipe.use_teacher_provider,
         "note": recipe.note,
         "hypothesis": recipe.hypothesis,
         "mutation_reason": recipe.mutation_reason,
@@ -442,6 +483,8 @@ def _warm_start_checkpoint_for_recipe(
     if recipe.config.image_backbone != incumbent_recipe.config.image_backbone:
         return None
     if recipe.config.model_dim != incumbent_recipe.config.model_dim:
+        return None
+    if recipe.use_teacher_provider != incumbent_recipe.use_teacher_provider:
         return None
     checkpoint_path = incumbent_record.get("checkpoint_path")
     return str(checkpoint_path) if checkpoint_path is not None else None
@@ -784,15 +827,23 @@ def _teacher_lift(records: list[dict[str, Any]]) -> dict[str, Any]:
     base_records = [
         record
         for record in records
-        if record.get("status") == "completed" and record.get("teacher_seed_mode") == "off"
+        if record.get("status") == "completed" and not bool(record.get("use_teacher_provider"))
     ]
-    teacher_records = [
+    teacher_kd_records = [
         record
         for record in records
         if record.get("status") == "completed"
-        and record.get("teacher_seed_mode") == "replace_lidar"
+        and bool(record.get("use_teacher_provider"))
+        and record.get("teacher_seed_mode") == "off"
     ]
-    if not base_records or not teacher_records:
+    teacher_seed_records = [
+        record
+        for record in records
+        if record.get("status") == "completed"
+        and bool(record.get("use_teacher_provider"))
+        and record.get("teacher_seed_mode") == "replace_lidar_refs"
+    ]
+    if not base_records or (not teacher_kd_records and not teacher_seed_records):
         return {
             "paired": False,
             "passed": False,
@@ -802,25 +853,43 @@ def _teacher_lift(records: list[dict[str, Any]]) -> dict[str, Any]:
             ),
         }
     best_base = sorted(base_records, key=_record_rank_key)[0]
-    best_teacher = sorted(teacher_records, key=_record_rank_key)[0]
     base_eval = best_base.get("evaluation", {})
-    teacher_eval = best_teacher.get("evaluation", {})
     assert isinstance(base_eval, dict)
-    assert isinstance(teacher_eval, dict)
     base_nds = float(base_eval.get("nd_score", 0.0))
-    teacher_nds = float(teacher_eval.get("nd_score", 0.0))
-    abs_lift = teacher_nds - base_nds
-    rel_lift = teacher_nds / base_nds if base_nds > 0.0 else float("inf")
-    passed = abs_lift >= 0.02 or rel_lift >= 2.0
+    comparisons: dict[str, Any] = {}
+    best_lift = float("-inf")
+    best_lift_ratio = float("-inf")
+    best_teacher_recipe: str | None = None
+    for label, pool in (
+        ("teacher_kd", teacher_kd_records),
+        ("teacher_ref_seed", teacher_seed_records),
+    ):
+        if not pool:
+            continue
+        best_teacher = sorted(pool, key=_record_rank_key)[0]
+        teacher_eval = best_teacher.get("evaluation", {})
+        assert isinstance(teacher_eval, dict)
+        teacher_nds = float(teacher_eval.get("nd_score", 0.0))
+        abs_lift = teacher_nds - base_nds
+        rel_lift = teacher_nds / base_nds if base_nds > 0.0 else float("inf")
+        comparisons[label] = {
+            "recipe": best_teacher.get("recipe"),
+            "nds": teacher_nds,
+            "absolute_lift_nds": abs_lift,
+            "relative_lift_nds": rel_lift,
+        }
+        if abs_lift > best_lift:
+            best_lift = abs_lift
+            best_lift_ratio = rel_lift
+            best_teacher_recipe = str(best_teacher.get("recipe"))
+    passed = best_lift >= 0.02 or best_lift_ratio >= 2.0
     return {
         "paired": True,
         "passed": passed,
         "baseline_recipe": best_base.get("recipe"),
-        "teacher_recipe": best_teacher.get("recipe"),
+        "teacher_recipe": best_teacher_recipe,
         "baseline_nds": base_nds,
-        "teacher_nds": teacher_nds,
-        "absolute_lift_nds": abs_lift,
-        "relative_lift_nds": rel_lift,
+        "comparisons": comparisons,
         "reason": (
             "teacher lift met the scale-gate threshold"
             if passed
@@ -1016,7 +1085,10 @@ def run_bounded_research_loop(
     records: list[dict[str, Any]] = []
     incumbent_record: dict[str, Any] | None = None
     incumbent_recipe: ResearchRecipe | None = None
-    candidate_queue = _initial_recipes(artifact_root)[:max_experiments]
+    candidate_queue = _initial_recipes(
+        artifact_root,
+        teacher_provider_available=teacher_provider_config is not None,
+    )[:max_experiments]
     initial_recipe_count = len(candidate_queue)
     recipe_index = 0
 
@@ -1024,6 +1096,9 @@ def run_bounded_research_loop(
         recipe = candidate_queue[recipe_index]
         run_id = recipe_index + 1
         run_dir = artifact_root / recipe.name
+        run_teacher_provider_config = (
+            teacher_provider_config if recipe.use_teacher_provider else None
+        )
         tracker = start_experiment_tracking(
             artifact_dir=run_dir,
             config=recipe.config,
@@ -1039,14 +1114,16 @@ def run_bounded_research_loop(
                     "v1.0-mini",
                     recipe.config.image_backbone,
                     recipe.config.teacher_seed_mode,
+                    "teacher-on" if recipe.use_teacher_provider else "teacher-off",
                 ),
                 extra_config={
                     "run_id": run_id,
                     "parent_recipe": recipe.parent_recipe,
                     "max_experiments": max_experiments,
+                    "use_teacher_provider": recipe.use_teacher_provider,
                     "teacher_provider": (
                         teacher_provider_config.kind
-                        if teacher_provider_config is not None
+                        if teacher_provider_config is not None and recipe.use_teacher_provider
                         else None
                     ),
                     "recipe": _serialize_recipe(recipe),
@@ -1068,6 +1145,7 @@ def run_bounded_research_loop(
             "[research] "
             f"starting run_id={run_id} recipe={recipe.name} stage={recipe.stage} "
             f"teacher_seed_mode={recipe.config.teacher_seed_mode} "
+            f"use_teacher_provider={recipe.use_teacher_provider} "
             f"parent={recipe.parent_recipe or '-'}"
         )
         record: dict[str, Any] = {
@@ -1076,7 +1154,9 @@ def run_bounded_research_loop(
             "status": "started",
             "teacher_seed_mode": recipe.config.teacher_seed_mode,
             "teacher_provider": (
-                teacher_provider_config.kind if teacher_provider_config is not None else None
+                teacher_provider_config.kind
+                if teacher_provider_config is not None and recipe.use_teacher_provider
+                else None
             ),
             "interim_decision": "pending",
             "final_decision": "pending",
@@ -1089,7 +1169,7 @@ def run_bounded_research_loop(
             artifact_root=artifact_root,
             device=device,
             max_experiments=max_experiments,
-            teacher_provider_config=teacher_provider_config,
+            teacher_provider_config=run_teacher_provider_config,
             extra={"run_id": run_id, "status": "started"},
         )
         try:
@@ -1110,7 +1190,7 @@ def run_bounded_research_loop(
                 batch_size=recipe.batch_size,
                 num_workers=recipe.num_workers,
                 device=device,
-                teacher_provider_config=teacher_provider_config,
+                teacher_provider_config=run_teacher_provider_config,
                 init_checkpoint=_warm_start_checkpoint_for_recipe(
                     recipe,
                     incumbent_recipe,
@@ -1148,7 +1228,7 @@ def run_bounded_research_loop(
                 score_threshold=recipe.score_threshold,
                 top_k=recipe.top_k,
                 device=device,
-                teacher_provider_config=teacher_provider_config,
+                teacher_provider_config=run_teacher_provider_config,
             )
             durations_s["export"] = time.perf_counter() - start_time
 
@@ -1169,7 +1249,7 @@ def run_bounded_research_loop(
                 version="v1.0-mini",
                 split="mini_val",
                 device=device,
-                teacher_provider_config=teacher_provider_config,
+                teacher_provider_config=run_teacher_provider_config,
             )
             durations_s["source_mix"] = time.perf_counter() - start_time
             train_samples = train_result["train_samples"]
@@ -1233,7 +1313,7 @@ def run_bounded_research_loop(
             artifact_root=artifact_root,
             device=device,
             max_experiments=max_experiments,
-            teacher_provider_config=teacher_provider_config,
+            teacher_provider_config=run_teacher_provider_config,
             extra=record,
         )
         _flush_progress_ledgers(artifact_root, records)

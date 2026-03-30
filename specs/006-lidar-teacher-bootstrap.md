@@ -73,7 +73,8 @@ At minimum, the repo must support the following teacher ablations:
 
 1. teacher boxes as `Q_lidar` reference priors only
 2. teacher boxes plus teacher scores as seed priors
-3. teacher feature distillation into the student query bank
+3. score-weighted teacher class and box distillation into the student query/object heads
+4. optional teacher feature distillation into the student query bank when features are available
 
 ## Promotion Rule
 
@@ -85,6 +86,10 @@ The external teacher path is worth keeping only if it improves the student on of
 - relative `NDS` lift `>= 2x`
 
 The lift must be measured against the current student-only baseline on the same public mini setup.
+
+The first valid promotion target is not teacher parity. It is a clean, reproducible lift over the
+student-only incumbent with fixed latency discipline and a correctly paired teacher-off vs
+teacher-on comparison.
 
 ## Forbidden
 

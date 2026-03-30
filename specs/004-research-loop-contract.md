@@ -15,6 +15,7 @@ autonomous system.
 - fixed comparable train budget per recipe: `max_train_steps = 960`
 - loop shape:
   - baseline or carry-over incumbent recheck
+  - paired teacher-off versus teacher-on comparison when a teacher cache is available
   - bounded exploration
   - bounded exploitation derived from the current incumbent
 
@@ -24,6 +25,7 @@ autonomous system.
 - compact pretrained image-backbone family
 - pretrained image-backbone freeze policy
 - optional cache-backed external teacher provider
+- teacher usage mode: `off`, `KD-only`, `KD + teacher-ref-seed`
 - batch size
 - gradient accumulation
 - learning rate
@@ -72,6 +74,18 @@ Exactly one record may end a completed invocation with `final_decision = promote
 
 The loop may not keep a recipe purely because it has a lower surrogate loss if its official
 `mini_val` metrics are worse.
+
+## Teacher Comparison Rule
+
+If a teacher cache is available for the invocation, the loop must produce at least one valid paired
+comparison on the same mini setup:
+
+- teacher-off student baseline
+- teacher-on `KD-only` variant with the same architecture
+- teacher-on `teacher-ref-seed` variant when compatible
+
+Teacher-lift claims are invalid if teacher targets are not present in the collated training batch
+or if the comparison mixes different backbones or incompatible parent recipes.
 
 ## Scale-Gate Output
 
