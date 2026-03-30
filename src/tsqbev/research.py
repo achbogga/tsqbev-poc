@@ -472,6 +472,22 @@ def _write_results_tsv(path: Path, rows: list[dict[str, Any]]) -> None:
             )
 
 
+def _flush_progress_ledgers(artifact_root: Path, records: list[dict[str, Any]]) -> None:
+    _write_jsonl(artifact_root / "results.jsonl", records)
+    _write_results_tsv(artifact_root / "results.tsv", records)
+
+
+def _metric_float(value: object, default: float = 0.0) -> float:
+    if isinstance(value, bool):
+        return float(value)
+    if isinstance(value, int | float | str):
+        try:
+            return float(value)
+        except ValueError:
+            return default
+    return default
+
+
 def _current_git_sha() -> str:
     try:
         result = subprocess.run(
@@ -977,6 +993,12 @@ def run_bounded_research_loop(
         recipe = candidate_queue[recipe_index]
         run_id = recipe_index + 1
         run_dir = artifact_root / recipe.name
+        print(
+            "[research] "
+            f"starting run_id={run_id} recipe={recipe.name} stage={recipe.stage} "
+            f"teacher_seed_mode={recipe.config.teacher_seed_mode} "
+            f"parent={recipe.parent_recipe or '-'}"
+        )
         record: dict[str, Any] = {
             "run_id": run_id,
             **_serialize_recipe(recipe),
@@ -1121,6 +1143,19 @@ def run_bounded_research_loop(
             teacher_provider_config=teacher_provider_config,
             extra=record,
         )
+        _flush_progress_ledgers(artifact_root, records)
+        evaluation = record.get("evaluation", {})
+        assert isinstance(evaluation, dict)
+        val_metrics = record.get("val", {})
+        assert isinstance(val_metrics, dict)
+        print(
+            "[research] "
+            f"finished run_id={run_id} recipe={recipe.name} status={record.get('status')} "
+            f"decision={record.get('interim_decision')} "
+            f"nds={_metric_float(evaluation.get('nd_score', 0.0)):.6f} "
+            f"map={_metric_float(evaluation.get('mean_ap', 0.0)):.6f} "
+            f"val_total={_metric_float(val_metrics.get('total', 0.0)):.4f}"
+        )
 
         if (
             recipe_index + 1 == initial_recipe_count
@@ -1140,8 +1175,7 @@ def run_bounded_research_loop(
 
     promoted_run_id = int(incumbent_record["run_id"]) if incumbent_record is not None else None
     ranked = _apply_final_decisions(records, promoted_run_id)
-    _write_jsonl(artifact_root / "results.jsonl", records)
-    _write_results_tsv(artifact_root / "results.tsv", records)
+    _flush_progress_ledgers(artifact_root, records)
 
     if incumbent_record is None or incumbent_recipe is None:
         failed_summary: dict[str, Any] = {

@@ -48,7 +48,11 @@ def _make_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--checkpoint", type=Path, required=True)
     parser.add_argument("--output-dir", type=Path, required=True)
-    parser.add_argument("--version", choices=("v1.0-mini", "v1.0-trainval", "v1.0-test"), default="v1.0-mini")
+    parser.add_argument(
+        "--version",
+        choices=("v1.0-mini", "v1.0-trainval", "v1.0-test"),
+        default="v1.0-mini",
+    )
     parser.add_argument("--split", required=True)
     parser.add_argument("--data-path", type=Path, default=None)
     parser.add_argument("--batch-size", type=int, default=1)
@@ -63,20 +67,23 @@ def main() -> None:
     if str(repo_root) not in sys.path:
         sys.path.insert(0, str(repo_root))
 
+    import torch
+    import tqdm
     from nuscenes.nuscenes import NuScenes
     from pcdet.config import cfg, cfg_from_list, cfg_from_yaml_file
     from pcdet.datasets import build_dataloader
     from pcdet.datasets.nuscenes import nuscenes_utils
     from pcdet.models import build_network, load_data_to_gpu
     from pcdet.utils import common_utils
-    import torch
-    import tqdm
 
     cfg_file = args.cfg_file
     if not cfg_file.is_absolute():
         cfg_file = repo_root / cfg_file
 
-    data_path = args.data_path.resolve() if args.data_path is not None else (repo_root / "data/nuscenes").resolve()
+    if args.data_path is not None:
+        data_path = args.data_path.resolve()
+    else:
+        data_path = (repo_root / "data/nuscenes").resolve()
     checkpoint = args.checkpoint.resolve()
     output_dir = args.output_dir.resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -108,7 +115,11 @@ def main() -> None:
     )
 
     model = build_network(model_cfg=cfg.MODEL, num_class=len(cfg.CLASS_NAMES), dataset=dataset)
-    model.load_params_from_file(filename=str(checkpoint), logger=logger, to_cpu=args.device == "cpu")
+    model.load_params_from_file(
+        filename=str(checkpoint),
+        logger=logger,
+        to_cpu=args.device == "cpu",
+    )
     if args.device == "cuda":
         model.cuda()
     model.eval()
@@ -125,7 +136,12 @@ def main() -> None:
         with torch.no_grad():
             pred_dicts, _ = model(batch_dict)
         det_annos.extend(
-            dataset.generate_prediction_dicts(batch_dict, pred_dicts, cfg.CLASS_NAMES, output_path=output_dir)
+            dataset.generate_prediction_dicts(
+                batch_dict,
+                pred_dicts,
+                cfg.CLASS_NAMES,
+                output_path=output_dir,
+            )
         )
 
     dataroot = data_path / args.version
@@ -146,7 +162,9 @@ def main() -> None:
         "version": args.version,
         "split": args.split,
         "num_samples": len(det_annos),
-        "avg_pred_objects": float(sum(len(anno["name"]) for anno in det_annos) / max(1, len(det_annos))),
+        "avg_pred_objects": float(
+            sum(len(anno["name"]) for anno in det_annos) / max(1, len(det_annos))
+        ),
         "cfg_file": str(cfg_file),
         "checkpoint": str(checkpoint),
         "data_path": str(data_path),

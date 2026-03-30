@@ -93,6 +93,22 @@ def test_run_bounded_research_loop_writes_autoresearch_ledgers(
     )
     monkeypatch.setattr(research, "_current_git_sha", lambda: "deadbee")
 
+    jsonl_snapshots: list[int] = []
+    tsv_snapshots: list[int] = []
+    original_write_jsonl = research._write_jsonl
+    original_write_results_tsv = research._write_results_tsv
+
+    def tracking_write_jsonl(path: Path, rows: list[dict[str, object]]) -> None:
+        jsonl_snapshots.append(len(rows))
+        original_write_jsonl(path, rows)
+
+    def tracking_write_results_tsv(path: Path, rows: list[dict[str, object]]) -> None:
+        tsv_snapshots.append(len(rows))
+        original_write_results_tsv(path, rows)
+
+    monkeypatch.setattr(research, "_write_jsonl", tracking_write_jsonl)
+    monkeypatch.setattr(research, "_write_results_tsv", tracking_write_results_tsv)
+
     summary = research.run_bounded_research_loop(
         dataroot=dataset_root,
         artifact_dir=artifact_dir,
@@ -122,6 +138,10 @@ def test_run_bounded_research_loop_writes_autoresearch_ledgers(
     tsv_lines = tsv_path.read_text().splitlines()
     assert tsv_lines[0].startswith("run_id\trecipe\tstage")
     assert len(tsv_lines) == 6
+    assert jsonl_snapshots[:5] == [1, 2, 3, 4, 5]
+    assert tsv_snapshots[:5] == [1, 2, 3, 4, 5]
+    assert jsonl_snapshots[-1] == 5
+    assert tsv_snapshots[-1] == 5
 
     manifest_path = (
         artifact_dir
