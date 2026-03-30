@@ -1,6 +1,6 @@
 # nuScenes 32-Sample Overfit Gate
 
-This note records the first exact-token overfit gate run for the promoted `v1.0-mini` recipe.
+This note records the repaired exact-token overfit gate run for the promoted `v1.0-mini` recipe.
 
 Grounding:
 
@@ -20,9 +20,10 @@ Grounding:
 - grad accumulation: `1`
 - device: local RTX 5000
 
-Primary artifact:
+Primary artifacts:
 
-- `artifacts/gates/overfit_gate/summary.json`
+- `artifacts/gates/recovery_v1/overfit_gate/summary.json`
+- `artifacts/gates/recovery_v1/overfit_gate/predictions_subset.json`
 
 ## Result
 
@@ -30,18 +31,21 @@ The gate failed.
 
 | Metric | Value |
 | --- | ---: |
-| Initial train total | `41.8276` |
-| Final train total | `21.2427` |
-| Train-total ratio | `0.5079` |
-| Final val total | `21.3688` |
-| Official same-subset `mAP` | `7.5044e-04` |
-| Official same-subset `NDS` | `3.7522e-04` |
-| Nonzero classes | `1` |
+| Initial train total | `73.2606` |
+| Final train total | `38.8998` |
+| Train-total ratio | `0.5310` |
+| Final val total | `38.0125` |
+| Official same-subset `mAP` | `5.3287e-04` |
+| Official same-subset `NDS` | `8.5868e-03` |
+| Nonzero classes | `3` |
 | `car AP @ 4.0m` | `0.0` |
-| RTX 5000 synthetic forward mean | `17.3566 ms` |
+| RTX 5000 synthetic forward mean | `17.7696 ms` |
+| Boxes per sample mean | `112.0` |
+| Ego-frame translation `p99` | `54.58 m` |
+| Ego-frame translation max | `61.16 m` |
 
-The only nonzero AP came from `barrier` at the `4.0 m` threshold. The required `car AP @ 4.0m`
-criterion was not met.
+The repaired run no longer sits fully in the all-zero regime, but the required `car AP @ 4.0m`
+criterion was still not met.
 
 ## Gate Verdict
 
@@ -61,21 +65,23 @@ Observed verdict:
 
 ## Interpretation
 
-This is a useful negative result.
+This is a useful negative result, and it is materially better than the earlier collapsed export.
 
-- The architecture does learn something on the exact fixed subset: train loss fell from `41.8276`
-  to `21.2427`, and official same-subset `mAP` is nonzero.
-- The current student still does not have enough capacity, supervision, or geometry quality to
-  deliberately overfit the promoted subset under the official metric stack.
-- This failure reinforces the existing scale gate. The correct next investment is not larger
-  compute. It is stronger supervision or a stronger geometry prior, starting with the external
-  teacher path.
+- The repaired student learns a real signal on the exact fixed subset: official same-subset
+  `NDS` moved to `0.0085868`, `mAP` remained nonzero, and `3` classes reached nonzero AP.
+- The export path is not geometrically collapsed in the ego frame. The apparent `1000m+`
+  translation norms in the raw result JSON are nuScenes global coordinates, not ego-relative
+  ranges, so they must not be used directly as a geometry sanity signal.
+- The remaining failure is not “garbage world coordinates”; it is weak memorization plus too many
+  surviving detections per sample.
+- This failure still reinforces the scale gate. The correct next investment is teacher-guided
+  supervision and tighter ranking/selection, not larger compute.
 
 ## Next Step
 
-The highest-ROI next experiment is a paired teacher bootstrap:
+The highest-ROI next experiment is a paired teacher-backed overfit probe:
 
-1. generate a public `CenterPoint-PointPillar` teacher cache on `v1.0-mini`
-2. audit cache coverage on `mini_train` and `mini_val`
-3. rerun the promoted mini recipe with `teacher_seed_mode=replace_lidar`
-4. compare teacher-on vs teacher-off on official `mini_val`
+1. rerun the repaired 32-sample gate with cached `CenterPoint-PointPillar` teacher KD enabled
+2. rerun the same gate with `teacher_seed_mode=replace_lidar`
+3. compare the paired teacher-on runs against the repaired student-only baseline
+4. only then decide whether the next ROI move is teacher scaling or further student redesign

@@ -46,16 +46,20 @@ It is a focused open-source POC for public datasets and deployable research arti
   teacher-off / teacher-KD / teacher-seed comparison before any lift claim is accepted.
 - The detection path now includes bounded center refinement around query refs, explicit objectness
   ranking, and exported-prediction geometry diagnostics in the research loop.
-- The bounded research loop now hard-blocks promotion when exported boxes are too numerous or too
-  far away, even if surrogate losses or official metrics improve.
+- The bounded research loop now measures exported-prediction geometry in the ego frame, not raw
+  nuScenes global coordinates, and hard-blocks promotion when boxes are too numerous or too far
+  away in ego range even if surrogate losses or official metrics improve.
 - The bounded mini loop now mirrors the strongest transferable `autoresearch` mechanics more closely:
   incumbent-first execution, bounded exploration then exploitation, append-only `results.jsonl` and
   `results.tsv`, per-run `manifest.json`, a fixed comparable `max_train_steps=960` budget per
   recipe, explicit `promote/discard/crash` semantics, and a machine-readable `scale_gate_verdict`.
 - The repo now also contains a dedicated `nuScenes` overfit-gate runner that trains and evaluates
   on the exact same fixed token subset through the official metric stack.
-- The first measured overfit-gate artifact failed, with `train_total_ratio = 0.5079`,
-  same-subset `NDS = 0.0003752`, same-subset `mAP = 0.0007504`, and no nonzero `car AP @ 4.0m`.
+- The repaired overfit-gate artifact still failed, with `train_total_ratio = 0.5310`,
+  same-subset `NDS = 0.0085868`, same-subset `mAP = 0.0005329`, `3` nonzero classes, and still no
+  nonzero `car AP @ 4.0m`.
+- The next active diagnostic is a paired teacher-backed overfit probe: `KD-only` and
+  `replace_lidar` teacher-seed runs on the same fixed 32-sample subset.
 - OpenLane support still needs version alignment against the OpenLane-V2 getting-started instructions before any lane baseline can be treated as final.
 - The bounded mini-dataset research loop is now authorized via `program.md`.
 

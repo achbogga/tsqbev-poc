@@ -192,10 +192,10 @@ teacher-enabled student now uses them in two low-cost ways:
 - geometry-aware teacher box distillation
 - geometry-aware teacher class supervision for aligned student queries
 
-When teacher seeding is enabled, the default teacher geometry mode is still to replace only the
-LiDAR reference centers while preserving the student LiDAR query embeddings. The harsher full
-seed-replacement path remains available as an explicit ablation, and all teacher-backed runs still
-keep the heavy teacher itself outside the default runtime.
+When teacher seeding is enabled, the preferred geometry mode on the current branch is full
+`replace_lidar` LiDAR-seed replacement. The legacy `replace_lidar_refs` ref-only path remains
+available as an explicit ablation, and all teacher-backed runs still keep the heavy teacher itself
+outside the default runtime.
 
 Run the bounded local research loop on `v1.0-mini`:
 

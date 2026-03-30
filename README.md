@@ -6,7 +6,7 @@
 ![Scale Up](https://img.shields.io/badge/scale_up-blocked-d73a49)
 ![Teacher Cache](https://img.shields.io/badge/teacher_cache-verified-1f883d)
 ![W%26B](https://img.shields.io/badge/W%26B-online-FFBE00)
-![Best mini_val NDS](https://img.shields.io/badge/best_mini__val_NDS-0.0125-f2cc60)
+![Best mini_val NDS](https://img.shields.io/badge/best_mini__val_NDS-0.0158-f2cc60)
 
 - LiDAR grounds 3D object anchors and geometry
 - cameras provide semantics, sparse refinement, and lane structure
@@ -24,9 +24,9 @@ When tracking is enabled, runs are mirrored to Weights & Biases under the entity
 | Track | Status | Evidence |
 | --- | --- | --- |
 | CI | 🟢 Passing | `ruff`, `mypy`, `pytest` currently pass locally; GitHub Actions badge is wired in |
-| Current mini incumbent | 🟡 Real but weak | `mini_propheavy_effb0_frozen`, `mini_val NDS = 0.01247`, `mAP = 4.62e-05`, `21.95 ms` |
+| Current mini incumbent | 🟡 Real but weak | `mini_propheavy_mbv3_frozen_query_boost`, `mini_val NDS = 0.01581`, `mAP = 1.11e-04`, `17.19 ms` |
 | Teacher bootstrap | 🟢 Verified | external OpenPCDet `CenterPoint-PointPillar` reached `0.4997 NDS` on `mini_val`; cache coverage is full |
-| Teacher lift into student | 🟡 Rerunning | previous `replace_lidar` evidence was invalidated by a teacher-batch collation bug; the current branch requires paired teacher-off / teacher-KD / teacher-ref-seed evidence |
+| Teacher lift into student | 🟡 Rerunning | previous `replace_lidar` evidence was invalidated by a teacher-batch collation bug; the current branch requires paired teacher-off / teacher-KD / teacher-seed evidence |
 | Scale-up readiness | 🔴 Blocked | overfit, repeatability, and mini generalization gates are still failing |
 | Tracking | 🟢 Online | W&B smoke run synced under `achbogga-track` |
 
@@ -115,8 +115,8 @@ The same loop is also tracked in W&B when credentials are available; hyperparame
 performance sweeps stay grouped within the same architecture-family project, while materially
 different architectures are logged to separate projects.
 
-The current scale-up answer is still "not yet": the first measured 32-sample overfit gate failed
-with `train_ratio=0.5079`, same-subset `NDS=0.0003752`, and same-subset `mAP=0.0007504`. See
+The current scale-up answer is still "not yet": the repaired 32-sample overfit gate still failed,
+with `train_ratio=0.5310`, same-subset `NDS=0.0085868`, and same-subset `mAP=0.0005329`. See
 [docs/scaling-gates.md](docs/scaling-gates.md).
 
 External teacher bootstrap is now verified separately:
@@ -252,8 +252,9 @@ uv run tsqbev train-nuscenes \
 ```
 
 Use `--preset rtx5000-nuscenes-teacher` or `--teacher-seed-mode replace_lidar` when the
-cached teacher outputs include `object_boxes`, `object_labels`, and `object_scores` for reference
-replacement. Keep `replace_lidar` as the harsher full seed-replacement ablation.
+cached teacher outputs include `object_boxes`, `object_labels`, and `object_scores`. On the
+current branch, `replace_lidar` is the default full LiDAR-seed replacement mode and
+`replace_lidar_refs` is the legacy ref-only ablation.
 
 Audit cache coverage before claiming any teacher lift:
 
