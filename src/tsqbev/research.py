@@ -188,6 +188,7 @@ def _updated_config(
     max_object_queries: int | None = None,
     proposals_per_view: int | None = None,
     teacher_seed_mode: str | None = None,
+    teacher_seed_selection_mode: str | None = None,
 ) -> ModelConfig:
     updates: dict[str, object] = {}
     pillar_updates: dict[str, object] = {}
@@ -212,6 +213,8 @@ def _updated_config(
         updates["proposals_per_view"] = proposals_per_view
     if teacher_seed_mode is not None:
         updates["teacher_seed_mode"] = teacher_seed_mode
+    if teacher_seed_selection_mode is not None:
+        updates["teacher_seed_selection_mode"] = teacher_seed_selection_mode
     if pillar_updates:
         updates["pillar"] = config.pillar.model_copy(update=pillar_updates)
     return config.model_copy(update=updates)
@@ -478,6 +481,7 @@ def _make_teacher_seed_recipe(recipe: ResearchRecipe) -> ResearchRecipe:
     config = _updated_config(
         recipe.config,
         teacher_seed_mode="replace_lidar",
+        teacher_seed_selection_mode="class_balanced_round_robin",
         router_mode="anchor_first",
     )
     return _clone_recipe(
@@ -486,10 +490,13 @@ def _make_teacher_seed_recipe(recipe: ResearchRecipe) -> ResearchRecipe:
         note="use cached external teacher-guided seeds as the anchor-first object set",
         hypothesis=(
             "a strong external LiDAR teacher should ground object anchors directly; "
-            "the student should refine those anchors instead of making them compete "
-            "with the full tri-source bank"
+            "the student should refine a class-balanced teacher anchor set instead "
+            "of letting raw teacher scores overfill the bank with easy classes"
         ),
-        mutation_reason="switch teacher-seeded runs to anchor-first routing and disable extra KD",
+        mutation_reason=(
+            "switch teacher-seeded runs to anchor-first routing, preserve a class-balanced "
+            "teacher anchor set, and disable extra KD"
+        ),
         config=config,
         stage="exploit",
         use_teacher_provider=True,

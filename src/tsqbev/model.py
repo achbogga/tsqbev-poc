@@ -45,7 +45,7 @@ from tsqbev.contracts import (
 from tsqbev.geometry import normalize_grid, project_points
 from tsqbev.lidar import LidarSeedEncoder
 from tsqbev.seeding import LearnedGlobalSeeds, ProposalRayInitializer, TriSourceQueryRouter
-from tsqbev.teacher_seed import TeacherSeedEncoder
+from tsqbev.teacher_seed import TeacherSeedEncoder, select_teacher_seed_indices
 
 Tensor = torch.Tensor
 
@@ -499,9 +499,21 @@ class TSQBEVModel(nn.Module):
             if not bool(valid.any()):
                 continue
             teacher_boxes = teacher_targets.object_boxes[batch_index][valid]
+            teacher_labels = (
+                teacher_targets.object_labels[batch_index][valid]
+                if teacher_targets.object_labels is not None
+                else None
+            )
             teacher_scores = teacher_targets.object_scores[batch_index][valid]
-            order = torch.argsort(teacher_scores, descending=True)
-            keep = order[: self.config.q_lidar]
+            if teacher_labels is None:
+                keep = torch.argsort(teacher_scores, descending=True)[: self.config.q_lidar]
+            else:
+                keep = select_teacher_seed_indices(
+                    teacher_labels,
+                    teacher_scores,
+                    max_keep=self.config.q_lidar,
+                    mode=self.config.teacher_seed_selection_mode,
+                )
             count = int(keep.numel())
             refs[batch_index, :count] = teacher_boxes[keep, :3]
             scores[batch_index, :count] = teacher_scores[keep]

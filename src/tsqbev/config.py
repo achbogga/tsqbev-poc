@@ -51,6 +51,7 @@ class ModelConfig(BaseModel):
     map_input_dim: int = 256
     dropout_lidar_probability: float = 0.2
     teacher_seed_mode: Literal["off", "replace_lidar", "replace_lidar_refs"] = "off"
+    teacher_seed_selection_mode: Literal["score_topk", "class_balanced_round_robin"] = "score_topk"
     pillar: PillarConfig = Field(default_factory=PillarConfig)
 
     @model_validator(mode="after")
@@ -126,6 +127,7 @@ class ModelConfig(BaseModel):
         return cls.rtx5000_nuscenes_baseline().model_copy(
             update={
                 "teacher_seed_mode": "replace_lidar",
+                "teacher_seed_selection_mode": "class_balanced_round_robin",
                 "router_mode": "anchor_first",
             }
         )

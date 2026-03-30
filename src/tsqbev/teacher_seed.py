@@ -21,6 +21,52 @@ from tsqbev.contracts import TeacherTargets
 Tensor = torch.Tensor
 
 
+def select_teacher_seed_indices(
+    labels: Tensor,
+    scores: Tensor,
+    *,
+    max_keep: int,
+    mode: str,
+) -> Tensor:
+    """Select cached teacher detections for seed replacement."""
+
+    order = torch.argsort(scores, descending=True)
+    keep_count = min(int(max_keep), int(order.numel()))
+    if keep_count <= 0:
+        return order[:0]
+    if mode == "score_topk":
+        return order[:keep_count]
+    if mode != "class_balanced_round_robin":
+        raise ValueError(f"unsupported teacher seed selection mode: {mode}")
+
+    class_buckets: dict[int, list[int]] = {}
+    for index in order.tolist():
+        label = int(labels[index])
+        class_buckets.setdefault(label, []).append(int(index))
+    class_order = sorted(
+        class_buckets,
+        key=lambda label: float(scores[class_buckets[label][0]]),
+        reverse=True,
+    )
+    selected: list[int] = []
+    cursors = {label: 0 for label in class_order}
+    while len(selected) < keep_count:
+        progressed = False
+        for label in class_order:
+            cursor = cursors[label]
+            bucket = class_buckets[label]
+            if cursor >= len(bucket):
+                continue
+            selected.append(bucket[cursor])
+            cursors[label] = cursor + 1
+            progressed = True
+            if len(selected) >= keep_count:
+                break
+        if not progressed:
+            break
+    return torch.tensor(selected, device=labels.device, dtype=torch.long)
+
+
 class TeacherSeedEncoder(nn.Module):
     """Project cached teacher detections into the LiDAR seed interface.
 
@@ -81,8 +127,12 @@ class TeacherSeedEncoder(nn.Module):
             batch_boxes = teacher.object_boxes[batch_index][valid]
             batch_labels = teacher.object_labels[batch_index][valid]
             batch_scores = teacher.object_scores[batch_index][valid]
-            order = torch.argsort(batch_scores, descending=True)
-            keep = order[: self.config.q_lidar]
+            keep = select_teacher_seed_indices(
+                batch_labels,
+                batch_scores,
+                max_keep=self.config.q_lidar,
+                mode=self.config.teacher_seed_selection_mode,
+            )
             batch_boxes = batch_boxes[keep]
             batch_labels = batch_labels[keep]
             batch_scores = batch_scores[keep]

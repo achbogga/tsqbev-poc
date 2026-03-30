@@ -80,6 +80,10 @@ integration cost, uncertainty, and evidence gain before more time or compute is 
   overfit run on the same 32-sample subset, which reached `NDS = 0.0401`, `mAP = 0.0214`, and
   `16.92 ms`, but still failed the gate because `car AP @ 4.0m = 0.0` and train-loss reduction
   remained too weak.
+- Direct artifact inspection now shows the fixed 32-sample subset contains `308` ground-truth
+  cars and the external teacher cache contains many more car anchors than that, but the old raw
+  teacher-score top-k truncation was still overfilling the fixed teacher seed budget with barrier
+  and pedestrian anchors before student ranking/classification ever ran.
 - The next first-principles recovery step is now implemented in code: anchor-first teacher-seed
   routing plus explicit disabling of extra KD during teacher-anchor runs, because the same teacher
   should not be asked to serve as both the anchor set and the logits target in a single recovery
@@ -87,6 +91,8 @@ integration cost, uncertainty, and evidence gain before more time or compute is 
 - The current branch now implements the next ROI recovery slice:
   selected-checkpoint evaluation, focal-style hard-negative detection loss, bounded
   score-threshold / `top_k` calibration, and teacher-seed-first exploitation in the bounded loop.
+- The current teacher-anchor branch now also uses a bounded class-balanced teacher seed-selection
+  policy before further KD complexity is introduced.
 - The next active diagnostic is the repaired overfit recovery loop on the same fixed 32-sample
   subset, not another unconstrained `mini_val` sweep.
 - OpenLane support still needs version alignment against the OpenLane-V2 getting-started instructions before any lane baseline can be treated as final.

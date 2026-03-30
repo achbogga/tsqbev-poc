@@ -77,6 +77,7 @@ Allowed mutation surfaces:
 - detection loss mode and hard-negative budget
 - bounded score-threshold / top-k calibration
 - optional cached external LiDAR teacher guidance, including full seed replacement
+- teacher-anchor selection policy inside the fixed seed budget
 
 Read-only surfaces during the loop:
 

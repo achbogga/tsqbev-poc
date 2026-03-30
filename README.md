@@ -27,7 +27,7 @@ When tracking is enabled, runs are mirrored to Weights & Biases under the entity
 | Current mini incumbent | 🟡 Real but weak | `mini_propheavy_mbv3_frozen_query_boost`, `mini_val NDS = 0.01581`, `mAP = 1.11e-04`, `17.19 ms` |
 | Teacher bootstrap | 🟢 Verified | external OpenPCDet `CenterPoint-PointPillar` reached `0.4997 NDS` on `mini_val`; cache coverage is full |
 | Teacher lift into student | 🟡 Partial | corrected 32-sample teacher-anchor overfit control reached `NDS = 0.0484`, `mAP = 0.0150`; the teacher-KD path is still weak and paired `mini_val` lift is still unproven |
-| Recovery branch | 🟡 Code-ready | best-checkpoint evaluation, focal hard negatives, bounded calibration, anchor-first teacher routing, and explicit teacher-anchor vs teacher-KD separation are implemented and tested |
+| Recovery branch | 🟡 Code-ready | best-checkpoint evaluation, focal hard negatives, bounded calibration, anchor-first teacher routing, explicit teacher-anchor vs teacher-KD separation, and class-balanced teacher seed selection are implemented and tested |
 | Scale-up readiness | 🔴 Blocked | overfit, repeatability, and mini generalization gates are still failing |
 | Tracking | 🟢 Online | W&B smoke run synced under `achbogga-track` |
 
@@ -125,6 +125,12 @@ The strongest measured overfit rescue so far is the corrected teacher-seeded var
 `car AP @ 4.0m` remained `0.0` and the subset did not overfit enough. The current branch therefore
 pushes ROI into ranking/overproduction fixes first: selected-checkpoint evaluation, focal-style
 hard-negative training, and bounded export calibration.
+
+The current first-principles diagnosis is narrower now: the fixed 32-sample subset contains real
+cars, and the teacher cache contains many more car anchors than the student is emitting, but raw
+teacher-score truncation was still overfilling the fixed teacher seed budget with barrier and
+pedestrian anchors. Teacher-anchor runs now default to a class-balanced teacher seed selection
+policy before any further KD complexity is added.
 
 External teacher bootstrap is now verified separately:
 

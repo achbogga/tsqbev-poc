@@ -69,6 +69,7 @@ current intervention.
 - pretrained image-backbone freeze policy
 - optional cache-backed external teacher provider
 - teacher usage mode: `off`, `KD-only`, `teacher-anchor`
+- teacher-anchor selection policy inside the fixed seed budget
 - batch size
 - gradient accumulation
 - learning rate

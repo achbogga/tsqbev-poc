@@ -4,9 +4,11 @@ from dataclasses import replace
 
 import torch
 
+from tsqbev.config import ModelConfig
+from tsqbev.contracts import TeacherTargets
 from tsqbev.datasets import SceneExample, collate_scene_examples
 from tsqbev.model import TSQBEVModel
-from tsqbev.teacher_seed import TeacherSeedEncoder
+from tsqbev.teacher_seed import TeacherSeedEncoder, select_teacher_seed_indices
 
 
 def _slice_optional_teacher_field(field, index: int):
@@ -72,6 +74,61 @@ def test_teacher_seed_encoder_preserves_teacher_priors(small_config, synthetic_b
     assert prior_scores.shape == (synthetic_batch.batch_size, small_config.q_lidar)
     assert prior_valid_mask.shape == (synthetic_batch.batch_size, small_config.q_lidar)
     assert bool(prior_valid_mask.any())
+
+
+def test_select_teacher_seed_indices_can_balance_classes() -> None:
+    labels = torch.tensor([0, 0, 0, 1, 1, 2], dtype=torch.long)
+    scores = torch.tensor([0.99, 0.98, 0.97, 0.96, 0.95, 0.94], dtype=torch.float32)
+
+    topk = select_teacher_seed_indices(labels, scores, max_keep=4, mode="score_topk")
+    balanced = select_teacher_seed_indices(
+        labels,
+        scores,
+        max_keep=4,
+        mode="class_balanced_round_robin",
+    )
+
+    assert labels[topk].tolist() == [0, 0, 0, 1]
+    assert labels[balanced].tolist() == [0, 1, 2, 0]
+
+
+def test_teacher_seed_encoder_balances_teacher_classes_when_configured() -> None:
+    small = ModelConfig.small()
+    config = small.model_copy(
+        update={
+            "q_lidar": 4,
+            "teacher_seed_selection_mode": "class_balanced_round_robin",
+            "pillar": small.pillar.model_copy(update={"q_lidar": 4}),
+        }
+    )
+    encoder = TeacherSeedEncoder(config)
+    teacher = TeacherTargets(
+        object_features=None,
+        object_boxes=torch.tensor(
+            [
+                [
+                    [0.0, 0.0, 0.0, 1.0, 1.0, 1.0, 0.0, 0.0, 0.0],
+                    [1.0, 0.0, 0.0, 1.0, 1.0, 1.0, 0.0, 0.0, 0.0],
+                    [2.0, 0.0, 0.0, 1.0, 1.0, 1.0, 0.0, 0.0, 0.0],
+                    [3.0, 0.0, 0.0, 1.0, 1.0, 1.0, 0.0, 0.0, 0.0],
+                    [4.0, 0.0, 0.0, 1.0, 1.0, 1.0, 0.0, 0.0, 0.0],
+                    [5.0, 0.0, 0.0, 1.0, 1.0, 1.0, 0.0, 0.0, 0.0],
+                ]
+            ],
+            dtype=torch.float32,
+        ),
+        object_labels=torch.tensor([[0, 0, 0, 3, 3, 9]], dtype=torch.long),
+        object_scores=torch.tensor([[0.99, 0.98, 0.97, 0.96, 0.95, 0.94]], dtype=torch.float32),
+        lane_features=None,
+        router_logits=None,
+        valid_mask=torch.tensor([[True, True, True, True, True, True]], dtype=torch.bool),
+    )
+
+    encoded = encoder.encode_with_priors(teacher)
+    assert encoded is not None
+    _queries, _refs, _scores, prior_labels, _prior_scores, prior_valid_mask = encoded
+    kept = prior_labels[0][prior_valid_mask[0]].tolist()
+    assert kept == [0, 3, 9, 0]
 
 
 def test_model_can_replace_lidar_with_teacher_seeds(small_config, synthetic_batch) -> None:
