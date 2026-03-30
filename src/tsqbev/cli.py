@@ -216,6 +216,24 @@ def _make_parser() -> argparse.ArgumentParser:
     parser.add_argument("--max-train-steps", type=int, default=None)
     parser.add_argument("--lr", type=float, default=3e-4)
     parser.add_argument("--weight-decay", type=float, default=1e-4)
+    parser.add_argument(
+        "--optimizer-schedule",
+        choices=("cosine", "constant"),
+        default=None,
+    )
+    parser.add_argument("--grad-clip-norm", type=float, default=None)
+    parser.add_argument(
+        "--keep-best-checkpoint",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+    )
+    parser.add_argument(
+        "--loss-mode",
+        choices=("baseline", "focal_hardneg"),
+        default="baseline",
+    )
+    parser.add_argument("--hard-negative-ratio", type=int, default=3)
+    parser.add_argument("--hard-negative-cap", type=int, default=96)
     parser.add_argument("--grad-accum-steps", type=int, default=8)
     parser.add_argument("--batch-size", type=int, default=1)
     parser.add_argument("--num-workers", type=int, default=4)
@@ -224,7 +242,9 @@ def _make_parser() -> argparse.ArgumentParser:
     parser.add_argument("--device", type=str, default=None)
     parser.add_argument("--max-experiments", type=int, default=5)
     parser.add_argument("--score-threshold", type=float, default=0.25)
+    parser.add_argument("--score-threshold-candidates", type=float, nargs="*", default=None)
     parser.add_argument("--top-k", type=int, default=300)
+    parser.add_argument("--top-k-candidates", type=int, nargs="*", default=None)
     parser.add_argument("--subset-size", type=int, default=32)
     parser.add_argument("--max-audit-samples", type=int, default=None)
     parser.add_argument("--scene-name", type=str, default=None)
@@ -296,6 +316,14 @@ def main() -> None:
                 max_train_steps=args.max_train_steps,
                 lr=args.lr,
                 weight_decay=args.weight_decay,
+                optimizer_schedule=(
+                    args.optimizer_schedule if args.optimizer_schedule is not None else "cosine"
+                ),
+                grad_clip_norm=1.0 if args.grad_clip_norm is None else args.grad_clip_norm,
+                keep_best_checkpoint=args.keep_best_checkpoint,
+                loss_mode=args.loss_mode,
+                hard_negative_ratio=args.hard_negative_ratio,
+                hard_negative_cap=args.hard_negative_cap,
                 grad_accum_steps=args.grad_accum_steps,
                 batch_size=args.batch_size,
                 num_workers=args.num_workers,
@@ -353,6 +381,24 @@ def main() -> None:
                 num_workers=args.num_workers,
                 device=args.device,
                 teacher_provider_config=teacher_provider_config,
+                optimizer_schedule=(
+                    args.optimizer_schedule if args.optimizer_schedule is not None else "constant"
+                ),
+                grad_clip_norm=5.0 if args.grad_clip_norm is None else args.grad_clip_norm,
+                keep_best_checkpoint=args.keep_best_checkpoint,
+                loss_mode=args.loss_mode,
+                hard_negative_ratio=args.hard_negative_ratio,
+                hard_negative_cap=args.hard_negative_cap,
+                score_threshold_candidates=tuple(
+                    args.score_threshold_candidates
+                    if args.score_threshold_candidates is not None
+                    else (0.05, 0.15, 0.25)
+                ),
+                top_k_candidates=tuple(
+                    args.top_k_candidates
+                    if args.top_k_candidates is not None
+                    else (32, 64, 112)
+                ),
             )
         )
         return

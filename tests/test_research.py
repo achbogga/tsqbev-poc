@@ -19,6 +19,20 @@ def _fake_eval(nds: float, mean_ap: float, car_ap_4m: float = 0.0) -> dict[str, 
     }
 
 
+def _fake_calibration_selected(
+    kwargs: dict[str, object],
+    evals: dict[str, dict[str, object]],
+) -> dict[str, object]:
+    output_dir = Path(str(kwargs["output_dir"]))
+    run_name = output_dir.parent.name
+    return {
+        "score_threshold": 0.05,
+        "top_k": 32,
+        "prediction_path": str(output_dir / f"{run_name}.json"),
+        "evaluation": evals[run_name],
+    }
+
+
 def test_run_bounded_research_loop_writes_autoresearch_ledgers(
     monkeypatch,
     tmp_path: Path,
@@ -31,15 +45,15 @@ def test_run_bounded_research_loop_writes_autoresearch_ledgers(
         "mini_balanced_mbv3_frozen": 21.0,
         "mini_propheavy_mbv3_frozen": 22.0,
         "mini_propheavy_effb0_frozen": 23.0,
+        "mini_propheavy_effb0_frozen_focal_hardneg": 21.25,
         "mini_propheavy_effb0_frozen_query_boost": 20.0,
-        "mini_propheavy_effb0_frozen_lr_down": 22.5,
     }
     evals = {
         "mini_balanced_mbv3_frozen": _fake_eval(0.0, 0.0),
         "mini_propheavy_mbv3_frozen": _fake_eval(0.0, 0.0),
         "mini_propheavy_effb0_frozen": _fake_eval(0.01, 0.0),
+        "mini_propheavy_effb0_frozen_focal_hardneg": _fake_eval(0.02, 0.002),
         "mini_propheavy_effb0_frozen_query_boost": _fake_eval(0.03, 0.01, car_ap_4m=0.02),
-        "mini_propheavy_effb0_frozen_lr_down": _fake_eval(0.015, 0.0),
     }
 
     monkeypatch.setattr(research, "ensure_research_loop_enabled", lambda: None)
@@ -52,6 +66,13 @@ def test_run_bounded_research_loop_writes_autoresearch_ledgers(
         run_name = run_dir.name
         return {
             "checkpoint_path": str(checkpoint),
+            "selected_checkpoint_path": str(checkpoint),
+            "best_checkpoint_path": str(checkpoint),
+            "selected_epoch": 4,
+            "best_epoch": 4,
+            "selected_train": {"total": 39.0},
+            "selected_val": {"total": vals[run_name]},
+            "best_val": {"total": vals[run_name]},
             "last_train": {"total": 40.0},
             "last_val": {"total": vals[run_name]},
             "train_samples": 16,
@@ -70,15 +91,17 @@ def test_run_bounded_research_loop_writes_autoresearch_ledgers(
         lambda *args, **kwargs: (object(), {}),
     )
 
-    def fake_export(**kwargs: object) -> Path:
-        output_path = Path(str(kwargs["output_path"]))
-        output_path.write_text("{}")
-        return output_path
-
-    monkeypatch.setattr(research, "export_nuscenes_predictions", fake_export)
     monkeypatch.setattr(
         research,
-        "_prediction_geometry_diagnostics",
+        "export_and_evaluate_nuscenes_grid",
+        lambda **kwargs: {
+            "selected": _fake_calibration_selected(kwargs, evals),
+            "candidates": [],
+        },
+    )
+    monkeypatch.setattr(
+        research,
+        "prediction_geometry_diagnostics",
         lambda *args, **kwargs: {
             "boxes_per_sample_mean": 12.0,
             "boxes_per_sample_p95": 14.0,
@@ -89,12 +112,6 @@ def test_run_bounded_research_loop_writes_autoresearch_ledgers(
             "ego_translation_norm_max": 36.0,
         },
     )
-
-    def fake_eval_predictions(**kwargs: object) -> dict[str, object]:
-        result_path = Path(str(kwargs["result_path"]))
-        return evals[result_path.parent.name]
-
-    monkeypatch.setattr(research, "evaluate_nuscenes_predictions", fake_eval_predictions)
     monkeypatch.setattr(
         research,
         "_measure_source_mix",
@@ -222,7 +239,7 @@ def test_initial_recipes_insert_teacher_kd_when_teacher_is_available(tmp_path: P
     recipes = research._initial_recipes(artifact_root, teacher_provider_available=True)
 
     assert recipes[0].name == "carryover_mini_propheavy_effb0_frozen"
-    assert recipes[1].name == "carryover_mini_propheavy_effb0_frozen_teacher_kd"
+    assert recipes[1].name == "carryover_mini_propheavy_effb0_frozen_teacher_seed"
     assert recipes[1].use_teacher_provider is True
 
 
@@ -363,9 +380,9 @@ def test_exploitation_candidates_prioritize_teacher_paths_when_teacher_available
         remaining_budget=3,
     )
     assert [candidate.name for candidate in candidates] == [
-        f"{incumbent.name}_teacher_kd",
         f"{incumbent.name}_teacher_seed",
-        f"{incumbent.name}_query_boost",
+        f"{incumbent.name}_teacher_kd",
+        f"{incumbent.name}_focal_hardneg",
     ]
 
 

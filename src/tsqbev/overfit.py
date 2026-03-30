@@ -11,12 +11,15 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any, cast
+from typing import Any, Literal, cast
 
 from tsqbev.checkpoints import load_model_from_checkpoint
 from tsqbev.config import ModelConfig
 from tsqbev.datasets import NuScenesDataset
-from tsqbev.eval_nuscenes import evaluate_nuscenes_predictions, export_nuscenes_predictions
+from tsqbev.eval_nuscenes import (
+    export_and_evaluate_nuscenes_grid,
+    prediction_geometry_diagnostics,
+)
 from tsqbev.runtime import benchmark_forward
 from tsqbev.teacher_backends import TeacherProviderConfig
 from tsqbev.tracking import TrackingMetadata, start_experiment_tracking
@@ -74,6 +77,44 @@ def _metric_int(value: object, default: int = 0) -> int:
     return default
 
 
+def _root_cause_verdict(
+    *,
+    train_ratio: float,
+    nds: float,
+    mean_ap: float,
+    car_ap_4m: float,
+    nonzero_classes: int,
+    boxes_per_sample_mean: float,
+    boxes_per_sample_p95: float,
+) -> str:
+    if train_ratio > 0.4:
+        return (
+            "optimization bottleneck: the subset still does not overfit enough; use overfit-mode "
+            "schedule/regularization and checkpoint selection before scaling search"
+        )
+    if boxes_per_sample_mean > 40.0 or boxes_per_sample_p95 > 60.0:
+        return (
+            "ranking bottleneck: query export is still overproducing boxes; tighten "
+            "objectness/class "
+            "calibration and unmatched negative handling"
+        )
+    if car_ap_4m <= 0.0 and nonzero_classes <= 2:
+        return (
+            "vehicle-emergence bottleneck: the model is learning easy classes before cars; "
+            "bias the "
+            "next loop toward teacher-seeded vehicle grounding and ranking calibration"
+        )
+    if nds < 0.05 or mean_ap < 0.01:
+        return (
+            "generalization bottleneck: detection is improving but not enough; keep teacher-seeded "
+            "overfit recovery as the incumbent before broader mini sweeps"
+        )
+    return (
+        "near-pass: continue with paired mini-val exploitation around the repaired "
+        "overfit incumbent"
+    )
+
+
 def run_nuscenes_overfit_gate(
     dataroot: str | Path,
     artifact_dir: str | Path,
@@ -92,6 +133,14 @@ def run_nuscenes_overfit_gate(
     num_workers: int = 4,
     device: str | None = None,
     teacher_provider_config: TeacherProviderConfig | None = None,
+    optimizer_schedule: Literal["cosine", "constant"] = "constant",
+    grad_clip_norm: float | None = 5.0,
+    keep_best_checkpoint: bool = True,
+    loss_mode: Literal["baseline", "focal_hardneg"] = "baseline",
+    hard_negative_ratio: int = 3,
+    hard_negative_cap: int = 96,
+    score_threshold_candidates: tuple[float, ...] = (0.05, 0.15, 0.25),
+    top_k_candidates: tuple[int, ...] = (32, 64, 112),
 ) -> dict[str, Any]:
     """Run the 32-sample overfit gate and write a machine-readable verdict."""
 
@@ -135,6 +184,14 @@ def run_nuscenes_overfit_gate(
                 "grad_accum_steps": grad_accum_steps,
                 "batch_size": batch_size,
                 "num_workers": num_workers,
+                "optimizer_schedule": optimizer_schedule,
+                "grad_clip_norm": grad_clip_norm,
+                "keep_best_checkpoint": keep_best_checkpoint,
+                "loss_mode": loss_mode,
+                "hard_negative_ratio": hard_negative_ratio,
+                "hard_negative_cap": hard_negative_cap,
+                "score_threshold_candidates": list(score_threshold_candidates),
+                "top_k_candidates": list(top_k_candidates),
             },
         },
     )
@@ -169,31 +226,32 @@ def run_nuscenes_overfit_gate(
             teacher_provider_config=teacher_provider_config,
             use_amp=False,
             log_every_steps=25,
+            optimizer_schedule=optimizer_schedule,
+            grad_clip_norm=grad_clip_norm,
+            keep_best_checkpoint=keep_best_checkpoint,
+            loss_mode=loss_mode,
+            hard_negative_ratio=hard_negative_ratio,
+            hard_negative_cap=hard_negative_cap,
             tracker=tracker,
         )
         checkpoint_path = Path(str(train_result["checkpoint_path"]))
         model, _ = load_model_from_checkpoint(checkpoint_path)
-        prediction_path = artifact_root / "predictions_subset.json"
-        export_nuscenes_predictions(
+        calibration = export_and_evaluate_nuscenes_grid(
             model=model,
             dataroot=root,
             version=version,
             split=split,
-            output_path=prediction_path,
-            score_threshold=0.05,
-            top_k=300,
+            output_dir=artifact_root / "calibration",
+            score_threshold_candidates=score_threshold_candidates,
+            top_k_candidates=top_k_candidates,
             device=device,
             sample_tokens=subset_tokens,
             teacher_provider_config=teacher_provider_config,
         )
-        evaluation = evaluate_nuscenes_predictions(
-            dataroot=root,
-            version=version,
-            split=split,
-            result_path=prediction_path,
-            output_dir=artifact_root / "eval",
-            sample_tokens=subset_tokens,
-        )
+        selected_calibration = calibration["selected"]
+        assert isinstance(selected_calibration, dict)
+        evaluation = selected_calibration["evaluation"]
+        assert isinstance(evaluation, dict)
         benchmark = benchmark_forward(
             config,
             steps=10,
@@ -226,6 +284,15 @@ def run_nuscenes_overfit_gate(
         car_ap_4m = float(cast(float, car_distance_aps.get("4.0", 0.0)))
         nds = float(cast(float, evaluation.get("nd_score", 0.0)))
         mean_ap = float(cast(float, evaluation.get("mean_ap", 0.0)))
+        prediction_path = Path(str(selected_calibration["prediction_path"]))
+        prediction_geometry = prediction_geometry_diagnostics(
+            prediction_path,
+            dataroot=root,
+            version=version,
+        )
+        boxes_per_sample_mean = float(prediction_geometry["boxes_per_sample_mean"])
+        boxes_per_sample_p95 = float(prediction_geometry["boxes_per_sample_p95"])
+        nonzero_classes = _count_nonzero_classes(label_aps)
 
         verdict = {
             "passed": (
@@ -237,7 +304,7 @@ def run_nuscenes_overfit_gate(
             "train_total_ratio": train_ratio,
             "official_nds": nds,
             "official_map": mean_ap,
-            "nonzero_classes": _count_nonzero_classes(label_aps),
+            "nonzero_classes": nonzero_classes,
             "car_ap_4m": car_ap_4m,
         }
         summary = {
@@ -247,16 +314,40 @@ def run_nuscenes_overfit_gate(
             "subset_tokens_path": str(artifact_root / "subset_tokens.json"),
             "checkpoint_path": str(checkpoint_path),
             "prediction_path": str(prediction_path),
+            "selected_checkpoint_path": str(train_result["selected_checkpoint_path"]),
+            "best_checkpoint_path": str(train_result["best_checkpoint_path"]),
+            "best_epoch": _metric_int(train_result.get("best_epoch")),
+            "selected_epoch": _metric_int(train_result.get("selected_epoch")),
             "train": {
                 "epochs": train_result["epochs"],
                 "train_steps": train_result["train_steps"],
                 "initial_train_total": initial_train_total,
                 "final_train_total": final_train_total,
                 "final_val_total": float(last_val["total"]),
+                "selected_train_total": float(
+                    cast(dict[str, Any], train_result["selected_train"])["total"]
+                ),
+                "selected_val_total": float(
+                    cast(dict[str, Any], train_result["selected_val"])["total"]
+                ),
+                "best_val_total": float(cast(dict[str, Any], train_result["best_val"])["total"])
+                if train_result.get("best_val") is not None
+                else float(last_val["total"]),
             },
             "evaluation": evaluation,
+            "calibration": calibration,
+            "prediction_geometry": prediction_geometry,
             "benchmark": benchmark,
             "gate_verdict": verdict,
+            "root_cause_verdict": _root_cause_verdict(
+                train_ratio=train_ratio,
+                nds=nds,
+                mean_ap=mean_ap,
+                car_ap_4m=car_ap_4m,
+                nonzero_classes=nonzero_classes,
+                boxes_per_sample_mean=boxes_per_sample_mean,
+                boxes_per_sample_p95=boxes_per_sample_p95,
+            ),
         }
         (artifact_root / "summary.json").write_text(json.dumps(summary, indent=2, default=str))
         epochs_run = _metric_int(train_result.get("epochs", 0))

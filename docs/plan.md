@@ -58,8 +58,15 @@ It is a focused open-source POC for public datasets and deployable research arti
 - The repaired overfit-gate artifact still failed, with `train_total_ratio = 0.5310`,
   same-subset `NDS = 0.0085868`, same-subset `mAP = 0.0005329`, `3` nonzero classes, and still no
   nonzero `car AP @ 4.0m`.
-- The next active diagnostic is a paired teacher-backed overfit probe: `KD-only` and
-  `replace_lidar` teacher-seed runs on the same fixed 32-sample subset.
+- The strongest measured recovery probe so far is the corrected `replace_lidar` teacher-seed
+  overfit run on the same 32-sample subset, which reached `NDS = 0.0401`, `mAP = 0.0214`, and
+  `16.92 ms`, but still failed the gate because `car AP @ 4.0m = 0.0` and train-loss reduction
+  remained too weak.
+- The current branch now implements the next ROI recovery slice:
+  selected-checkpoint evaluation, focal-style hard-negative detection loss, bounded
+  score-threshold / `top_k` calibration, and teacher-seed-first exploitation in the bounded loop.
+- The next active diagnostic is the repaired overfit recovery loop on the same fixed 32-sample
+  subset, not another unconstrained `mini_val` sweep.
 - OpenLane support still needs version alignment against the OpenLane-V2 getting-started instructions before any lane baseline can be treated as final.
 - The bounded mini-dataset research loop is now authorized via `program.md`.
 

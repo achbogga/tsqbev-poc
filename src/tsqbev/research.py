@@ -21,15 +21,16 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Literal, cast
 
-import numpy as np
 import torch
 from torch.utils.data import DataLoader, Dataset
 
 from tsqbev.checkpoints import load_model_from_checkpoint
 from tsqbev.config import ModelConfig
 from tsqbev.datasets import NuScenesDataset, collate_scene_examples
-from tsqbev.eval_nuscenes import evaluate_nuscenes_predictions, export_nuscenes_predictions
-from tsqbev.quaternion import rotation_matrix_from_quaternion
+from tsqbev.eval_nuscenes import (
+    export_and_evaluate_nuscenes_grid,
+    prediction_geometry_diagnostics,
+)
 from tsqbev.research_guard import ensure_research_loop_enabled
 from tsqbev.runtime import benchmark_forward, move_batch, resolve_device
 from tsqbev.teacher_backends import TeacherProviderConfig, build_teacher_provider
@@ -56,8 +57,11 @@ RESULTS_TSV_HEADER = [
     "lidar_share",
     "proposal_share",
     "global_share",
+    "selected_epoch",
+    "best_epoch",
     "hypothesis",
     "mutation_reason",
+    "root_cause_verdict",
     "decision_reason",
     "checkpoint_path",
 ]
@@ -78,11 +82,20 @@ class ResearchRecipe:
     batch_size: int = 2
     grad_accum_steps: int = 2
     lr: float = 3e-4
+    weight_decay: float = 1e-4
     epochs: int = 6
     max_train_steps: int | None = 960
     num_workers: int = 4
     score_threshold: float = 0.05
-    top_k: int = 300
+    top_k: int = 112
+    optimizer_schedule: Literal["cosine", "constant"] = "cosine"
+    grad_clip_norm: float | None = 1.0
+    keep_best_checkpoint: bool = True
+    loss_mode: Literal["baseline", "focal_hardneg"] = "baseline"
+    hard_negative_ratio: int = 3
+    hard_negative_cap: int = 96
+    score_threshold_candidates: tuple[float, ...] = (0.05,)
+    top_k_candidates: tuple[int, ...] = (112,)
 
 
 def _baseline_recipe() -> ResearchRecipe:
@@ -150,6 +163,14 @@ def _efficientnet_recipe(parent: ResearchRecipe) -> ResearchRecipe:
         num_workers=parent.num_workers,
         score_threshold=parent.score_threshold,
         top_k=parent.top_k,
+        optimizer_schedule=parent.optimizer_schedule,
+        grad_clip_norm=parent.grad_clip_norm,
+        keep_best_checkpoint=parent.keep_best_checkpoint,
+        loss_mode=parent.loss_mode,
+        hard_negative_ratio=parent.hard_negative_ratio,
+        hard_negative_cap=parent.hard_negative_cap,
+        score_threshold_candidates=parent.score_threshold_candidates,
+        top_k_candidates=parent.top_k_candidates,
     )
 
 
@@ -206,11 +227,20 @@ def _clone_recipe(
     batch_size: int | None = None,
     grad_accum_steps: int | None = None,
     lr: float | None = None,
+    weight_decay: float | None = None,
     epochs: int | None = None,
     max_train_steps: int | None = None,
     num_workers: int | None = None,
     score_threshold: float | None = None,
     top_k: int | None = None,
+    optimizer_schedule: Literal["cosine", "constant"] | None = None,
+    grad_clip_norm: float | None = None,
+    keep_best_checkpoint: bool | None = None,
+    loss_mode: Literal["baseline", "focal_hardneg"] | None = None,
+    hard_negative_ratio: int | None = None,
+    hard_negative_cap: int | None = None,
+    score_threshold_candidates: tuple[float, ...] | None = None,
+    top_k_candidates: tuple[int, ...] | None = None,
 ) -> ResearchRecipe:
     return ResearchRecipe(
         name=name,
@@ -226,11 +256,34 @@ def _clone_recipe(
         batch_size=recipe.batch_size if batch_size is None else batch_size,
         grad_accum_steps=recipe.grad_accum_steps if grad_accum_steps is None else grad_accum_steps,
         lr=recipe.lr if lr is None else lr,
+        weight_decay=recipe.weight_decay if weight_decay is None else weight_decay,
         epochs=recipe.epochs if epochs is None else epochs,
         max_train_steps=recipe.max_train_steps if max_train_steps is None else max_train_steps,
         num_workers=recipe.num_workers if num_workers is None else num_workers,
         score_threshold=recipe.score_threshold if score_threshold is None else score_threshold,
         top_k=recipe.top_k if top_k is None else top_k,
+        optimizer_schedule=(
+            recipe.optimizer_schedule if optimizer_schedule is None else optimizer_schedule
+        ),
+        grad_clip_norm=recipe.grad_clip_norm if grad_clip_norm is None else grad_clip_norm,
+        keep_best_checkpoint=(
+            recipe.keep_best_checkpoint if keep_best_checkpoint is None else keep_best_checkpoint
+        ),
+        loss_mode=recipe.loss_mode if loss_mode is None else loss_mode,
+        hard_negative_ratio=(
+            recipe.hard_negative_ratio if hard_negative_ratio is None else hard_negative_ratio
+        ),
+        hard_negative_cap=(
+            recipe.hard_negative_cap if hard_negative_cap is None else hard_negative_cap
+        ),
+        score_threshold_candidates=(
+            recipe.score_threshold_candidates
+            if score_threshold_candidates is None
+            else score_threshold_candidates
+        ),
+        top_k_candidates=(
+            recipe.top_k_candidates if top_k_candidates is None else top_k_candidates
+        ),
     )
 
 
@@ -268,6 +321,7 @@ def _load_previous_incumbent(artifact_root: Path) -> ResearchRecipe | None:
         batch_size=int(selected.get("batch_size", 2)),
         grad_accum_steps=int(selected.get("grad_accum_steps", 2)),
         lr=float(selected.get("lr", 3e-4)),
+        weight_decay=float(selected.get("weight_decay", 1e-4)),
         epochs=int(selected.get("epochs", 6)),
         max_train_steps=(
             int(selected["max_train_steps"])
@@ -276,7 +330,27 @@ def _load_previous_incumbent(artifact_root: Path) -> ResearchRecipe | None:
         ),
         num_workers=int(selected.get("num_workers", 4)),
         score_threshold=float(selected.get("score_threshold", 0.05)),
-        top_k=int(selected.get("top_k", 300)),
+        top_k=int(selected.get("top_k", 112)),
+        optimizer_schedule=cast(
+            Literal["cosine", "constant"],
+            selected.get("optimizer_schedule", "cosine"),
+        ),
+        grad_clip_norm=(
+            float(selected["grad_clip_norm"])
+            if selected.get("grad_clip_norm") is not None
+            else None
+        ),
+        keep_best_checkpoint=bool(selected.get("keep_best_checkpoint", True)),
+        loss_mode=cast(
+            Literal["baseline", "focal_hardneg"],
+            selected.get("loss_mode", "baseline"),
+        ),
+        hard_negative_ratio=int(selected.get("hard_negative_ratio", 3)),
+        hard_negative_cap=int(selected.get("hard_negative_cap", 96)),
+        score_threshold_candidates=tuple(
+            float(value) for value in selected.get("score_threshold_candidates", [0.05])
+        ),
+        top_k_candidates=tuple(int(value) for value in selected.get("top_k_candidates", [112])),
     )
 
 
@@ -314,7 +388,7 @@ def _initial_recipes(
         lr_down = _make_lr_down_recipe(carryover, stage="explore")
         recipes = [carryover]
         if teacher_provider_available:
-            recipes.append(_make_teacher_kd_recipe(carryover, stage="explore"))
+            recipes.append(_make_teacher_seed_recipe(carryover))
         recipes.extend([query_boost, lr_down])
         return recipes
     baseline = _baseline_recipe()
@@ -322,7 +396,7 @@ def _initial_recipes(
     efficientnet = _efficientnet_recipe(proposal)
     recipes = [baseline, proposal, efficientnet]
     if teacher_provider_available:
-        recipes.insert(1, _make_teacher_kd_recipe(baseline, stage="explore"))
+        recipes.insert(1, _make_teacher_seed_recipe(baseline))
     return recipes
 
 
@@ -382,6 +456,9 @@ def _make_query_boost_recipe(
         mutation_reason="add one bounded sparse-budget increment around the incumbent source mix",
         config=config,
         stage=stage,
+        loss_mode="focal_hardneg",
+        score_threshold_candidates=(0.05, 0.15, 0.25),
+        top_k_candidates=(32, 64, 112),
     )
 
 
@@ -419,6 +496,41 @@ def _make_unfreeze_recipe(recipe: ResearchRecipe) -> ResearchRecipe:
     )
 
 
+def _make_focal_hardneg_recipe(recipe: ResearchRecipe) -> ResearchRecipe:
+    return _clone_recipe(
+        recipe,
+        name=f"{recipe.name}_focal_hardneg",
+        note="switch to focal-style ranking with bounded hard negatives",
+        hypothesis=(
+            "the remaining failure is ranking/overproduction, so focal hard-negative training "
+            "should suppress unmatched queries while preserving teacher-grounded positives"
+        ),
+        mutation_reason="change the detection objective to focal hard-negative mode",
+        stage="exploit",
+        loss_mode="focal_hardneg",
+        score_threshold_candidates=(0.05, 0.15, 0.25),
+        top_k_candidates=(32, 64, 112),
+    )
+
+
+def _make_overfit_mode_recipe(recipe: ResearchRecipe) -> ResearchRecipe:
+    return _clone_recipe(
+        recipe,
+        name=f"{recipe.name}_overfit_mode",
+        note="overfit-oriented optimization on the incumbent architecture",
+        hypothesis=(
+            "the current incumbent peaks early and then degrades, so constant-LR overfit mode "
+            "with a looser clip should recover stronger checkpoints"
+        ),
+        mutation_reason="switch to overfit-mode optimization without changing the model",
+        stage="exploit",
+        optimizer_schedule="constant",
+        weight_decay=0.0,
+        grad_clip_norm=5.0,
+        keep_best_checkpoint=True,
+    )
+
+
 def _build_exploitation_recipes(
     incumbent_recipe: ResearchRecipe,
     incumbent_record: dict[str, Any],
@@ -429,17 +541,17 @@ def _build_exploitation_recipes(
         return []
     source_mix = incumbent_record.get("source_mix", {})
     assert isinstance(source_mix, dict)
-    candidates = [
-        _make_query_boost_recipe(incumbent_recipe, source_mix=source_mix),
-        _make_lr_down_recipe(incumbent_recipe),
-    ]
-    if teacher_provider_config is not None:
-        candidates = [
-            _make_teacher_kd_recipe(incumbent_recipe, stage="exploit"),
-            _make_teacher_seed_recipe(incumbent_recipe),
+    candidates: list[ResearchRecipe] = []
+    if teacher_provider_config is not None and incumbent_recipe.config.teacher_seed_mode == "off":
+        candidates.append(_make_teacher_seed_recipe(incumbent_recipe))
+        candidates.append(_make_teacher_kd_recipe(incumbent_recipe, stage="exploit"))
+    candidates.extend(
+        [
+            _make_focal_hardneg_recipe(incumbent_recipe),
             _make_query_boost_recipe(incumbent_recipe, source_mix=source_mix),
             _make_lr_down_recipe(incumbent_recipe),
         ]
+    )
     if incumbent_recipe.config.freeze_image_backbone:
         candidates.append(_make_unfreeze_recipe(incumbent_recipe))
     deduped: list[ResearchRecipe] = []
@@ -465,11 +577,20 @@ def _serialize_recipe(recipe: ResearchRecipe) -> dict[str, Any]:
         "batch_size": recipe.batch_size,
         "grad_accum_steps": recipe.grad_accum_steps,
         "lr": recipe.lr,
+        "weight_decay": recipe.weight_decay,
         "epochs": recipe.epochs,
         "max_train_steps": recipe.max_train_steps,
         "num_workers": recipe.num_workers,
         "score_threshold": recipe.score_threshold,
         "top_k": recipe.top_k,
+        "optimizer_schedule": recipe.optimizer_schedule,
+        "grad_clip_norm": recipe.grad_clip_norm,
+        "keep_best_checkpoint": recipe.keep_best_checkpoint,
+        "loss_mode": recipe.loss_mode,
+        "hard_negative_ratio": recipe.hard_negative_ratio,
+        "hard_negative_cap": recipe.hard_negative_cap,
+        "score_threshold_candidates": list(recipe.score_threshold_candidates),
+        "top_k_candidates": list(recipe.top_k_candidates),
     }
 
 
@@ -527,8 +648,11 @@ def _write_results_tsv(path: Path, rows: list[dict[str, Any]]) -> None:
                     "lidar_share": source_mix.get("lidar", ""),
                     "proposal_share": source_mix.get("proposal", ""),
                     "global_share": source_mix.get("global", ""),
+                    "selected_epoch": row.get("selected_epoch", ""),
+                    "best_epoch": row.get("best_epoch", ""),
                     "hypothesis": row.get("hypothesis"),
                     "mutation_reason": row.get("mutation_reason"),
+                    "root_cause_verdict": row.get("root_cause_verdict", ""),
                     "decision_reason": row.get("decision_reason") or "",
                     "checkpoint_path": row.get("checkpoint_path") or "",
                 }
@@ -733,85 +857,34 @@ def _measure_source_mix(
     }
 
 
-def _percentile(values: list[float], percentile: float) -> float:
-    if not values:
-        return 0.0
-    ordered = sorted(values)
-    if len(ordered) == 1:
-        return float(ordered[0])
-    rank = (len(ordered) - 1) * percentile / 100.0
-    lower = int(rank)
-    upper = min(lower + 1, len(ordered) - 1)
-    weight = rank - lower
-    return float(ordered[lower] * (1.0 - weight) + ordered[upper] * weight)
+def _root_cause_verdict(record: dict[str, Any]) -> str:
+    evaluation = record.get("evaluation", {})
+    assert isinstance(evaluation, dict)
+    train = record.get("train", {})
+    assert isinstance(train, dict)
+    val = record.get("val", {})
+    assert isinstance(val, dict)
+    geometry = record.get("prediction_geometry", {})
+    assert isinstance(geometry, dict)
+    label_aps = evaluation.get("label_aps", {})
+    assert isinstance(label_aps, dict)
 
-
-def _prediction_geometry_diagnostics(
-    result_path: Path,
-    *,
-    dataroot: Path,
-    version: str,
-) -> dict[str, float]:
-    payload = json.loads(result_path.read_text())
-    results = payload.get("results", {})
-    if not isinstance(results, dict):
-        raise ValueError("nuScenes result JSON must contain a results dictionary")
-
-    box_counts: list[float] = []
-    ego_translation_norms: list[float] = []
-
-    # Result JSON translations are stored in the nuScenes global frame. Geometry sanity
-    # should be measured in the ego frame instead, otherwise normal map coordinates
-    # look like pathological range explosions.
-    from nuscenes.nuscenes import NuScenes
-
-    nusc = NuScenes(version=version, dataroot=str(dataroot), verbose=False)
-    ego_transform_cache: dict[str, tuple[np.ndarray, np.ndarray]] = {}
-
-    for sample_token, sample_predictions in results.items():
-        if not isinstance(sample_predictions, list):
-            continue
-        box_counts.append(float(len(sample_predictions)))
-        if sample_token not in ego_transform_cache:
-            sample = nusc.get("sample", sample_token)
-            lidar_token = sample["data"]["LIDAR_TOP"]
-            sample_data = nusc.get("sample_data", lidar_token)
-            ego_pose = nusc.get("ego_pose", sample_data["ego_pose_token"])
-            rotation = rotation_matrix_from_quaternion(ego_pose["rotation"])
-            translation = np.asarray(ego_pose["translation"], dtype=np.float32)
-            rotation_t = rotation.T
-            ego_transform_cache[sample_token] = (
-                rotation_t,
-                -(rotation_t @ translation),
-            )
-        rotation_t, translation_t = ego_transform_cache[sample_token]
-        for prediction in sample_predictions:
-            if not isinstance(prediction, dict):
-                continue
-            translation = prediction.get("translation", [0.0, 0.0, 0.0])
-            if not isinstance(translation, list) or len(translation) != 3:
-                continue
-            global_xyz = np.asarray(
-                [float(component) for component in translation],
-                dtype=np.float32,
-            )
-            ego_xyz = rotation_t @ global_xyz + translation_t
-            ego_translation_norms.append(float(np.linalg.norm(ego_xyz)))
-
-    return {
-        "sample_count": float(len(results)),
-        "boxes_per_sample_mean": float(sum(box_counts) / max(len(box_counts), 1)),
-        "boxes_per_sample_p95": _percentile(box_counts, 95.0),
-        "boxes_per_sample_max": float(max(box_counts) if box_counts else 0.0),
-        "ego_translation_norm_mean": float(
-            sum(ego_translation_norms) / max(len(ego_translation_norms), 1)
-        ),
-        "ego_translation_norm_p95": _percentile(ego_translation_norms, 95.0),
-        "ego_translation_norm_p99": _percentile(ego_translation_norms, 99.0),
-        "ego_translation_norm_max": float(
-            max(ego_translation_norms) if ego_translation_norms else 0.0
-        ),
-    }
+    boxes_mean = _metric_float(geometry.get("boxes_per_sample_mean"), 0.0)
+    boxes_p95 = _metric_float(geometry.get("boxes_per_sample_p95"), 0.0)
+    nds = _metric_float(evaluation.get("nd_score"), 0.0)
+    mean_ap = _metric_float(evaluation.get("mean_ap"), 0.0)
+    nonzero_classes = _count_nonzero_classes(label_aps)
+    selected_epoch = _metric_int(record.get("selected_epoch"), 0)
+    epochs = _metric_int(record.get("epochs"), selected_epoch)
+    if boxes_mean > 40.0 or boxes_p95 > 60.0:
+        return "ranking_overproduction"
+    if selected_epoch > 0 and epochs > selected_epoch + 1:
+        return "schedule_checkpoint_drift"
+    if nds < 0.02 and mean_ap < 0.005 and nonzero_classes <= 2:
+        return "vehicle_emergence_failure"
+    if _metric_float(val.get("total"), 0.0) >= _metric_float(train.get("total"), 0.0) * 0.9:
+        return "weak_memorization"
+    return "incremental_progress"
 
 
 def _select_better_record(
@@ -1307,6 +1380,7 @@ def run_bounded_research_loop(
                 epochs=recipe.epochs,
                 max_train_steps=recipe.max_train_steps,
                 lr=recipe.lr,
+                weight_decay=recipe.weight_decay,
                 grad_accum_steps=recipe.grad_accum_steps,
                 batch_size=recipe.batch_size,
                 num_workers=recipe.num_workers,
@@ -1319,6 +1393,12 @@ def run_bounded_research_loop(
                 ),
                 use_amp=False,
                 log_every_steps=25,
+                optimizer_schedule=recipe.optimizer_schedule,
+                grad_clip_norm=recipe.grad_clip_norm,
+                keep_best_checkpoint=recipe.keep_best_checkpoint,
+                loss_mode=recipe.loss_mode,
+                hard_negative_ratio=recipe.hard_negative_ratio,
+                hard_negative_cap=recipe.hard_negative_cap,
                 tracker=tracker,
             )
             durations_s["train"] = time.perf_counter() - start_time
@@ -1338,36 +1418,30 @@ def run_bounded_research_loop(
             checkpoint_path = Path(str(train_result["checkpoint_path"]))
             model, _ = load_model_from_checkpoint(checkpoint_path)
 
-            prediction_path = run_dir / "mini_predictions.json"
             start_time = time.perf_counter()
-            export_nuscenes_predictions(
+            calibration = export_and_evaluate_nuscenes_grid(
                 model=model,
                 dataroot=root,
                 version="v1.0-mini",
                 split="mini_val",
-                output_path=prediction_path,
-                score_threshold=recipe.score_threshold,
-                top_k=recipe.top_k,
+                output_dir=run_dir / "mini_calibration",
+                score_threshold_candidates=recipe.score_threshold_candidates,
+                top_k_candidates=recipe.top_k_candidates,
                 device=device,
                 teacher_provider_config=run_teacher_provider_config,
             )
-            durations_s["export"] = time.perf_counter() - start_time
+            durations_s["export_evaluate"] = time.perf_counter() - start_time
 
-            prediction_geometry = _prediction_geometry_diagnostics(
+            selected_calibration = calibration["selected"]
+            assert isinstance(selected_calibration, dict)
+            prediction_path = Path(str(selected_calibration["prediction_path"]))
+            evaluation = selected_calibration["evaluation"]
+            assert isinstance(evaluation, dict)
+            prediction_geometry = prediction_geometry_diagnostics(
                 prediction_path,
                 dataroot=root,
                 version="v1.0-mini",
             )
-
-            start_time = time.perf_counter()
-            evaluation = evaluate_nuscenes_predictions(
-                dataroot=root,
-                version="v1.0-mini",
-                split="mini_val",
-                result_path=prediction_path,
-                output_dir=run_dir / "mini_eval",
-            )
-            durations_s["evaluate"] = time.perf_counter() - start_time
 
             start_time = time.perf_counter()
             source_mix_diagnostics = _measure_source_mix(
@@ -1387,13 +1461,18 @@ def run_bounded_research_loop(
             record.update(
                 {
                     "status": "completed",
-                    "train": train_result["last_train"],
-                    "val": train_result["last_val"],
+                    "train": train_result["selected_train"],
+                    "val": train_result["selected_val"],
+                    "last_train": train_result["last_train"],
+                    "last_val": train_result["last_val"],
                     "benchmark": bench,
                     "checkpoint_path": str(checkpoint_path),
+                    "selected_epoch": train_result.get("selected_epoch"),
+                    "best_epoch": train_result.get("best_epoch"),
                     "prediction_path": str(prediction_path),
                     "prediction_geometry": prediction_geometry,
                     "evaluation": evaluation,
+                    "calibration": calibration,
                     "source_mix": source_mix_diagnostics["average"],
                     "source_mix_diagnostics": source_mix_diagnostics,
                     "durations_s": durations_s,
@@ -1401,6 +1480,7 @@ def run_bounded_research_loop(
                     "val_samples": val_samples,
                 }
             )
+            record["root_cause_verdict"] = _root_cause_verdict(record)
             better, reason = _select_better_record(incumbent_record, record)
             record["interim_decision"] = "advance" if better else "reject"
             record["decision_reason"] = reason
@@ -1426,6 +1506,12 @@ def run_bounded_research_loop(
                     "prediction_ego_translation_p99": _metric_float(
                         prediction_geometry.get("ego_translation_norm_p99", 0.0)
                     ),
+                    "selected_epoch": _metric_int(train_result.get("selected_epoch"), 0),
+                    "best_epoch": _metric_int(train_result.get("best_epoch"), 0),
+                    "calibrated_score_threshold": _metric_float(
+                        selected_calibration.get("score_threshold"), 0.0
+                    ),
+                    "calibrated_top_k": _metric_int(selected_calibration.get("top_k"), 0),
                 },
                 step=epochs_run,
             )

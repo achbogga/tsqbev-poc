@@ -12,7 +12,7 @@ from __future__ import annotations
 import json
 import time
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import numpy as np
 import torch
@@ -21,10 +21,56 @@ from torch.utils.data import DataLoader, Dataset
 from tsqbev.datasets import NuScenesDataset, collate_scene_examples
 from tsqbev.labels import NUSCENES_DETECTION_NAMES
 from tsqbev.model import TSQBEVModel
-from tsqbev.quaternion import quaternion_from_yaw, rotate_xy, yaw_from_rotation_matrix
+from tsqbev.quaternion import (
+    quaternion_from_yaw,
+    rotate_xy,
+    rotation_matrix_from_quaternion,
+    yaw_from_rotation_matrix,
+)
 from tsqbev.runtime import move_batch, resolve_device
 from tsqbev.teacher_backends import TeacherProviderConfig, build_teacher_provider
 from tsqbev.teacher_dataset import TeacherAugmentedDataset
+
+
+def _car_ap_4m(evaluation: dict[str, object]) -> float:
+    label_aps = evaluation.get("label_aps", {})
+    if not isinstance(label_aps, dict):
+        return 0.0
+    car_aps = label_aps.get("car", {})
+    if not isinstance(car_aps, dict):
+        return 0.0
+    value = car_aps.get("4.0", 0.0)
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _is_better_calibration(
+    candidate: dict[str, object],
+    current_best: dict[str, object] | None,
+) -> bool:
+    if current_best is None:
+        return True
+    candidate_eval = candidate["evaluation"]
+    current_eval = current_best["evaluation"]
+    assert isinstance(candidate_eval, dict)
+    assert isinstance(current_eval, dict)
+    candidate_key = (
+        float(candidate_eval.get("nd_score", float("-inf"))),
+        float(candidate_eval.get("mean_ap", float("-inf"))),
+        _car_ap_4m(candidate_eval),
+        -float(cast(float, candidate["score_threshold"])),
+        -float(cast(int, candidate["top_k"])),
+    )
+    current_key = (
+        float(current_eval.get("nd_score", float("-inf"))),
+        float(current_eval.get("mean_ap", float("-inf"))),
+        _car_ap_4m(current_eval),
+        -float(cast(float, current_best["score_threshold"])),
+        -float(cast(int, current_best["top_k"])),
+    )
+    return candidate_key > current_key
 
 
 def _rank_detection_queries(
@@ -38,6 +84,90 @@ def _rank_detection_queries(
     else:
         objectness_scores = objectness_logits.sigmoid()
     return class_scores * objectness_scores, class_ids
+
+
+def _percentile(values: list[float], percentile: float) -> float:
+    if not values:
+        return 0.0
+    ordered = sorted(values)
+    if len(ordered) == 1:
+        return float(ordered[0])
+    rank = (len(ordered) - 1) * percentile / 100.0
+    lower = int(rank)
+    upper = min(lower + 1, len(ordered) - 1)
+    weight = rank - lower
+    return float(ordered[lower] * (1.0 - weight) + ordered[upper] * weight)
+
+
+def prediction_geometry_diagnostics(
+    result_path: str | Path,
+    *,
+    dataroot: str | Path,
+    version: str,
+) -> dict[str, float]:
+    """Measure exported result geometry in the ego frame.
+
+    Result JSON translations are stored in the nuScenes global frame. Sanity
+    thresholds should be measured in the ego frame instead.
+    """
+
+    payload = json.loads(Path(result_path).read_text())
+    results = payload.get("results", {})
+    if not isinstance(results, dict):
+        raise ValueError("nuScenes result JSON must contain a results dictionary")
+
+    box_counts: list[float] = []
+    ego_translation_norms: list[float] = []
+
+    from nuscenes.nuscenes import NuScenes
+
+    nusc = NuScenes(version=version, dataroot=str(dataroot), verbose=False)
+    ego_transform_cache: dict[str, tuple[np.ndarray, np.ndarray]] = {}
+
+    for sample_token, sample_predictions in results.items():
+        if not isinstance(sample_predictions, list):
+            continue
+        box_counts.append(float(len(sample_predictions)))
+        if sample_token not in ego_transform_cache:
+            sample = nusc.get("sample", sample_token)
+            lidar_token = sample["data"]["LIDAR_TOP"]
+            sample_data = nusc.get("sample_data", lidar_token)
+            ego_pose = nusc.get("ego_pose", sample_data["ego_pose_token"])
+            rotation = rotation_matrix_from_quaternion(ego_pose["rotation"])
+            translation = np.asarray(ego_pose["translation"], dtype=np.float32)
+            rotation_t = rotation.T
+            ego_transform_cache[sample_token] = (
+                rotation_t,
+                -(rotation_t @ translation),
+            )
+        rotation_t, translation_t = ego_transform_cache[sample_token]
+        for prediction in sample_predictions:
+            if not isinstance(prediction, dict):
+                continue
+            translation = prediction.get("translation", [0.0, 0.0, 0.0])
+            if not isinstance(translation, list) or len(translation) != 3:
+                continue
+            global_xyz = np.asarray(
+                [float(component) for component in translation],
+                dtype=np.float32,
+            )
+            ego_xyz = rotation_t @ global_xyz + translation_t
+            ego_translation_norms.append(float(np.linalg.norm(ego_xyz)))
+
+    return {
+        "sample_count": float(len(results)),
+        "boxes_per_sample_mean": float(sum(box_counts) / max(len(box_counts), 1)),
+        "boxes_per_sample_p95": _percentile(box_counts, 95.0),
+        "boxes_per_sample_max": float(max(box_counts) if box_counts else 0.0),
+        "ego_translation_norm_mean": float(
+            sum(ego_translation_norms) / max(len(ego_translation_norms), 1)
+        ),
+        "ego_translation_norm_p95": _percentile(ego_translation_norms, 95.0),
+        "ego_translation_norm_p99": _percentile(ego_translation_norms, 99.0),
+        "ego_translation_norm_max": float(
+            max(ego_translation_norms) if ego_translation_norms else 0.0
+        ),
+    }
 
 
 def _load_nuscenes_eval() -> tuple[Any, Any, Any, Any]:
@@ -279,3 +409,71 @@ def _evaluate_nuscenes_predictions_subset(
         json.dumps(metric_data_list.serialize(), indent=2)
     )
     return metrics_summary
+
+
+def export_and_evaluate_nuscenes_grid(
+    model: TSQBEVModel,
+    *,
+    dataroot: str | Path,
+    version: str,
+    split: str,
+    output_dir: str | Path,
+    score_threshold_candidates: list[float] | tuple[float, ...],
+    top_k_candidates: list[int] | tuple[int, ...],
+    device: str | None = None,
+    sample_tokens: list[str] | None = None,
+    teacher_provider_config: TeacherProviderConfig | None = None,
+) -> dict[str, object]:
+    """Export/evaluate a bounded threshold-topk grid and select the best candidate."""
+
+    root = Path(output_dir)
+    root.mkdir(parents=True, exist_ok=True)
+    candidates: list[dict[str, object]] = []
+    best_candidate: dict[str, object] | None = None
+
+    unique_thresholds = sorted({float(value) for value in score_threshold_candidates})
+    unique_top_k = sorted({int(value) for value in top_k_candidates})
+    for score_threshold in unique_thresholds:
+        for top_k in unique_top_k:
+            candidate_slug = f"s{score_threshold:.2f}_k{top_k}"
+            prediction_path = root / f"predictions_{candidate_slug}.json"
+            export_nuscenes_predictions(
+                model=model,
+                dataroot=dataroot,
+                version=version,
+                split=split,
+                output_path=prediction_path,
+                score_threshold=score_threshold,
+                top_k=top_k,
+                device=device,
+                sample_tokens=sample_tokens,
+                teacher_provider_config=teacher_provider_config,
+            )
+            evaluation = evaluate_nuscenes_predictions(
+                dataroot=dataroot,
+                version=version,
+                split=split,
+                result_path=prediction_path,
+                output_dir=root / f"eval_{candidate_slug}",
+                sample_tokens=sample_tokens,
+            )
+            candidate = {
+                "score_threshold": score_threshold,
+                "top_k": top_k,
+                "prediction_path": str(prediction_path),
+                "evaluation": evaluation,
+                "car_ap_4m": _car_ap_4m(evaluation),
+            }
+            candidates.append(candidate)
+            if _is_better_calibration(candidate, best_candidate):
+                best_candidate = candidate
+
+    if best_candidate is None:
+        raise RuntimeError("nuScenes calibration grid did not produce any candidate evaluation")
+
+    payload: dict[str, object] = {
+        "selected": best_candidate,
+        "candidates": candidates,
+    }
+    (root / "calibration_summary.json").write_text(json.dumps(payload, indent=2))
+    return payload

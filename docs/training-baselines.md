@@ -261,6 +261,11 @@ uv run tsqbev overfit-nuscenes \
   --max-train-steps 1024 \
   --batch-size 4 \
   --grad-accum-steps 1 \
+  --optimizer-schedule constant \
+  --grad-clip-norm 5.0 \
+  --loss-mode focal_hardneg \
+  --score-threshold-candidates 0.05 0.15 0.25 \
+  --top-k-candidates 32 64 112 \
   --device cuda
 ```
 
@@ -268,7 +273,7 @@ This command trains and evaluates on the exact same fixed token subset and write
 
 - `artifacts/gates/overfit_gate/subset_tokens.json`
 - `artifacts/gates/overfit_gate/summary.json`
-- `artifacts/gates/overfit_gate/eval/metrics_summary.json`
+- `artifacts/gates/overfit_gate/calibration/calibration_summary.json`
 
 The evaluation path is still grounded in the official nuScenes metric stack, but restricted to the
 explicit token subset instead of an entire named split.
@@ -297,6 +302,25 @@ Artifact locations:
 
 - `artifacts/gates/overfit_gate/summary.json`
 - `artifacts/gates/overfit_gate/eval/metrics_summary.json`
+
+Best measured teacher-seeded overfit rescue so far on the same fixed subset:
+
+| Metric | Value |
+| --- | ---: |
+| Final train total / initial train total | `0.5617` |
+| Same-subset official `NDS` | `0.0401210` |
+| Same-subset official `mAP` | `0.0214468` |
+| Nonzero classes | `2` |
+| `car AP @ 4.0m` | `0.0` |
+| Decision | fail |
+
+Artifact location:
+
+- `artifacts/gates/recovery_v2_teacher_seed/overfit_gate/summary.json`
+
+The current branch does not treat that result as scale-ready. It uses it as evidence that
+teacher-seeded geometry is the right recovery direction, then layers in best-checkpoint selection,
+focal hard negatives, and bounded export calibration before the next rerun.
 
 ## Recorded Mini Results
 

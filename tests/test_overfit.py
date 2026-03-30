@@ -34,10 +34,17 @@ def test_run_nuscenes_overfit_gate_writes_summary(monkeypatch, tmp_path: Path) -
         "tsqbev.overfit.fit_nuscenes",
         lambda **kwargs: {
             "checkpoint_path": str(checkpoint),
+            "selected_checkpoint_path": str(checkpoint),
+            "best_checkpoint_path": str(checkpoint),
+            "selected_epoch": 2,
+            "best_epoch": 2,
             "history": [
                 {"epoch": 1, "train": {"total": 100.0}, "val": {"total": 80.0}},
                 {"epoch": 2, "train": {"total": 30.0}, "val": {"total": 25.0}},
             ],
+            "selected_train": {"total": 30.0},
+            "selected_val": {"total": 25.0},
+            "best_val": {"total": 25.0},
             "last_train": {"total": 30.0},
             "last_val": {"total": 25.0},
             "epochs": 2,
@@ -49,15 +56,32 @@ def test_run_nuscenes_overfit_gate_writes_summary(monkeypatch, tmp_path: Path) -
         lambda *args, **kwargs: (object(), {}),
     )
 
-    def fake_export(**kwargs: object) -> Path:
-        output_path = Path(str(kwargs["output_path"]))
-        output_path.write_text("{}")
-        return output_path
-
-    monkeypatch.setattr("tsqbev.overfit.export_nuscenes_predictions", fake_export)
+    calibration_prediction = (
+        artifact_dir / "overfit_gate" / "calibration" / "predictions_s0.05_k32.json"
+    )
     monkeypatch.setattr(
-        "tsqbev.overfit.evaluate_nuscenes_predictions",
-        lambda **kwargs: _fake_eval(0.12, 0.02, 0.06),
+        "tsqbev.overfit.export_and_evaluate_nuscenes_grid",
+        lambda **kwargs: {
+            "selected": {
+                "score_threshold": 0.05,
+                "top_k": 32,
+                "prediction_path": str(calibration_prediction),
+                "evaluation": _fake_eval(0.12, 0.02, 0.06),
+            },
+            "candidates": [],
+        },
+    )
+    monkeypatch.setattr(
+        "tsqbev.overfit.prediction_geometry_diagnostics",
+        lambda *args, **kwargs: {
+            "boxes_per_sample_mean": 12.0,
+            "boxes_per_sample_p95": 14.0,
+            "boxes_per_sample_max": 16.0,
+            "ego_translation_norm_mean": 18.0,
+            "ego_translation_norm_p95": 24.0,
+            "ego_translation_norm_p99": 30.0,
+            "ego_translation_norm_max": 36.0,
+        },
     )
     monkeypatch.setattr(
         "tsqbev.overfit.benchmark_forward",
@@ -75,6 +99,7 @@ def test_run_nuscenes_overfit_gate_writes_summary(monkeypatch, tmp_path: Path) -
     assert summary["gate_verdict"]["passed"] is True
     assert summary["gate_verdict"]["train_total_ratio"] == 0.3
     assert Path(summary["subset_tokens_path"]).exists()
+    assert summary["calibration"]["selected"]["top_k"] == 32
     written = json.loads((artifact_dir / "overfit_gate" / "summary.json").read_text())
     assert written["gate_verdict"]["passed"] is True
 

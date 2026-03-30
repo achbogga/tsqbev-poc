@@ -29,6 +29,11 @@ autonomous system.
 - batch size
 - gradient accumulation
 - learning rate
+- optimizer schedule
+- gradient clip norm
+- detection loss mode and hard-negative budget
+- best-checkpoint selection policy
+- bounded score-threshold / top-k calibration
 
 ## Required Per-Run Metadata
 
@@ -53,10 +58,13 @@ Every run must record:
 - `summary.json`
 - per-run `manifest.json`
 - selected checkpoint path
+- selected epoch and best epoch
 - synthetic forward latency measurement for each completed recipe
 - official `mini_val` export/eval for each completed recipe
+- calibration summary when a run sweeps threshold / `top_k`
 - per-run source-mix diagnostics from the selected sparse query bank
 - per-run prediction-geometry diagnostics from the exported `mini_val` result JSON
+- per-run root-cause verdict
 
 ## Decision Semantics
 
@@ -79,6 +87,9 @@ The loop may not keep a recipe purely because it has a lower surrogate loss if i
 The loop may not promote a recipe whose exported predictions are still geometrically implausible,
 even if `NDS`, `mAP`, or validation loss improve.
 
+If a run keeps a best checkpoint that materially outperforms its last checkpoint, the selected
+checkpoint and selected-epoch metrics are the ones that count for promotion.
+
 ## Teacher Comparison Rule
 
 If a teacher cache is available for the invocation, the loop must produce at least one valid paired
@@ -86,7 +97,7 @@ comparison on the same mini setup:
 
 - teacher-off student baseline
 - teacher-on `KD-only` variant with the same architecture
-- teacher-on `teacher-seed` variant when compatible
+- teacher-on `teacher-seed` variant when compatible, treated as the preferred geometry exploit
 
 Teacher-lift claims are invalid if teacher targets are not present in the collated training batch
 or if the comparison mixes different backbones or incompatible parent recipes.

@@ -30,8 +30,13 @@ Allowed mutation surfaces:
 - compact pretrained image-backbone family
 - pretrained image-backbone freeze policy
 - learning rate
+- optimizer schedule
+- gradient clip norm
 - batch size
 - gradient accumulation
+- best-checkpoint selection policy
+- detection loss mode and hard-negative budget
+- bounded score-threshold / top-k calibration
 - optional cached external LiDAR teacher guidance, including full seed replacement
 
 Read-only surfaces during the loop:
@@ -85,6 +90,8 @@ Required discipline:
 
 - routed query bank must remain genuinely multimodal
 - exported predictions must remain geometrically sane in count and range
+- overfit-mode runs must evaluate the selected checkpoint, not only the last checkpoint
+- ranking-sensitive runs must record the bounded score-threshold / top-k calibration sweep
 - record synthetic forward latency for every completed recipe
 - teacher-assisted recipes must be treated as paired ablations, not prose
 - teacher-assisted recipes count only if teacher-cache coverage has been audited first
@@ -100,7 +107,9 @@ Every invocation must write:
 - `research_loop/summary.json`
 - per-run `manifest.json`
 - per-run official `mini_val` export and evaluation output
+- per-run calibration summary when multiple thresholds or `top_k` values are tried
 - per-run source-mix diagnostics
+- per-run root-cause verdict
 
 If W&B is available, each invocation must also mirror the same metrics and metadata there under the
 project derived for that architecture family. Hyperparameter and performance tuning stays grouped in

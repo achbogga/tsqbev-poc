@@ -33,6 +33,27 @@ def _zero_with_grad(tensor: Tensor) -> Tensor:
     return tensor.sum() * 0.0
 
 
+def _sigmoid_focal_loss_with_logits(
+    logits: Tensor,
+    targets: Tensor,
+    *,
+    alpha: float = 0.25,
+    gamma: float = 2.0,
+) -> Tensor:
+    """Elementwise sigmoid focal loss.
+
+    Reference:
+    - RetinaNet focal loss:
+      https://arxiv.org/abs/1708.02002
+    """
+
+    probs = logits.sigmoid()
+    ce = F.binary_cross_entropy_with_logits(logits, targets, reduction="none")
+    pt = probs * targets + (1.0 - probs) * (1.0 - targets)
+    alpha_t = alpha * targets + (1.0 - alpha) * (1.0 - targets)
+    return alpha_t * ((1.0 - pt).clamp_min(1e-6) ** gamma) * ce
+
+
 def _angle_difference(pred_yaw: Tensor, target_yaw: Tensor) -> Tensor:
     return torch.atan2(
         torch.sin(pred_yaw.unsqueeze(-1) - target_yaw.unsqueeze(0)),
@@ -87,6 +108,9 @@ class DetectionSetCriterion(nn.Module):
         yaw_weight: float = 0.5,
         velocity_weight: float = 0.5,
         reference_weight: float = 0.25,
+        loss_mode: str = "baseline",
+        hard_negative_ratio: int = 3,
+        hard_negative_cap: int = 96,
     ) -> None:
         super().__init__()
         self.class_weight = class_weight
@@ -95,6 +119,78 @@ class DetectionSetCriterion(nn.Module):
         self.yaw_weight = yaw_weight
         self.velocity_weight = velocity_weight
         self.reference_weight = reference_weight
+        self.loss_mode = loss_mode
+        self.hard_negative_ratio = hard_negative_ratio
+        self.hard_negative_cap = hard_negative_cap
+
+    def _select_query_mask(
+        self,
+        class_logits: Tensor,
+        objectness_logits: Tensor | None,
+        matched_mask: Tensor,
+    ) -> Tensor:
+        if self.loss_mode != "focal_hardneg":
+            return torch.ones_like(matched_mask, dtype=torch.bool)
+
+        positive_count = int(matched_mask.sum().item())
+        negative_budget = min(
+            self.hard_negative_cap,
+            max(32, self.hard_negative_ratio * positive_count),
+        )
+        query_mask = matched_mask.clone()
+        unmatched_mask = ~matched_mask
+        unmatched_count = int(unmatched_mask.sum().item())
+        if unmatched_count == 0 or negative_budget <= 0:
+            return query_mask
+
+        class_hardness = class_logits.sigmoid().max(dim=-1).values
+        if objectness_logits is None:
+            hardness = class_hardness
+        else:
+            hardness = torch.maximum(class_hardness, objectness_logits.sigmoid())
+
+        unmatched_indices = unmatched_mask.nonzero(as_tuple=False).flatten()
+        keep_count = min(negative_budget, unmatched_count)
+        if keep_count <= 0:
+            return query_mask
+        hardest = torch.topk(hardness[unmatched_indices], k=keep_count, sorted=False).indices
+        query_mask[unmatched_indices[hardest]] = True
+        return query_mask
+
+    def _classification_loss(
+        self,
+        object_logits: Tensor,
+        target_classes: Tensor,
+        query_mask: Tensor,
+        normalizer: float,
+    ) -> Tensor:
+        if self.loss_mode == "focal_hardneg":
+            loss = _sigmoid_focal_loss_with_logits(object_logits, target_classes)
+        else:
+            loss = F.binary_cross_entropy_with_logits(
+                object_logits,
+                target_classes,
+                reduction="none",
+            )
+        masked = loss * query_mask.unsqueeze(-1).float()
+        return masked.sum() / normalizer
+
+    def _objectness_loss(
+        self,
+        objectness_logits: Tensor,
+        target_objectness: Tensor,
+        query_mask: Tensor,
+        normalizer: float,
+    ) -> Tensor:
+        if self.loss_mode == "focal_hardneg":
+            loss = _sigmoid_focal_loss_with_logits(objectness_logits, target_objectness)
+        else:
+            loss = F.binary_cross_entropy_with_logits(
+                objectness_logits,
+                target_objectness,
+                reduction="none",
+            )
+        return (loss * query_mask.float()).sum() / normalizer
 
     def forward(
         self,
@@ -121,6 +217,12 @@ class DetectionSetCriterion(nn.Module):
             torch.zeros_like(objectness_logits.float())
             if objectness_logits is not None
             else None
+        )
+        query_selection = torch.ones(
+            batch_size,
+            queries,
+            dtype=torch.bool,
+            device=object_logits.device,
         )
         total_box = zero
         total_gt = 0
@@ -167,17 +269,38 @@ class DetectionSetCriterion(nn.Module):
                 object_boxes[batch_index, pred_index], target_boxes[target_index], reduction="sum"
             )
             total_gt += int(target_index.numel())
+        if target_objectness is not None:
+            for batch_index in range(batch_size):
+                matched_mask = target_objectness[batch_index] > 0.5
+                query_selection[batch_index] = self._select_query_mask(
+                    object_logits[batch_index],
+                    objectness_logits[batch_index].float()
+                    if objectness_logits is not None
+                    else None,
+                    matched_mask,
+                )
+        elif self.loss_mode == "focal_hardneg":
+            for batch_index in range(batch_size):
+                query_selection[batch_index] = self._select_query_mask(
+                    object_logits[batch_index],
+                    None,
+                    torch.zeros(queries, dtype=torch.bool, device=object_logits.device),
+                )
 
         normalizer = max(total_gt, 1)
         objectness_loss = zero
         if objectness_logits is not None:
-            objectness_loss = F.binary_cross_entropy_with_logits(
+            target_tensor = (
+                target_objectness
+                if target_objectness is not None
+                else torch.zeros_like(objectness_logits.float())
+            )
+            objectness_loss = self._objectness_loss(
                 objectness_logits.float(),
-                target_objectness if target_objectness is not None else torch.zeros_like(
-                    objectness_logits.float()
-                ),
-                reduction="sum",
-            ) / float(normalizer)
+                target_tensor,
+                query_selection,
+                float(normalizer),
+            )
         reference_loss = zero
         if reference_points is not None and target_objectness is not None:
             unmatched = (target_objectness < 0.5).float()
@@ -193,9 +316,12 @@ class DetectionSetCriterion(nn.Module):
                     ).sum()
                     / unmatched.sum().clamp_min(1.0)
                 ) * self.reference_weight
-        cls_loss = F.binary_cross_entropy_with_logits(
-            object_logits, target_classes, reduction="sum"
-        ) / float(normalizer)
+        cls_loss = self._classification_loss(
+            object_logits,
+            target_classes,
+            query_selection,
+            float(normalizer),
+        )
         box_loss = total_box / float(normalizer)
         return {
             "objectness": objectness_loss,

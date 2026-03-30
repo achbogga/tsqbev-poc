@@ -13,17 +13,17 @@ import json
 import time
 from collections.abc import Sized
 from pathlib import Path
-from typing import Any, cast
+from typing import Any, Literal, cast
 
 import torch
 from torch.optim import AdamW
-from torch.optim.lr_scheduler import CosineAnnealingLR
+from torch.optim.lr_scheduler import CosineAnnealingLR, LambdaLR
 from torch.utils.data import DataLoader, Dataset, Subset
 
 from tsqbev.checkpoints import load_weights_into_model_from_checkpoint, save_model_checkpoint
 from tsqbev.config import ModelConfig
 from tsqbev.datasets import NuScenesDataset, OpenLaneDataset, collate_scene_examples
-from tsqbev.losses import MultitaskCriterion
+from tsqbev.losses import DetectionSetCriterion, MultitaskCriterion
 from tsqbev.model import TSQBEVModel
 from tsqbev.runtime import move_batch, resolve_device
 from tsqbev.teacher_backends import TeacherProviderConfig, build_teacher_provider
@@ -76,6 +76,30 @@ def _default_tracking_group(artifact_dir: Path, dataset: str) -> str:
     return f"{dataset}-{artifact_dir.parent.name}"
 
 
+def _make_scheduler(
+    optimizer: AdamW,
+    *,
+    epochs: int,
+    optimizer_schedule: Literal["cosine", "constant"],
+) -> CosineAnnealingLR | LambdaLR:
+    if optimizer_schedule == "constant":
+        return LambdaLR(optimizer, lr_lambda=lambda _step: 1.0)
+    return CosineAnnealingLR(optimizer, T_max=max(epochs, 1))
+
+
+def _make_detection_criterion(
+    *,
+    loss_mode: Literal["baseline", "focal_hardneg"],
+    hard_negative_ratio: int,
+    hard_negative_cap: int,
+) -> DetectionSetCriterion:
+    return DetectionSetCriterion(
+        loss_mode=loss_mode,
+        hard_negative_ratio=hard_negative_ratio,
+        hard_negative_cap=hard_negative_cap,
+    )
+
+
 def resolve_nuscenes_splits(
     version: str,
     train_split: str | None,
@@ -102,6 +126,7 @@ def _train_epoch(
     epoch: int,
     log_every_steps: int | None,
     max_steps: int | None = None,
+    grad_clip_norm: float | None = 1.0,
 ) -> dict[str, float]:
     model.train()
     optimizer.zero_grad(set_to_none=True)
@@ -124,7 +149,8 @@ def _train_epoch(
         if step % grad_accum_steps == 0:
             if amp_enabled:
                 scaler.unscale_(optimizer)
-            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+            if grad_clip_norm is not None:
+                torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=grad_clip_norm)
             if amp_enabled:
                 scaler.step(optimizer)
                 scaler.update()
@@ -146,7 +172,8 @@ def _train_epoch(
     if len(loader) % grad_accum_steps != 0:
         if amp_enabled:
             scaler.unscale_(optimizer)
-        torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+        if grad_clip_norm is not None:
+            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=grad_clip_norm)
         if amp_enabled:
             scaler.step(optimizer)
             scaler.update()
@@ -235,6 +262,12 @@ def fit_nuscenes(
     init_checkpoint: str | Path | None = None,
     use_amp: bool = False,
     log_every_steps: int | None = 100,
+    optimizer_schedule: Literal["cosine", "constant"] = "cosine",
+    grad_clip_norm: float | None = 1.0,
+    keep_best_checkpoint: bool = False,
+    loss_mode: Literal["baseline", "focal_hardneg"] = "baseline",
+    hard_negative_ratio: int = 3,
+    hard_negative_cap: int = 96,
     tracker: ExperimentTracker | None = None,
     tracking_metadata: TrackingMetadata | None = None,
 ) -> dict[str, object]:
@@ -355,6 +388,12 @@ def fit_nuscenes(
                         "init_checkpoint": (
                             str(init_checkpoint) if init_checkpoint is not None else None
                         ),
+                        "optimizer_schedule": optimizer_schedule,
+                        "grad_clip_norm": grad_clip_norm,
+                        "keep_best_checkpoint": keep_best_checkpoint,
+                        "loss_mode": loss_mode,
+                        "hard_negative_ratio": hard_negative_ratio,
+                        "hard_negative_cap": hard_negative_cap,
                     },
                 },
             )
@@ -376,13 +415,28 @@ def fit_nuscenes(
                 map_location=resolved_device,
             )
             print(f"[setup] warm-started model from {init_checkpoint}", flush=True)
-        criterion = MultitaskCriterion()
+        criterion = MultitaskCriterion(
+            detection=_make_detection_criterion(
+                loss_mode=loss_mode,
+                hard_negative_ratio=hard_negative_ratio,
+                hard_negative_cap=hard_negative_cap,
+            )
+        )
         optimizer = AdamW(model.parameters(), lr=lr, weight_decay=weight_decay)
-        scheduler = CosineAnnealingLR(optimizer, T_max=max(epochs, 1))
+        scheduler = _make_scheduler(
+            optimizer,
+            epochs=epochs,
+            optimizer_schedule=optimizer_schedule,
+        )
         scaler = torch.amp.GradScaler("cuda", enabled=amp_enabled)
 
         history: list[dict[str, object]] = []
-        checkpoint_path = artifact_root / "checkpoint_last.pt"
+        checkpoint_last_path = artifact_root / "checkpoint_last.pt"
+        checkpoint_best_path = artifact_root / "checkpoint_best.pt"
+        best_epoch = 0
+        best_val_total = float("inf")
+        best_train_metrics: dict[str, float] | None = None
+        best_val_metrics: dict[str, float] | None = None
         train_steps_completed = 0
         epochs_run = 0
         for epoch in range(1, epochs + 1):
@@ -414,6 +468,7 @@ def fit_nuscenes(
                 epoch=epoch,
                 log_every_steps=log_every_steps,
                 max_steps=epoch_max_steps,
+                grad_clip_norm=grad_clip_norm,
             )
             val_metrics = _eval_epoch(
                 model=model,
@@ -429,10 +484,22 @@ def fit_nuscenes(
             save_model_checkpoint(
                 model,
                 model_config,
-                checkpoint_path,
+                checkpoint_last_path,
                 epoch=epoch,
                 history=history,
             )
+            if float(val_metrics["total"]) <= best_val_total:
+                best_val_total = float(val_metrics["total"])
+                best_epoch = epoch
+                best_train_metrics = dict(train_metrics)
+                best_val_metrics = dict(val_metrics)
+                save_model_checkpoint(
+                    model,
+                    model_config,
+                    checkpoint_best_path,
+                    epoch=epoch,
+                    history=history,
+                )
             if active_tracker is not None:
                 active_tracker.log(
                     {
@@ -442,6 +509,8 @@ def fit_nuscenes(
                         "learning_rate": scheduler.get_last_lr()[0],
                         "train_steps_completed": train_steps_completed
                         + (len(train_loader) if epoch_max_steps is None else epoch_max_steps),
+                        "best_epoch": best_epoch,
+                        "best_val_total": best_val_total,
                     },
                     step=epoch,
                 )
@@ -457,6 +526,30 @@ def fit_nuscenes(
             if max_train_steps is not None and train_steps_completed >= max_train_steps:
                 break
 
+        if not history:
+            raise RuntimeError("fit_nuscenes completed without any train/val history")
+
+        selected_checkpoint_path = (
+            checkpoint_best_path
+            if keep_best_checkpoint and checkpoint_best_path.exists()
+            else checkpoint_last_path
+        )
+        selected_epoch = (
+            best_epoch
+            if selected_checkpoint_path == checkpoint_best_path
+            else epochs_run
+        )
+        selected_train_metrics = (
+            best_train_metrics
+            if selected_checkpoint_path == checkpoint_best_path and best_train_metrics is not None
+            else cast(dict[str, float], history[-1]["train"])
+        )
+        selected_val_metrics = (
+            best_val_metrics
+            if selected_checkpoint_path == checkpoint_best_path and best_val_metrics is not None
+            else cast(dict[str, float], history[-1]["val"])
+        )
+
         result = {
             "device": resolved_device.type,
             "amp_enabled": amp_enabled,
@@ -467,7 +560,16 @@ def fit_nuscenes(
             "train_split": resolved_train_split,
             "val_split": resolved_val_split,
             "artifact_dir": str(artifact_root),
-            "checkpoint_path": str(checkpoint_path),
+            "checkpoint_path": str(selected_checkpoint_path),
+            "selected_checkpoint_path": str(selected_checkpoint_path),
+            "selected_epoch": selected_epoch,
+            "selected_train": selected_train_metrics,
+            "selected_val": selected_val_metrics,
+            "last_checkpoint_path": str(checkpoint_last_path),
+            "best_checkpoint_path": str(checkpoint_best_path),
+            "best_epoch": best_epoch,
+            "best_train": best_train_metrics,
+            "best_val": best_val_metrics,
             "teacher_seed_mode": model_config.teacher_seed_mode,
             "train_samples": train_sample_count,
             "val_samples": val_sample_count,
@@ -482,11 +584,13 @@ def fit_nuscenes(
             active_tracker.summary(
                 {
                     "artifact_dir": str(artifact_root),
-                    "checkpoint_path": str(checkpoint_path),
+                    "checkpoint_path": str(selected_checkpoint_path),
                     "epochs": epochs_run,
                     "train_steps": train_steps_completed,
                     "train_samples": train_sample_count,
                     "val_samples": val_sample_count,
+                    "best_epoch": best_epoch,
+                    "best_val_total": best_val_total,
                     **_prefixed_metrics(
                         "final_train",
                         cast(dict[str, float], history[-1]["train"]),
@@ -495,6 +599,8 @@ def fit_nuscenes(
                         "final_val",
                         cast(dict[str, float], history[-1]["val"]),
                     ),
+                    **_prefixed_metrics("selected_train", selected_train_metrics),
+                    **_prefixed_metrics("selected_val", selected_val_metrics),
                 }
             )
         status = "completed"

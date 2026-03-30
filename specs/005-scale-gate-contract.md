@@ -26,6 +26,15 @@ No passing artifacts are currently recorded for:
 - Gate 4: teacher-lift
 - Gate 6: repeatability
 
+The current branch now includes additional recovery instrumentation before the next gate rerun:
+
+- selected-checkpoint evaluation instead of last-checkpoint-only evaluation
+- focal-style objectness/class losses with bounded hard-negative mining
+- bounded score-threshold / `top_k` calibration for export/eval
+
+These code-path upgrades are implemented and tested, but they do not count as a passed gate until a
+new measured artifact is recorded.
+
 ## Required Gates Before 10x Compute
 
 ### Gate 0: Repo Integrity

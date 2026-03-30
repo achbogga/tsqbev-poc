@@ -79,9 +79,28 @@ This is a useful negative result, and it is materially better than the earlier c
 
 ## Next Step
 
-The highest-ROI next experiment is a paired teacher-backed overfit probe:
+The strongest measured follow-up on the same fixed subset so far is the corrected
+`replace_lidar` teacher-seeded recovery probe:
 
-1. rerun the repaired 32-sample gate with cached `CenterPoint-PointPillar` teacher KD enabled
-2. rerun the same gate with `teacher_seed_mode=replace_lidar`
-3. compare the paired teacher-on runs against the repaired student-only baseline
-4. only then decide whether the next ROI move is teacher scaling or further student redesign
+| Metric | Value |
+| --- | ---: |
+| Train-total ratio | `0.5617` |
+| Same-subset official `NDS` | `0.0401210` |
+| Same-subset official `mAP` | `0.0214468` |
+| Nonzero classes | `2` |
+| `car AP @ 4.0m` | `0.0` |
+| RTX 5000 synthetic forward mean | `16.9225 ms` |
+
+Primary artifact:
+
+- `artifacts/gates/recovery_v2_teacher_seed/overfit_gate/summary.json`
+
+This is the first overfit probe that produced a material same-subset lift, but it still did not
+clear the gate because the subset did not overfit enough and `car AP @ 4.0m` remained zero.
+
+The highest-ROI next experiment on the current branch is therefore the repaired recovery rerun:
+
+1. rerun the same 32-sample gate with the selected-checkpoint path enabled
+2. keep the preferred `teacher_seed_mode=replace_lidar` geometry bootstrap
+3. switch the detection loss to focal-style hard negatives
+4. sweep the bounded `score_threshold` / `top_k` grid and select by official same-subset metrics

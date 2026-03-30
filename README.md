@@ -26,7 +26,8 @@ When tracking is enabled, runs are mirrored to Weights & Biases under the entity
 | CI | 🟢 Passing | `ruff`, `mypy`, `pytest` currently pass locally; GitHub Actions badge is wired in |
 | Current mini incumbent | 🟡 Real but weak | `mini_propheavy_mbv3_frozen_query_boost`, `mini_val NDS = 0.01581`, `mAP = 1.11e-04`, `17.19 ms` |
 | Teacher bootstrap | 🟢 Verified | external OpenPCDet `CenterPoint-PointPillar` reached `0.4997 NDS` on `mini_val`; cache coverage is full |
-| Teacher lift into student | 🟡 Rerunning | previous `replace_lidar` evidence was invalidated by a teacher-batch collation bug; the current branch requires paired teacher-off / teacher-KD / teacher-seed evidence |
+| Teacher lift into student | 🟡 Partial | corrected 32-sample `replace_lidar` overfit rescue reached `NDS = 0.0401`, `mAP = 0.0214`; paired `mini_val` lift is still unproven |
+| Recovery branch | 🟡 Code-ready | best-checkpoint evaluation, focal hard negatives, bounded calibration, and teacher-seed-first exploitation are implemented and tested |
 | Scale-up readiness | 🔴 Blocked | overfit, repeatability, and mini generalization gates are still failing |
 | Tracking | 🟢 Online | W&B smoke run synced under `achbogga-track` |
 
@@ -118,6 +119,12 @@ different architectures are logged to separate projects.
 The current scale-up answer is still "not yet": the repaired 32-sample overfit gate still failed,
 with `train_ratio=0.5310`, same-subset `NDS=0.0085868`, and same-subset `mAP=0.0005329`. See
 [docs/scaling-gates.md](docs/scaling-gates.md).
+
+The strongest measured overfit rescue so far is the corrected teacher-seeded variant on the same
+32-sample subset: `NDS=0.0401`, `mAP=0.0214`, and `16.92 ms`, but it still failed the gate because
+`car AP @ 4.0m` remained `0.0` and the subset did not overfit enough. The current branch therefore
+pushes ROI into ranking/overproduction fixes first: selected-checkpoint evaluation, focal-style
+hard-negative training, and bounded export calibration.
 
 External teacher bootstrap is now verified separately:
 
@@ -212,6 +219,11 @@ uv run tsqbev overfit-nuscenes \
   --max-train-steps 1024 \
   --batch-size 4 \
   --grad-accum-steps 1 \
+  --optimizer-schedule constant \
+  --grad-clip-norm 5.0 \
+  --loss-mode focal_hardneg \
+  --score-threshold-candidates 0.05 0.15 0.25 \
+  --top-k-candidates 32 64 112 \
   --device cuda
 ```
 
