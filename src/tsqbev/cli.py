@@ -176,6 +176,7 @@ def _make_parser() -> argparse.ArgumentParser:
     parser.add_argument("--output-path", type=Path, default=Path("artifacts/eval/predictions.json"))
     parser.add_argument("--output-dir", type=Path, default=Path("artifacts/eval"))
     parser.add_argument("--checkpoint", type=Path, default=None)
+    parser.add_argument("--init-checkpoint", type=Path, default=None)
     parser.add_argument("--result-json", type=Path, default=None)
     parser.add_argument(
         "--preset",
@@ -419,6 +420,7 @@ def main() -> None:
                 num_workers=args.num_workers,
                 device=args.device,
                 seed=args.seed,
+                init_checkpoint=args.init_checkpoint,
                 teacher_provider_config=teacher_provider_config,
                 optimizer_schedule=(
                     args.optimizer_schedule if args.optimizer_schedule is not None else "constant"
