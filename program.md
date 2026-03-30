@@ -18,6 +18,7 @@ Before any invocation:
 2. verify that `program.md` still says `Status: enabled.`
 3. treat the repo as evidence-first and append-only
 4. preserve all prior experiment artifacts
+5. if W&B is available, mirror the run there under the stable entity `achbogga-track`
 
 ## In-Scope Surface
 
@@ -86,6 +87,7 @@ Required discipline:
 - record synthetic forward latency for every completed recipe
 - teacher-assisted recipes must be treated as paired ablations, not prose
 - teacher-assisted recipes count only if teacher-cache coverage has been audited first
+- W&B logging is advisory and must never affect the accept/reject decision path
 - do not call a recipe scale-ready just because it wins the local sweep
 
 ## Required Artifacts
@@ -98,6 +100,10 @@ Every invocation must write:
 - per-run `manifest.json`
 - per-run official `mini_val` export and evaluation output
 - per-run source-mix diagnostics
+
+If W&B is available, each invocation must also mirror the same metrics and metadata there under the
+project derived for that architecture family. Hyperparameter and performance tuning stays grouped in
+the same W&B project; materially different architecture families use different W&B projects.
 
 The ledger must distinguish:
 

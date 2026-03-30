@@ -65,6 +65,17 @@ Install the real-data extras before any baseline run:
 uv sync --extra dev --extra data
 ```
 
+W&B tracking is enabled automatically when `WANDB_API_KEY` is present and tracking is not
+explicitly disabled. The default entity is `achbogga-track`. You can override the entity with
+`WANDB_ENTITY` if needed. To disable tracking for a local run, set `TSQBEV_WANDB=0` or
+`WANDB_MODE=disabled`.
+The shell that launches the experiment must actually see those environment variables; ad-hoc
+exports in a different terminal session will not reach a separate non-interactive launcher.
+
+Project naming keeps hyperparameter and performance tuning grouped within the same architecture
+family. Materially different architecture families are logged to separate W&B projects so ablations
+stay comparable without overloading one project namespace.
+
 ## Data Readiness Check
 
 You can sanity-check a candidate root quickly:
@@ -188,6 +199,8 @@ The loop now follows a staged `baseline -> explore -> exploit` pattern inspired 
 `karpathy/autoresearch` workflow, but adapted to this repo's narrower ML contract. Each run emits a
 JSONL ledger, a TSV ledger, a per-run manifest, and a machine-readable scale verdict. The current
 bounded contract also uses a fixed comparable `max_train_steps=960` budget per recipe.
+When W&B is available, the same bounded loop mirrors metrics and metadata to W&B under the project
+derived for that architecture family. Tracking failures never abort training or evaluation.
 
 Export predictions for official local validation:
 

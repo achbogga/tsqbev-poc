@@ -19,7 +19,7 @@ import time
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
 import torch
 from torch.utils.data import DataLoader, Dataset
@@ -32,6 +32,7 @@ from tsqbev.research_guard import ensure_research_loop_enabled
 from tsqbev.runtime import benchmark_forward, move_batch, resolve_device
 from tsqbev.teacher_backends import TeacherProviderConfig, build_teacher_provider
 from tsqbev.teacher_dataset import TeacherAugmentedDataset
+from tsqbev.tracking import TrackingMetadata, start_experiment_tracking
 from tsqbev.train import fit_nuscenes
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -483,6 +484,17 @@ def _metric_float(value: object, default: float = 0.0) -> float:
     if isinstance(value, int | float | str):
         try:
             return float(value)
+        except ValueError:
+            return default
+    return default
+
+
+def _metric_int(value: object, default: int = 0) -> int:
+    if isinstance(value, bool):
+        return int(value)
+    if isinstance(value, int | float | str):
+        try:
+            return int(value)
         except ValueError:
             return default
     return default
@@ -993,6 +1005,46 @@ def run_bounded_research_loop(
         recipe = candidate_queue[recipe_index]
         run_id = recipe_index + 1
         run_dir = artifact_root / recipe.name
+        tracker = start_experiment_tracking(
+            artifact_dir=run_dir,
+            config=recipe.config,
+            metadata=TrackingMetadata(
+                suite="research",
+                dataset="nuscenes",
+                job_type="research-loop",
+                run_name=recipe.name,
+                group=artifact_root.name,
+                tags=(
+                    "research-loop",
+                    recipe.stage,
+                    "v1.0-mini",
+                    recipe.config.image_backbone,
+                    recipe.config.teacher_seed_mode,
+                ),
+                extra_config={
+                    "run_id": run_id,
+                    "parent_recipe": recipe.parent_recipe,
+                    "max_experiments": max_experiments,
+                    "teacher_provider": (
+                        teacher_provider_config.kind
+                        if teacher_provider_config is not None
+                        else None
+                    ),
+                    "recipe": _serialize_recipe(recipe),
+                },
+            ),
+            config_payload={
+                "model": recipe.config.model_dump(),
+                "train": {
+                    "epochs": recipe.epochs,
+                    "max_train_steps": recipe.max_train_steps,
+                    "lr": recipe.lr,
+                    "grad_accum_steps": recipe.grad_accum_steps,
+                    "batch_size": recipe.batch_size,
+                    "num_workers": recipe.num_workers,
+                },
+            },
+        )
         print(
             "[research] "
             f"starting run_id={run_id} recipe={recipe.name} stage={recipe.stage} "
@@ -1042,6 +1094,7 @@ def run_bounded_research_loop(
                 teacher_provider_config=teacher_provider_config,
                 use_amp=False,
                 log_every_steps=25,
+                tracker=tracker,
             )
             durations_s["train"] = time.perf_counter() - start_time
 
@@ -1123,6 +1176,21 @@ def run_bounded_research_loop(
             if better:
                 incumbent_record = record
                 incumbent_recipe = recipe
+            epochs_run = _metric_int(train_result.get("epochs", 0))
+            average_mix = cast(dict[str, object], source_mix_diagnostics["average"])
+            tracker.log(
+                {
+                    "epoch": epochs_run,
+                    "eval_nds": _metric_float(evaluation.get("nd_score", 0.0)),
+                    "eval_map": _metric_float(evaluation.get("mean_ap", 0.0)),
+                    "benchmark_mean_ms": _metric_float(bench.get("mean_ms", 0.0)),
+                    "benchmark_p95_ms": _metric_float(bench.get("p95_ms", 0.0)),
+                    "source_mix_lidar": _metric_float(average_mix.get("lidar", 0.0)),
+                    "source_mix_proposal": _metric_float(average_mix.get("proposal", 0.0)),
+                    "source_mix_global": _metric_float(average_mix.get("global", 0.0)),
+                },
+                step=epochs_run,
+            )
         except Exception as exc:
             record.update(
                 {
@@ -1132,6 +1200,7 @@ def run_bounded_research_loop(
                     "decision_reason": "runtime error during bounded research invocation",
                 }
             )
+            tracker.summary({"error": repr(exc)})
         records.append(record)
         _write_run_manifest(
             run_dir,
@@ -1148,6 +1217,21 @@ def run_bounded_research_loop(
         assert isinstance(evaluation, dict)
         val_metrics = record.get("val", {})
         assert isinstance(val_metrics, dict)
+        tracker.summary(
+            {
+                "run_id": run_id,
+                "recipe": recipe.name,
+                "stage": recipe.stage,
+                "status": record.get("status"),
+                "interim_decision": record.get("interim_decision"),
+                "decision_reason": record.get("decision_reason"),
+                "checkpoint_path": record.get("checkpoint_path"),
+                "prediction_path": record.get("prediction_path"),
+                "eval_nds": _metric_float(evaluation.get("nd_score", 0.0)),
+                "eval_map": _metric_float(evaluation.get("mean_ap", 0.0)),
+                "val_total": _metric_float(val_metrics.get("total", 0.0)),
+            }
+        )
         print(
             "[research] "
             f"finished run_id={run_id} recipe={recipe.name} status={record.get('status')} "
@@ -1156,6 +1240,7 @@ def run_bounded_research_loop(
             f"map={_metric_float(evaluation.get('mean_ap', 0.0)):.6f} "
             f"val_total={_metric_float(val_metrics.get('total', 0.0)):.4f}"
         )
+        tracker.finish(status="completed" if record.get("status") == "completed" else "failed")
 
         if (
             recipe_index + 1 == initial_recipe_count

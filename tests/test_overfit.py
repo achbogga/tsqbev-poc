@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
 from tsqbev.config import ModelConfig
 from tsqbev.overfit import run_nuscenes_overfit_gate
 
@@ -75,3 +77,40 @@ def test_run_nuscenes_overfit_gate_writes_summary(monkeypatch, tmp_path: Path) -
     assert Path(summary["subset_tokens_path"]).exists()
     written = json.loads((artifact_dir / "overfit_gate" / "summary.json").read_text())
     assert written["gate_verdict"]["passed"] is True
+
+
+def test_run_nuscenes_overfit_gate_finishes_tracker_on_failure(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    finished: list[str] = []
+
+    class _FakeTracker:
+        def log(self, payload: dict[str, object], step: int | None = None) -> None:
+            del payload, step
+
+        def summary(self, payload: dict[str, object]) -> None:
+            del payload
+
+        def finish(self, *, status: str) -> None:
+            finished.append(status)
+
+    monkeypatch.setattr("tsqbev.overfit.start_experiment_tracking", lambda **kwargs: _FakeTracker())
+    monkeypatch.setattr(
+        "tsqbev.overfit.select_nuscenes_subset_tokens",
+        lambda *args, **kwargs: [f"tok-{i}" for i in range(32)],
+    )
+    monkeypatch.setattr(
+        "tsqbev.overfit.fit_nuscenes",
+        lambda **kwargs: (_ for _ in ()).throw(RuntimeError("boom")),
+    )
+
+    with pytest.raises(RuntimeError, match="boom"):
+        run_nuscenes_overfit_gate(
+            dataroot=tmp_path,
+            artifact_dir=tmp_path / "artifacts",
+            config=ModelConfig.small(),
+            device="cpu",
+        )
+
+    assert finished == ["failed"]

@@ -29,6 +29,7 @@ It is a focused open-source POC for public datasets and deployable research arti
 - The current best source mix is `31.25% LiDAR / 53.57% proposal / 15.18% global`, which
   preserves the stable non-collapsed multimodal routing regime while improving official metrics.
 - The repo now explicitly blocks 10x compute scale-up until the gates in `specs/005-scale-gate-contract.md` are cleared.
+- W&B tracking is wired into the experiment entrypoints and stays advisory only; tracking failures do not change training or selection outcomes.
 - Optional external LiDAR teacher scaffolding is now present through typed cache/provider contracts and a dataset wrapper, with `CenterPoint-PointPillar` as the first target backend.
 - The repo now accepts standard nuScenes detection JSON from an external teacher and converts it
   into repo-local teacher-cache records.
@@ -68,6 +69,7 @@ It is a focused open-source POC for public datasets and deployable research arti
 - Upgraded the bounded local loop to a staged `baseline -> explore -> exploit` workflow aligned
   with the public `autoresearch` design intent while remaining bounded and ML-specific.
 - Added per-run manifests, a human-readable TSV ledger, and explicit scale-gate verdict emission.
+- Added optional W&B tracking with stable project grouping by architecture family.
 - Added an exact OpenPCDet `CenterPoint-PointPillar` teacher runbook, grounded in the official
   config and export paths, without adding heavy runtime dependencies to the core repo.
 - Verified the external OpenPCDet `CenterPoint-PointPillar` teacher end to end on

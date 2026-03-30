@@ -11,6 +11,7 @@
 - ONNX and TensorRT deployment are first-class concerns
 
 This repo is intentionally small and evidence-driven. Every substantive module is tied back to an original paper and, where available, an official codebase. Local generated summaries are treated as internal synthesis only. The repo cites the underlying original papers, official codebases, and our own public repo/paper artifacts instead.
+When tracking is enabled, runs are mirrored to Weights & Biases under the entity `achbogga-track`.
 
 ## What This Repo Is
 
@@ -57,6 +58,7 @@ More detail and additional diagrams are in [docs/architecture.md](docs/architect
 - Map priors: `MapTR`-style vectorized public priors
 - Teacher bootstrap: optional cached external LiDAR teacher path, starting with public `CenterPoint-PointPillar` style teachers
 - Deployment validation: ONNX export and TensorRT engine build for the exportable core
+- Experiment tracking: optional W&B logging for baselines, gates, and research-loop recipes
 
 ## Measured Results
 
@@ -85,6 +87,9 @@ The loop now selects by official `mini_val` `NDS`, then `mAP`, then loss, and th
 recipe came from the exploit stage rather than the initial flat sweep. The promoted mini result is
 the query-boost MobileNetV3 recipe with nonzero official `mAP` and `NDS`. The sweep artifacts are
 summarized in [docs/benchmarks/nuscenes-mini.md](docs/benchmarks/nuscenes-mini.md).
+The same loop is also tracked in W&B when credentials are available; hyperparameter and
+performance sweeps stay grouped within the same architecture-family project, while materially
+different architectures are logged to separate projects.
 
 The current scale-up answer is still "not yet": the first measured 32-sample overfit gate failed
 with `train_ratio=0.5079`, same-subset `NDS=0.0003752`, and same-subset `mAP=0.0007504`. See
@@ -260,6 +265,7 @@ uv run tsqbev trt-bench
 - `pytest` passing
 - ONNX export smoke passing
 - TensorRT engine build validated on RTX 5000
+- optional W&B tracking integrated for all substantive experiment entrypoints
 - strengthened bounded `nuScenes v1.0-mini` sweep recorded with official per-recipe `mini_val` evaluation
 - current best completed `mini_val` result: `NDS = 0.0158`, `mAP = 1.1140e-04`
 - explicit scale gates added; current answer is still "do not scale by 10x compute yet"

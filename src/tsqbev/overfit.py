@@ -19,6 +19,7 @@ from tsqbev.datasets import NuScenesDataset
 from tsqbev.eval_nuscenes import evaluate_nuscenes_predictions, export_nuscenes_predictions
 from tsqbev.runtime import benchmark_forward
 from tsqbev.teacher_backends import TeacherProviderConfig
+from tsqbev.tracking import TrackingMetadata, start_experiment_tracking
 from tsqbev.train import fit_nuscenes
 
 
@@ -62,6 +63,17 @@ def _count_nonzero_classes(label_aps: dict[str, Any]) -> int:
     return count
 
 
+def _metric_int(value: object, default: int = 0) -> int:
+    if isinstance(value, bool):
+        return int(value)
+    if isinstance(value, int | float | str):
+        try:
+            return int(value)
+        except ValueError:
+            return default
+    return default
+
+
 def run_nuscenes_overfit_gate(
     dataroot: str | Path,
     artifact_dir: str | Path,
@@ -86,122 +98,198 @@ def run_nuscenes_overfit_gate(
     root = Path(dataroot)
     artifact_root = Path(artifact_dir) / "overfit_gate"
     artifact_root.mkdir(parents=True, exist_ok=True)
-    subset_tokens = select_nuscenes_subset_tokens(
-        root,
-        version=version,
-        split=split,
-        subset_size=subset_size,
-        scene_name=scene_name,
-    )
-    (artifact_root / "subset_tokens.json").write_text(json.dumps(subset_tokens, indent=2))
-
-    train_result = fit_nuscenes(
-        dataroot=root,
+    tracker = start_experiment_tracking(
         artifact_dir=artifact_root,
         config=config,
-        version=version,
-        train_split=split,
-        val_split=split,
-        train_sample_tokens=subset_tokens,
-        val_sample_tokens=subset_tokens,
-        epochs=epochs,
-        max_train_steps=max_train_steps,
-        lr=lr,
-        weight_decay=weight_decay,
-        grad_accum_steps=grad_accum_steps,
-        batch_size=batch_size,
-        num_workers=num_workers,
-        device=device,
-        teacher_provider_config=teacher_provider_config,
-        use_amp=False,
-        log_every_steps=25,
-    )
-    checkpoint_path = Path(str(train_result["checkpoint_path"]))
-    model, _ = load_model_from_checkpoint(checkpoint_path)
-    prediction_path = artifact_root / "predictions_subset.json"
-    export_nuscenes_predictions(
-        model=model,
-        dataroot=root,
-        version=version,
-        split=split,
-        output_path=prediction_path,
-        score_threshold=0.05,
-        top_k=300,
-        device=device,
-        sample_tokens=subset_tokens,
-        teacher_provider_config=teacher_provider_config,
-    )
-    evaluation = evaluate_nuscenes_predictions(
-        dataroot=root,
-        version=version,
-        split=split,
-        result_path=prediction_path,
-        output_dir=artifact_root / "eval",
-        sample_tokens=subset_tokens,
-    )
-    benchmark = benchmark_forward(
-        config,
-        steps=10,
-        warmup=3,
-        batch_size=1,
-        device=device,
-        image_height=256,
-        image_width=704,
-    )
-
-    history = train_result["history"]
-    assert isinstance(history, list) and history
-    first_history = cast(dict[str, Any], history[0])
-    first_train = cast(dict[str, Any], first_history["train"])
-    last_train = cast(dict[str, Any], train_result["last_train"])
-    last_val = cast(dict[str, Any], train_result["last_val"])
-    initial_train_total = float(first_train["total"])
-    final_train_total = float(last_train["total"])
-    train_ratio = (
-        final_train_total / initial_train_total
-        if initial_train_total > 0.0
-        else float("inf")
-    )
-
-    label_aps = evaluation.get("label_aps", {})
-    assert isinstance(label_aps, dict)
-    car_distance_aps = label_aps.get("car", {})
-    if not isinstance(car_distance_aps, dict):
-        car_distance_aps = {}
-    car_ap_4m = float(cast(float, car_distance_aps.get("4.0", 0.0)))
-    nds = float(cast(float, evaluation.get("nd_score", 0.0)))
-    mean_ap = float(cast(float, evaluation.get("mean_ap", 0.0)))
-
-    verdict = {
-        "passed": (
-            train_ratio <= 0.4
-            and nds >= 0.10
-            and mean_ap > 0.0
-            and car_ap_4m > 0.0
+        metadata=TrackingMetadata(
+            suite="gate",
+            dataset="nuscenes",
+            job_type="overfit-nuscenes",
+            run_name=f"overfit-{config.image_backbone}",
+            group=f"overfit-{version}",
+            tags=(
+                "overfit-gate",
+                version,
+                split,
+                config.image_backbone,
+                config.teacher_seed_mode,
+            ),
+            extra_config={
+                "split": split,
+                "subset_size": subset_size,
+                "scene_name": scene_name,
+                "teacher_provider": (
+                    teacher_provider_config.kind
+                    if teacher_provider_config is not None
+                    else None
+                ),
+            },
         ),
-        "train_total_ratio": train_ratio,
-        "official_nds": nds,
-        "official_map": mean_ap,
-        "nonzero_classes": _count_nonzero_classes(label_aps),
-        "car_ap_4m": car_ap_4m,
-    }
-    summary = {
-        "status": "completed",
-        "subset_size": subset_size,
-        "scene_name": scene_name,
-        "subset_tokens_path": str(artifact_root / "subset_tokens.json"),
-        "checkpoint_path": str(checkpoint_path),
-        "prediction_path": str(prediction_path),
-        "train": {
-            "epochs": train_result["epochs"],
-            "train_steps": train_result["train_steps"],
-            "initial_train_total": initial_train_total,
-            "final_train_total": final_train_total,
-            "final_val_total": float(last_val["total"]),
+        config_payload={
+            "model": config.model_dump(),
+            "train": {
+                "epochs": epochs,
+                "max_train_steps": max_train_steps,
+                "lr": lr,
+                "weight_decay": weight_decay,
+                "grad_accum_steps": grad_accum_steps,
+                "batch_size": batch_size,
+                "num_workers": num_workers,
+            },
         },
-        "evaluation": evaluation,
-        "benchmark": benchmark,
-        "gate_verdict": verdict,
-    }
-    (artifact_root / "summary.json").write_text(json.dumps(summary, indent=2, default=str))
-    return summary
+    )
+    status = "failed"
+    try:
+        subset_tokens = select_nuscenes_subset_tokens(
+            root,
+            version=version,
+            split=split,
+            subset_size=subset_size,
+            scene_name=scene_name,
+        )
+        (artifact_root / "subset_tokens.json").write_text(json.dumps(subset_tokens, indent=2))
+
+        train_result = fit_nuscenes(
+            dataroot=root,
+            artifact_dir=artifact_root,
+            config=config,
+            version=version,
+            train_split=split,
+            val_split=split,
+            train_sample_tokens=subset_tokens,
+            val_sample_tokens=subset_tokens,
+            epochs=epochs,
+            max_train_steps=max_train_steps,
+            lr=lr,
+            weight_decay=weight_decay,
+            grad_accum_steps=grad_accum_steps,
+            batch_size=batch_size,
+            num_workers=num_workers,
+            device=device,
+            teacher_provider_config=teacher_provider_config,
+            use_amp=False,
+            log_every_steps=25,
+            tracker=tracker,
+        )
+        checkpoint_path = Path(str(train_result["checkpoint_path"]))
+        model, _ = load_model_from_checkpoint(checkpoint_path)
+        prediction_path = artifact_root / "predictions_subset.json"
+        export_nuscenes_predictions(
+            model=model,
+            dataroot=root,
+            version=version,
+            split=split,
+            output_path=prediction_path,
+            score_threshold=0.05,
+            top_k=300,
+            device=device,
+            sample_tokens=subset_tokens,
+            teacher_provider_config=teacher_provider_config,
+        )
+        evaluation = evaluate_nuscenes_predictions(
+            dataroot=root,
+            version=version,
+            split=split,
+            result_path=prediction_path,
+            output_dir=artifact_root / "eval",
+            sample_tokens=subset_tokens,
+        )
+        benchmark = benchmark_forward(
+            config,
+            steps=10,
+            warmup=3,
+            batch_size=1,
+            device=device,
+            image_height=256,
+            image_width=704,
+        )
+
+        history = train_result["history"]
+        assert isinstance(history, list) and history
+        first_history = cast(dict[str, Any], history[0])
+        first_train = cast(dict[str, Any], first_history["train"])
+        last_train = cast(dict[str, Any], train_result["last_train"])
+        last_val = cast(dict[str, Any], train_result["last_val"])
+        initial_train_total = float(first_train["total"])
+        final_train_total = float(last_train["total"])
+        train_ratio = (
+            final_train_total / initial_train_total
+            if initial_train_total > 0.0
+            else float("inf")
+        )
+
+        label_aps = evaluation.get("label_aps", {})
+        assert isinstance(label_aps, dict)
+        car_distance_aps = label_aps.get("car", {})
+        if not isinstance(car_distance_aps, dict):
+            car_distance_aps = {}
+        car_ap_4m = float(cast(float, car_distance_aps.get("4.0", 0.0)))
+        nds = float(cast(float, evaluation.get("nd_score", 0.0)))
+        mean_ap = float(cast(float, evaluation.get("mean_ap", 0.0)))
+
+        verdict = {
+            "passed": (
+                train_ratio <= 0.4
+                and nds >= 0.10
+                and mean_ap > 0.0
+                and car_ap_4m > 0.0
+            ),
+            "train_total_ratio": train_ratio,
+            "official_nds": nds,
+            "official_map": mean_ap,
+            "nonzero_classes": _count_nonzero_classes(label_aps),
+            "car_ap_4m": car_ap_4m,
+        }
+        summary = {
+            "status": "completed",
+            "subset_size": subset_size,
+            "scene_name": scene_name,
+            "subset_tokens_path": str(artifact_root / "subset_tokens.json"),
+            "checkpoint_path": str(checkpoint_path),
+            "prediction_path": str(prediction_path),
+            "train": {
+                "epochs": train_result["epochs"],
+                "train_steps": train_result["train_steps"],
+                "initial_train_total": initial_train_total,
+                "final_train_total": final_train_total,
+                "final_val_total": float(last_val["total"]),
+            },
+            "evaluation": evaluation,
+            "benchmark": benchmark,
+            "gate_verdict": verdict,
+        }
+        (artifact_root / "summary.json").write_text(json.dumps(summary, indent=2, default=str))
+        epochs_run = _metric_int(train_result.get("epochs", 0))
+        tracker.log(
+            {
+                "epoch": epochs_run,
+                "gate_train_total_ratio": train_ratio,
+                "gate_official_nds": nds,
+                "gate_official_map": mean_ap,
+                "gate_car_ap_4m": car_ap_4m,
+                "gate_nonzero_classes": verdict["nonzero_classes"],
+                "benchmark_mean_ms": float(benchmark["mean_ms"]),
+                "benchmark_p95_ms": float(benchmark["p95_ms"]),
+            },
+            step=epochs_run,
+        )
+        tracker.summary(
+            {
+                "subset_size": subset_size,
+                "scene_name": scene_name,
+                "subset_tokens_path": str(artifact_root / "subset_tokens.json"),
+                "checkpoint_path": str(checkpoint_path),
+                "prediction_path": str(prediction_path),
+                "gate_passed": verdict["passed"],
+                "gate_train_total_ratio": train_ratio,
+                "gate_official_nds": nds,
+                "gate_official_map": mean_ap,
+                "gate_car_ap_4m": car_ap_4m,
+                "benchmark_mean_ms": float(benchmark["mean_ms"]),
+                "benchmark_p95_ms": float(benchmark["p95_ms"]),
+            }
+        )
+        status = "completed"
+        return summary
+    finally:
+        tracker.finish(status=status)

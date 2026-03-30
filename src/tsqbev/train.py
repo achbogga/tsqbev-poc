@@ -28,6 +28,7 @@ from tsqbev.model import TSQBEVModel
 from tsqbev.runtime import move_batch, resolve_device
 from tsqbev.teacher_backends import TeacherProviderConfig, build_teacher_provider
 from tsqbev.teacher_dataset import TeacherAugmentedDataset
+from tsqbev.tracking import ExperimentTracker, TrackingMetadata, start_experiment_tracking
 
 
 def _format_metrics(metrics: dict[str, float]) -> str:
@@ -65,6 +66,14 @@ def maybe_attach_teacher_targets(
         return dataset
     provider = build_teacher_provider(teacher_provider_config)
     return TeacherAugmentedDataset(dataset, provider)
+
+
+def _prefixed_metrics(prefix: str, metrics: dict[str, float]) -> dict[str, float]:
+    return {f"{prefix}_{name}": value for name, value in metrics.items()}
+
+
+def _default_tracking_group(artifact_dir: Path, dataset: str) -> str:
+    return f"{dataset}-{artifact_dir.parent.name}"
 
 
 def resolve_nuscenes_splits(
@@ -225,172 +234,263 @@ def fit_nuscenes(
     teacher_provider_config: TeacherProviderConfig | None = None,
     use_amp: bool = False,
     log_every_steps: int | None = 100,
+    tracker: ExperimentTracker | None = None,
+    tracking_metadata: TrackingMetadata | None = None,
 ) -> dict[str, object]:
     """Fit the public object-detection baseline on nuScenes train/val."""
 
+    artifact_root = Path(artifact_dir)
     resolved_device = resolve_device(device)
-    if resolved_device.type == "cuda":
-        torch.backends.cuda.matmul.allow_tf32 = True
-        torch.backends.cudnn.allow_tf32 = True
-        torch.backends.cudnn.benchmark = True
-    amp_enabled = bool(use_amp) and resolved_device.type == "cuda"
-    model_config = config if config is not None else ModelConfig()
-    resolved_train_split, resolved_val_split = resolve_nuscenes_splits(
-        version=version,
-        train_split=train_split,
-        val_split=val_split,
-    )
-    print(
-        f"[setup] loading nuScenes train split={resolved_train_split} from {dataroot}",
-        flush=True,
-    )
-    start_time = time.perf_counter()
-    train_dataset = _subset_if_requested(
-        NuScenesDataset(
-            dataroot=dataroot,
+    owns_tracker = tracker is None
+    active_tracker = tracker
+    status = "failed"
+    try:
+        if resolved_device.type == "cuda":
+            torch.backends.cuda.matmul.allow_tf32 = True
+            torch.backends.cudnn.allow_tf32 = True
+            torch.backends.cudnn.benchmark = True
+        amp_enabled = bool(use_amp) and resolved_device.type == "cuda"
+        model_config = config if config is not None else ModelConfig()
+        resolved_train_split, resolved_val_split = resolve_nuscenes_splits(
             version=version,
-            split=resolved_train_split,
-            sample_tokens=train_sample_tokens,
-        ),
-        max_train_samples,
-    )
-    train_dataset = maybe_attach_teacher_targets(train_dataset, teacher_provider_config)
-    print(
-        f"[setup] loaded train split in {time.perf_counter() - start_time:.2f}s",
-        flush=True,
-    )
-    print(
-        f"[setup] loading nuScenes val split={resolved_val_split} from {dataroot}",
-        flush=True,
-    )
-    start_time = time.perf_counter()
-    val_dataset = _subset_if_requested(
-        NuScenesDataset(
-            dataroot=dataroot,
-            version=version,
-            split=resolved_val_split,
-            sample_tokens=val_sample_tokens,
-        ),
-        max_val_samples,
-    )
-    val_dataset = maybe_attach_teacher_targets(val_dataset, teacher_provider_config)
-    print(
-        f"[setup] loaded val split in {time.perf_counter() - start_time:.2f}s",
-        flush=True,
-    )
-    train_loader = _make_loader(
-        train_dataset,
-        shuffle=True,
-        num_workers=num_workers,
-        batch_size=batch_size,
-    )
-    val_loader = _make_loader(
-        val_dataset,
-        shuffle=False,
-        num_workers=num_workers,
-        batch_size=batch_size,
-    )
-
-    print(
-        f"[setup] building model backbone={model_config.image_backbone} "
-        f"pretrained_backbone={model_config.pretrained_image_backbone} "
-        f"freeze_backbone={model_config.freeze_image_backbone} "
-        f"teacher_seed_mode={model_config.teacher_seed_mode} "
-        f"teacher_provider="
-        f"{teacher_provider_config.kind if teacher_provider_config is not None else 'none'}",
-        flush=True,
-    )
-    model = TSQBEVModel(model_config).to(resolved_device)
-    criterion = MultitaskCriterion()
-    optimizer = AdamW(model.parameters(), lr=lr, weight_decay=weight_decay)
-    scheduler = CosineAnnealingLR(optimizer, T_max=max(epochs, 1))
-    scaler = torch.amp.GradScaler("cuda", enabled=amp_enabled)
-
-    history: list[dict[str, object]] = []
-    checkpoint_path = Path(artifact_dir) / "checkpoint_last.pt"
-    train_sample_count = len(cast(Sized, train_dataset))
-    val_sample_count = len(cast(Sized, val_dataset))
-    train_steps_completed = 0
-    epochs_run = 0
-    for epoch in range(1, epochs + 1):
-        epoch_max_steps = None
-        if max_train_steps is not None:
-            remaining_steps = max_train_steps - train_steps_completed
-            if remaining_steps <= 0:
-                break
-            epoch_max_steps = min(len(train_loader), remaining_steps)
+            train_split=train_split,
+            val_split=val_split,
+        )
         print(
-            f"[train] epoch={epoch}/{epochs} device={resolved_device.type} "
-            f"train_samples={train_sample_count} val_samples={val_sample_count} "
-            f"batch_size={batch_size} grad_accum_steps={grad_accum_steps} "
-            f"max_train_steps={max_train_steps} "
-            f"backbone={model_config.image_backbone} "
+            f"[setup] loading nuScenes train split={resolved_train_split} from {dataroot}",
+            flush=True,
+        )
+        start_time = time.perf_counter()
+        train_dataset = _subset_if_requested(
+            NuScenesDataset(
+                dataroot=dataroot,
+                version=version,
+                split=resolved_train_split,
+                sample_tokens=train_sample_tokens,
+            ),
+            max_train_samples,
+        )
+        train_dataset = maybe_attach_teacher_targets(train_dataset, teacher_provider_config)
+        print(
+            f"[setup] loaded train split in {time.perf_counter() - start_time:.2f}s",
+            flush=True,
+        )
+        print(
+            f"[setup] loading nuScenes val split={resolved_val_split} from {dataroot}",
+            flush=True,
+        )
+        start_time = time.perf_counter()
+        val_dataset = _subset_if_requested(
+            NuScenesDataset(
+                dataroot=dataroot,
+                version=version,
+                split=resolved_val_split,
+                sample_tokens=val_sample_tokens,
+            ),
+            max_val_samples,
+        )
+        val_dataset = maybe_attach_teacher_targets(val_dataset, teacher_provider_config)
+        print(
+            f"[setup] loaded val split in {time.perf_counter() - start_time:.2f}s",
+            flush=True,
+        )
+        train_loader = _make_loader(
+            train_dataset,
+            shuffle=True,
+            num_workers=num_workers,
+            batch_size=batch_size,
+        )
+        val_loader = _make_loader(
+            val_dataset,
+            shuffle=False,
+            num_workers=num_workers,
+            batch_size=batch_size,
+        )
+
+        train_sample_count = len(cast(Sized, train_dataset))
+        val_sample_count = len(cast(Sized, val_dataset))
+        if active_tracker is None:
+            metadata = tracking_metadata or TrackingMetadata(
+                suite="train",
+                dataset="nuscenes",
+                job_type="train-nuscenes",
+                run_name=artifact_root.name,
+                group=_default_tracking_group(artifact_root, "nuscenes"),
+                tags=(
+                    version,
+                    resolved_train_split,
+                    resolved_val_split,
+                    model_config.image_backbone,
+                    model_config.teacher_seed_mode,
+                ),
+                extra_config={
+                    "train_split": resolved_train_split,
+                    "val_split": resolved_val_split,
+                    "train_samples": train_sample_count,
+                    "val_samples": val_sample_count,
+                    "teacher_provider": (
+                        teacher_provider_config.kind
+                        if teacher_provider_config is not None
+                        else None
+                    ),
+                },
+            )
+            active_tracker = start_experiment_tracking(
+                artifact_dir=artifact_root,
+                config=model_config,
+                metadata=metadata,
+                config_payload={
+                    "model": model_config.model_dump(),
+                    "train": {
+                        "epochs": epochs,
+                        "lr": lr,
+                        "weight_decay": weight_decay,
+                        "grad_accum_steps": grad_accum_steps,
+                        "batch_size": batch_size,
+                        "num_workers": num_workers,
+                        "max_train_steps": max_train_steps,
+                        "max_train_samples": max_train_samples,
+                        "max_val_samples": max_val_samples,
+                    },
+                },
+            )
+
+        print(
+            f"[setup] building model backbone={model_config.image_backbone} "
             f"pretrained_backbone={model_config.pretrained_image_backbone} "
-            f"freeze_backbone={model_config.freeze_image_backbone}",
+            f"freeze_backbone={model_config.freeze_image_backbone} "
+            f"teacher_seed_mode={model_config.teacher_seed_mode} "
+            f"teacher_provider="
+            f"{teacher_provider_config.kind if teacher_provider_config is not None else 'none'}",
             flush=True,
         )
-        train_metrics = _train_epoch(
-            model=model,
-            loader=train_loader,
-            criterion=criterion,
-            optimizer=optimizer,
-            grad_accum_steps=grad_accum_steps,
-            device=resolved_device,
-            amp_enabled=amp_enabled,
-            scaler=scaler,
-            epoch=epoch,
-            log_every_steps=log_every_steps,
-            max_steps=epoch_max_steps,
-        )
-        val_metrics = _eval_epoch(
-            model=model,
-            loader=val_loader,
-            criterion=criterion,
-            device=resolved_device,
-            amp_enabled=amp_enabled,
-            epoch=epoch,
-        )
-        scheduler.step()
-        history.append({"epoch": epoch, "train": train_metrics, "val": val_metrics})
-        _write_history(Path(artifact_dir), history)
-        save_model_checkpoint(
-            model,
-            model_config,
-            checkpoint_path,
-            epoch=epoch,
-            history=history,
-        )
-        print(
-            f"[epoch] completed epoch={epoch} train=({_format_metrics(train_metrics)}) "
-            f"val=({_format_metrics(val_metrics)})",
-            flush=True,
-        )
-        epochs_run = epoch
-        train_steps_completed += len(train_loader) if epoch_max_steps is None else epoch_max_steps
-        if max_train_steps is not None and train_steps_completed >= max_train_steps:
-            break
+        model = TSQBEVModel(model_config).to(resolved_device)
+        criterion = MultitaskCriterion()
+        optimizer = AdamW(model.parameters(), lr=lr, weight_decay=weight_decay)
+        scheduler = CosineAnnealingLR(optimizer, T_max=max(epochs, 1))
+        scaler = torch.amp.GradScaler("cuda", enabled=amp_enabled)
 
-    return {
-        "device": resolved_device.type,
-        "amp_enabled": amp_enabled,
-        "epochs": epochs_run,
-        "max_train_steps": max_train_steps,
-        "train_steps": train_steps_completed,
-        "version": version,
-        "train_split": resolved_train_split,
-        "val_split": resolved_val_split,
-        "artifact_dir": str(artifact_dir),
-        "checkpoint_path": str(checkpoint_path),
-        "teacher_seed_mode": model_config.teacher_seed_mode,
-        "train_samples": train_sample_count,
-        "val_samples": val_sample_count,
-        "last_train": history[-1]["train"],
-        "last_val": history[-1]["val"],
-        "teacher_provider": (
-            teacher_provider_config.kind if teacher_provider_config is not None else None
-        ),
-        "history": history,
-    }
+        history: list[dict[str, object]] = []
+        checkpoint_path = artifact_root / "checkpoint_last.pt"
+        train_steps_completed = 0
+        epochs_run = 0
+        for epoch in range(1, epochs + 1):
+            epoch_max_steps = None
+            if max_train_steps is not None:
+                remaining_steps = max_train_steps - train_steps_completed
+                if remaining_steps <= 0:
+                    break
+                epoch_max_steps = min(len(train_loader), remaining_steps)
+            print(
+                f"[train] epoch={epoch}/{epochs} device={resolved_device.type} "
+                f"train_samples={train_sample_count} val_samples={val_sample_count} "
+                f"batch_size={batch_size} grad_accum_steps={grad_accum_steps} "
+                f"max_train_steps={max_train_steps} "
+                f"backbone={model_config.image_backbone} "
+                f"pretrained_backbone={model_config.pretrained_image_backbone} "
+                f"freeze_backbone={model_config.freeze_image_backbone}",
+                flush=True,
+            )
+            train_metrics = _train_epoch(
+                model=model,
+                loader=train_loader,
+                criterion=criterion,
+                optimizer=optimizer,
+                grad_accum_steps=grad_accum_steps,
+                device=resolved_device,
+                amp_enabled=amp_enabled,
+                scaler=scaler,
+                epoch=epoch,
+                log_every_steps=log_every_steps,
+                max_steps=epoch_max_steps,
+            )
+            val_metrics = _eval_epoch(
+                model=model,
+                loader=val_loader,
+                criterion=criterion,
+                device=resolved_device,
+                amp_enabled=amp_enabled,
+                epoch=epoch,
+            )
+            scheduler.step()
+            history.append({"epoch": epoch, "train": train_metrics, "val": val_metrics})
+            _write_history(artifact_root, history)
+            save_model_checkpoint(
+                model,
+                model_config,
+                checkpoint_path,
+                epoch=epoch,
+                history=history,
+            )
+            if active_tracker is not None:
+                active_tracker.log(
+                    {
+                        "epoch": epoch,
+                        **_prefixed_metrics("train", train_metrics),
+                        **_prefixed_metrics("val", val_metrics),
+                        "learning_rate": scheduler.get_last_lr()[0],
+                        "train_steps_completed": train_steps_completed
+                        + (len(train_loader) if epoch_max_steps is None else epoch_max_steps),
+                    },
+                    step=epoch,
+                )
+            print(
+                f"[epoch] completed epoch={epoch} train=({_format_metrics(train_metrics)}) "
+                f"val=({_format_metrics(val_metrics)})",
+                flush=True,
+            )
+            epochs_run = epoch
+            train_steps_completed += (
+                len(train_loader) if epoch_max_steps is None else epoch_max_steps
+            )
+            if max_train_steps is not None and train_steps_completed >= max_train_steps:
+                break
+
+        result = {
+            "device": resolved_device.type,
+            "amp_enabled": amp_enabled,
+            "epochs": epochs_run,
+            "max_train_steps": max_train_steps,
+            "train_steps": train_steps_completed,
+            "version": version,
+            "train_split": resolved_train_split,
+            "val_split": resolved_val_split,
+            "artifact_dir": str(artifact_root),
+            "checkpoint_path": str(checkpoint_path),
+            "teacher_seed_mode": model_config.teacher_seed_mode,
+            "train_samples": train_sample_count,
+            "val_samples": val_sample_count,
+            "last_train": history[-1]["train"],
+            "last_val": history[-1]["val"],
+            "teacher_provider": (
+                teacher_provider_config.kind if teacher_provider_config is not None else None
+            ),
+            "history": history,
+        }
+        if active_tracker is not None:
+            active_tracker.summary(
+                {
+                    "artifact_dir": str(artifact_root),
+                    "checkpoint_path": str(checkpoint_path),
+                    "epochs": epochs_run,
+                    "train_steps": train_steps_completed,
+                    "train_samples": train_sample_count,
+                    "val_samples": val_sample_count,
+                    **_prefixed_metrics(
+                        "final_train",
+                        cast(dict[str, float], history[-1]["train"]),
+                    ),
+                    **_prefixed_metrics(
+                        "final_val",
+                        cast(dict[str, float], history[-1]["val"]),
+                    ),
+                }
+            )
+        status = "completed"
+        return result
+    finally:
+        if owns_tracker and active_tracker is not None:
+            active_tracker.finish(status=status)
 
 
 def fit_openlane(
@@ -411,125 +511,200 @@ def fit_openlane(
     max_val_samples: int | None = None,
     use_amp: bool = False,
     log_every_steps: int | None = 100,
+    tracker: ExperimentTracker | None = None,
+    tracking_metadata: TrackingMetadata | None = None,
 ) -> dict[str, object]:
     """Fit the public lane baseline on OpenLane V1."""
 
+    artifact_root = Path(artifact_dir)
     resolved_device = resolve_device(device)
-    if resolved_device.type == "cuda":
-        torch.backends.cuda.matmul.allow_tf32 = True
-        torch.backends.cudnn.allow_tf32 = True
-        torch.backends.cudnn.benchmark = True
-    amp_enabled = bool(use_amp) and resolved_device.type == "cuda"
-    model_config = config if config is not None else ModelConfig(views=1)
-    print(f"[setup] loading OpenLane train split={train_split} from {dataroot}", flush=True)
-    start_time = time.perf_counter()
-    train_dataset = _subset_if_requested(
-        OpenLaneDataset(
-            dataroot=dataroot,
-            split=train_split,
-            subset=subset,
-            lane_points=model_config.lane_points,
-        ),
-        max_train_samples,
-    )
-    print(
-        f"[setup] loaded train split in {time.perf_counter() - start_time:.2f}s",
-        flush=True,
-    )
-    print(f"[setup] loading OpenLane val split={val_split} from {dataroot}", flush=True)
-    start_time = time.perf_counter()
-    val_dataset = _subset_if_requested(
-        OpenLaneDataset(
-            dataroot=dataroot,
-            split=val_split,
-            subset=subset,
-            lane_points=model_config.lane_points,
-        ),
-        max_val_samples,
-    )
-    print(
-        f"[setup] loaded val split in {time.perf_counter() - start_time:.2f}s",
-        flush=True,
-    )
-    train_loader = _make_loader(
-        train_dataset,
-        shuffle=True,
-        num_workers=num_workers,
-        batch_size=batch_size,
-    )
-    val_loader = _make_loader(
-        val_dataset,
-        shuffle=False,
-        num_workers=num_workers,
-        batch_size=batch_size,
-    )
-
-    print(
-        f"[setup] building model backbone={model_config.image_backbone} "
-        f"pretrained_backbone={model_config.pretrained_image_backbone} "
-        f"freeze_backbone={model_config.freeze_image_backbone}",
-        flush=True,
-    )
-    model = TSQBEVModel(model_config).to(resolved_device)
-    criterion = MultitaskCriterion()
-    optimizer = AdamW(model.parameters(), lr=lr, weight_decay=weight_decay)
-    scheduler = CosineAnnealingLR(optimizer, T_max=max(epochs, 1))
-    scaler = torch.amp.GradScaler("cuda", enabled=amp_enabled)
-
-    history: list[dict[str, object]] = []
-    checkpoint_path = Path(artifact_dir) / "checkpoint_last.pt"
-    train_sample_count = len(cast(Sized, train_dataset))
-    val_sample_count = len(cast(Sized, val_dataset))
-    for epoch in range(1, epochs + 1):
-        print(
-            f"[train] epoch={epoch}/{epochs} device={resolved_device.type} "
-            f"train_samples={train_sample_count} val_samples={val_sample_count}",
-            flush=True,
-        )
-        train_metrics = _train_epoch(
-            model=model,
-            loader=train_loader,
-            criterion=criterion,
-            optimizer=optimizer,
-            grad_accum_steps=grad_accum_steps,
-            device=resolved_device,
-            amp_enabled=amp_enabled,
-            scaler=scaler,
-            epoch=epoch,
-            log_every_steps=log_every_steps,
-        )
-        val_metrics = _eval_epoch(
-            model=model,
-            loader=val_loader,
-            criterion=criterion,
-            device=resolved_device,
-            amp_enabled=amp_enabled,
-            epoch=epoch,
-        )
-        scheduler.step()
-        history.append({"epoch": epoch, "train": train_metrics, "val": val_metrics})
-        _write_history(Path(artifact_dir), history)
-        save_model_checkpoint(
-            model,
-            model_config,
-            checkpoint_path,
-            epoch=epoch,
-            history=history,
+    owns_tracker = tracker is None
+    active_tracker = tracker
+    status = "failed"
+    try:
+        if resolved_device.type == "cuda":
+            torch.backends.cuda.matmul.allow_tf32 = True
+            torch.backends.cudnn.allow_tf32 = True
+            torch.backends.cudnn.benchmark = True
+        amp_enabled = bool(use_amp) and resolved_device.type == "cuda"
+        model_config = config if config is not None else ModelConfig(views=1)
+        print(f"[setup] loading OpenLane train split={train_split} from {dataroot}", flush=True)
+        start_time = time.perf_counter()
+        train_dataset = _subset_if_requested(
+            OpenLaneDataset(
+                dataroot=dataroot,
+                split=train_split,
+                subset=subset,
+                lane_points=model_config.lane_points,
+            ),
+            max_train_samples,
         )
         print(
-            f"[epoch] completed epoch={epoch} train=({_format_metrics(train_metrics)}) "
-            f"val=({_format_metrics(val_metrics)})",
+            f"[setup] loaded train split in {time.perf_counter() - start_time:.2f}s",
             flush=True,
         )
+        print(f"[setup] loading OpenLane val split={val_split} from {dataroot}", flush=True)
+        start_time = time.perf_counter()
+        val_dataset = _subset_if_requested(
+            OpenLaneDataset(
+                dataroot=dataroot,
+                split=val_split,
+                subset=subset,
+                lane_points=model_config.lane_points,
+            ),
+            max_val_samples,
+        )
+        print(
+            f"[setup] loaded val split in {time.perf_counter() - start_time:.2f}s",
+            flush=True,
+        )
+        train_loader = _make_loader(
+            train_dataset,
+            shuffle=True,
+            num_workers=num_workers,
+            batch_size=batch_size,
+        )
+        val_loader = _make_loader(
+            val_dataset,
+            shuffle=False,
+            num_workers=num_workers,
+            batch_size=batch_size,
+        )
 
-    return {
-        "device": resolved_device.type,
-        "amp_enabled": amp_enabled,
-        "epochs": epochs,
-        "artifact_dir": str(artifact_dir),
-        "checkpoint_path": str(checkpoint_path),
-        "train_samples": train_sample_count,
-        "val_samples": val_sample_count,
-        "last_train": history[-1]["train"],
-        "last_val": history[-1]["val"],
-    }
+        train_sample_count = len(cast(Sized, train_dataset))
+        val_sample_count = len(cast(Sized, val_dataset))
+        if active_tracker is None:
+            metadata = tracking_metadata or TrackingMetadata(
+                suite="train",
+                dataset="openlane",
+                job_type="train-openlane",
+                run_name=artifact_root.name,
+                group=_default_tracking_group(artifact_root, "openlane"),
+                tags=(subset, train_split, val_split, model_config.image_backbone),
+                extra_config={
+                    "train_split": train_split,
+                    "val_split": val_split,
+                    "subset": subset,
+                    "train_samples": train_sample_count,
+                    "val_samples": val_sample_count,
+                },
+            )
+            active_tracker = start_experiment_tracking(
+                artifact_dir=artifact_root,
+                config=model_config,
+                metadata=metadata,
+                config_payload={
+                    "model": model_config.model_dump(),
+                    "train": {
+                        "epochs": epochs,
+                        "lr": lr,
+                        "weight_decay": weight_decay,
+                        "grad_accum_steps": grad_accum_steps,
+                        "batch_size": batch_size,
+                        "num_workers": num_workers,
+                        "max_train_samples": max_train_samples,
+                        "max_val_samples": max_val_samples,
+                    },
+                },
+            )
+
+        print(
+            f"[setup] building model backbone={model_config.image_backbone} "
+            f"pretrained_backbone={model_config.pretrained_image_backbone} "
+            f"freeze_backbone={model_config.freeze_image_backbone}",
+            flush=True,
+        )
+        model = TSQBEVModel(model_config).to(resolved_device)
+        criterion = MultitaskCriterion()
+        optimizer = AdamW(model.parameters(), lr=lr, weight_decay=weight_decay)
+        scheduler = CosineAnnealingLR(optimizer, T_max=max(epochs, 1))
+        scaler = torch.amp.GradScaler("cuda", enabled=amp_enabled)
+
+        history: list[dict[str, object]] = []
+        checkpoint_path = artifact_root / "checkpoint_last.pt"
+        for epoch in range(1, epochs + 1):
+            print(
+                f"[train] epoch={epoch}/{epochs} device={resolved_device.type} "
+                f"train_samples={train_sample_count} val_samples={val_sample_count}",
+                flush=True,
+            )
+            train_metrics = _train_epoch(
+                model=model,
+                loader=train_loader,
+                criterion=criterion,
+                optimizer=optimizer,
+                grad_accum_steps=grad_accum_steps,
+                device=resolved_device,
+                amp_enabled=amp_enabled,
+                scaler=scaler,
+                epoch=epoch,
+                log_every_steps=log_every_steps,
+            )
+            val_metrics = _eval_epoch(
+                model=model,
+                loader=val_loader,
+                criterion=criterion,
+                device=resolved_device,
+                amp_enabled=amp_enabled,
+                epoch=epoch,
+            )
+            scheduler.step()
+            history.append({"epoch": epoch, "train": train_metrics, "val": val_metrics})
+            _write_history(artifact_root, history)
+            save_model_checkpoint(
+                model,
+                model_config,
+                checkpoint_path,
+                epoch=epoch,
+                history=history,
+            )
+            if active_tracker is not None:
+                active_tracker.log(
+                    {
+                        "epoch": epoch,
+                        **_prefixed_metrics("train", train_metrics),
+                        **_prefixed_metrics("val", val_metrics),
+                        "learning_rate": scheduler.get_last_lr()[0],
+                    },
+                    step=epoch,
+                )
+            print(
+                f"[epoch] completed epoch={epoch} train=({_format_metrics(train_metrics)}) "
+                f"val=({_format_metrics(val_metrics)})",
+                flush=True,
+            )
+
+        result = {
+            "device": resolved_device.type,
+            "amp_enabled": amp_enabled,
+            "epochs": epochs,
+            "artifact_dir": str(artifact_root),
+            "checkpoint_path": str(checkpoint_path),
+            "train_samples": train_sample_count,
+            "val_samples": val_sample_count,
+            "last_train": history[-1]["train"],
+            "last_val": history[-1]["val"],
+        }
+        if active_tracker is not None:
+            active_tracker.summary(
+                {
+                    "artifact_dir": str(artifact_root),
+                    "checkpoint_path": str(checkpoint_path),
+                    "epochs": epochs,
+                    "train_samples": train_sample_count,
+                    "val_samples": val_sample_count,
+                    **_prefixed_metrics(
+                        "final_train",
+                        cast(dict[str, float], history[-1]["train"]),
+                    ),
+                    **_prefixed_metrics(
+                        "final_val",
+                        cast(dict[str, float], history[-1]["val"]),
+                    ),
+                }
+            )
+        status = "completed"
+        return result
+    finally:
+        if owns_tracker and active_tracker is not None:
+            active_tracker.finish(status=status)
