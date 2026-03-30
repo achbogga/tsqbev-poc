@@ -127,6 +127,17 @@ class DetectionSetCriterion(nn.Module):
         self.hard_negative_ratio = hard_negative_ratio
         self.hard_negative_cap = hard_negative_cap
 
+    def set_teacher_anchor_weights(
+        self,
+        *,
+        class_weight: float,
+        objectness_weight: float,
+    ) -> None:
+        """Update the late-stage teacher-anchor auxiliary weights."""
+
+        self.teacher_anchor_class_weight = class_weight
+        self.teacher_anchor_objectness_weight = objectness_weight
+
     def _select_query_mask(
         self,
         class_logits: Tensor,

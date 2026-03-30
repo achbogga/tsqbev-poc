@@ -8,6 +8,7 @@ from tsqbev.teacher_backends import TeacherProviderConfig
 from tsqbev.teacher_cache import TeacherCacheStore
 from tsqbev.train import (
     _make_detection_criterion,
+    _teacher_anchor_schedule_value,
     fit_nuscenes,
     maybe_attach_teacher_targets,
     resolve_nuscenes_splits,
@@ -64,6 +65,46 @@ def test_make_detection_criterion_exposes_teacher_anchor_weights() -> None:
     )
     assert criterion.teacher_anchor_class_weight == 2.0
     assert criterion.teacher_anchor_objectness_weight == 1.5
+
+
+def test_teacher_anchor_schedule_value_stays_constant_without_decay() -> None:
+    assert (
+        _teacher_anchor_schedule_value(
+            epoch=8,
+            initial_weight=0.5,
+            final_weight=0.5,
+            bootstrap_epochs=4,
+            decay_epochs=8,
+        )
+        == 0.5
+    )
+
+
+def test_teacher_anchor_schedule_value_decays_after_bootstrap() -> None:
+    assert _teacher_anchor_schedule_value(
+        epoch=4,
+        initial_weight=0.5,
+        final_weight=0.1,
+        bootstrap_epochs=4,
+        decay_epochs=8,
+    ) == 0.5
+    assert round(
+        _teacher_anchor_schedule_value(
+            epoch=8,
+            initial_weight=0.5,
+            final_weight=0.1,
+            bootstrap_epochs=4,
+            decay_epochs=8,
+        ),
+        6,
+    ) == 0.3
+    assert _teacher_anchor_schedule_value(
+        epoch=12,
+        initial_weight=0.5,
+        final_weight=0.1,
+        bootstrap_epochs=4,
+        decay_epochs=8,
+    ) == 0.1
 
 
 def test_maybe_attach_teacher_targets_wraps_dataset_when_cache_is_configured(

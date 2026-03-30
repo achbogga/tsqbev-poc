@@ -87,6 +87,25 @@ def _make_scheduler(
     return CosineAnnealingLR(optimizer, T_max=max(epochs, 1))
 
 
+def _teacher_anchor_schedule_value(
+    *,
+    epoch: int,
+    initial_weight: float,
+    final_weight: float,
+    bootstrap_epochs: int,
+    decay_epochs: int,
+) -> float:
+    if decay_epochs <= 0 or abs(final_weight - initial_weight) < 1e-8:
+        return initial_weight
+    if epoch <= bootstrap_epochs:
+        return initial_weight
+    decay_step = epoch - bootstrap_epochs
+    if decay_step >= decay_epochs:
+        return final_weight
+    progress = decay_step / float(decay_epochs)
+    return initial_weight + (final_weight - initial_weight) * progress
+
+
 def _make_detection_criterion(
     *,
     loss_mode: Literal["baseline", "focal_hardneg"],
@@ -277,6 +296,10 @@ def fit_nuscenes(
     hard_negative_cap: int = 96,
     teacher_anchor_class_weight: float = 0.5,
     teacher_anchor_objectness_weight: float = 0.5,
+    teacher_anchor_final_class_weight: float | None = None,
+    teacher_anchor_final_objectness_weight: float | None = None,
+    teacher_anchor_bootstrap_epochs: int = 0,
+    teacher_anchor_decay_epochs: int = 0,
     enable_teacher_distillation: bool = True,
     tracker: ExperimentTracker | None = None,
     tracking_metadata: TrackingMetadata | None = None,
@@ -409,6 +432,12 @@ def fit_nuscenes(
                         "hard_negative_cap": hard_negative_cap,
                         "teacher_anchor_class_weight": teacher_anchor_class_weight,
                         "teacher_anchor_objectness_weight": teacher_anchor_objectness_weight,
+                        "teacher_anchor_final_class_weight": teacher_anchor_final_class_weight,
+                        "teacher_anchor_final_objectness_weight": (
+                            teacher_anchor_final_objectness_weight
+                        ),
+                        "teacher_anchor_bootstrap_epochs": teacher_anchor_bootstrap_epochs,
+                        "teacher_anchor_decay_epochs": teacher_anchor_decay_epochs,
                         "enable_teacher_distillation": enable_teacher_distillation,
                     },
                 },
@@ -441,6 +470,16 @@ def fit_nuscenes(
             ),
             enable_distillation=enable_teacher_distillation,
         )
+        final_teacher_anchor_class_weight = (
+            teacher_anchor_class_weight
+            if teacher_anchor_final_class_weight is None
+            else teacher_anchor_final_class_weight
+        )
+        final_teacher_anchor_objectness_weight = (
+            teacher_anchor_objectness_weight
+            if teacher_anchor_final_objectness_weight is None
+            else teacher_anchor_final_objectness_weight
+        )
         optimizer = AdamW(model.parameters(), lr=lr, weight_decay=weight_decay)
         scheduler = _make_scheduler(
             optimizer,
@@ -468,6 +507,24 @@ def fit_nuscenes(
                 if remaining_steps <= 0:
                     break
                 epoch_max_steps = min(len(train_loader), remaining_steps)
+            current_teacher_anchor_class_weight = _teacher_anchor_schedule_value(
+                epoch=epoch,
+                initial_weight=teacher_anchor_class_weight,
+                final_weight=final_teacher_anchor_class_weight,
+                bootstrap_epochs=teacher_anchor_bootstrap_epochs,
+                decay_epochs=teacher_anchor_decay_epochs,
+            )
+            current_teacher_anchor_objectness_weight = _teacher_anchor_schedule_value(
+                epoch=epoch,
+                initial_weight=teacher_anchor_objectness_weight,
+                final_weight=final_teacher_anchor_objectness_weight,
+                bootstrap_epochs=teacher_anchor_bootstrap_epochs,
+                decay_epochs=teacher_anchor_decay_epochs,
+            )
+            criterion.detection.set_teacher_anchor_weights(
+                class_weight=current_teacher_anchor_class_weight,
+                objectness_weight=current_teacher_anchor_objectness_weight,
+            )
             print(
                 f"[train] epoch={epoch}/{epochs} device={resolved_device.type} "
                 f"train_samples={train_sample_count} val_samples={val_sample_count} "
@@ -475,7 +532,9 @@ def fit_nuscenes(
                 f"max_train_steps={max_train_steps} "
                 f"backbone={model_config.image_backbone} "
                 f"pretrained_backbone={model_config.pretrained_image_backbone} "
-                f"freeze_backbone={model_config.freeze_image_backbone}",
+                f"freeze_backbone={model_config.freeze_image_backbone} "
+                f"teacher_anchor_cls_w={current_teacher_anchor_class_weight:.3f} "
+                f"teacher_anchor_obj_w={current_teacher_anchor_objectness_weight:.3f}",
                 flush=True,
             )
             train_metrics = _train_epoch(
@@ -538,6 +597,10 @@ def fit_nuscenes(
                         "best_epoch": best_epoch,
                         "best_val_total": best_val_total,
                         "epochs_without_improvement": epochs_without_improvement,
+                        "teacher_anchor_class_weight": current_teacher_anchor_class_weight,
+                        "teacher_anchor_objectness_weight": (
+                            current_teacher_anchor_objectness_weight
+                        ),
                     },
                     step=epoch,
                 )
@@ -620,6 +683,12 @@ def fit_nuscenes(
                 teacher_provider_config.kind if teacher_provider_config is not None else None
             ),
             "enable_teacher_distillation": enable_teacher_distillation,
+            "teacher_anchor_class_weight": teacher_anchor_class_weight,
+            "teacher_anchor_objectness_weight": teacher_anchor_objectness_weight,
+            "teacher_anchor_final_class_weight": final_teacher_anchor_class_weight,
+            "teacher_anchor_final_objectness_weight": final_teacher_anchor_objectness_weight,
+            "teacher_anchor_bootstrap_epochs": teacher_anchor_bootstrap_epochs,
+            "teacher_anchor_decay_epochs": teacher_anchor_decay_epochs,
             "early_stop_patience": early_stop_patience,
             "early_stop_min_delta": early_stop_min_delta,
             "early_stop_min_epochs": early_stop_min_epochs,
