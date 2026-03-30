@@ -94,9 +94,9 @@ External teacher bootstrap is now verified separately:
 
 | Teacher | Split | External mAP | External NDS | Cache Coverage |
 | --- | --- | ---: | ---: | ---: |
-| OpenPCDet `CenterPoint-PointPillar` | `nuScenes v1.0-mini` `mini_val` | 0.4369 | 0.4997 | `81 / 81` |
+| OpenPCDet `CenterPoint-PointPillar` | `nuScenes v1.0-mini` `mini_val` | 0.4369 | 0.4997 | `323 / 323` train, `81 / 81` val |
 
-That benchmark is documented in
+That benchmark and the audited cache import are documented in
 [docs/benchmarks/openpcdet-centerpoint-mini.md](docs/benchmarks/openpcdet-centerpoint-mini.md).
 
 ## Source Grounding

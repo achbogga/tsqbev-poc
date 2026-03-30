@@ -110,6 +110,7 @@ Verified external teacher bootstrap:
 
 - public teacher: OpenPCDet `CenterPoint-PointPillar`
 - measured external `v1.0-mini` result: `mAP 0.4369`, `NDS 0.4997`
+- measured repo-local cache audit on `mini_train`: `323 / 323` records, `coverage = 1.0`
 - measured repo-local cache audit on `mini_val`: `81 / 81` records, `coverage = 1.0`
 - benchmark details:
   [`docs/benchmarks/openpcdet-centerpoint-mini.md`](openpcdet-centerpoint-mini.md)
@@ -156,6 +157,11 @@ uv run tsqbev audit-teacher-cache-nuscenes \
 The exact external OpenPCDet `CenterPoint-PointPillar` runbook is in
 [`docs/openpcdet-centerpoint-teacher.md`](openpcdet-centerpoint-teacher.md), and the measured
 teacher benchmark is in [`docs/benchmarks/openpcdet-centerpoint-mini.md`](openpcdet-centerpoint-mini.md).
+
+The first paired teacher-on versus teacher-off bounded mini invocation is currently writing to:
+
+- `artifacts/research_teacher_v1/research_loop_teacher_v1.log`
+- `artifacts/research_teacher_v1/research_loop/`
 
 Before trying that path on any machine, run the prerequisite check:
 

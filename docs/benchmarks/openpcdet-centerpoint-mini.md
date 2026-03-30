@@ -82,34 +82,67 @@ uv run tsqbev cache-teacher-nuscenes \
   --dataset-root /home/achbogga/projects/research/nuscenes \
   --version v1.0-mini \
   --result-json /home/achbogga/projects/OpenPCDet_official/output/cfgs/nuscenes_models/cbgs_dyn_pp_centerpoint/default/eval/epoch_no_number/val/mini_teacher_probe/final_result/data/results_nusc.json \
-  --teacher-cache-dir artifacts/teachers/openpcdet_centerpoint_pp_mini \
+  --teacher-cache-dir artifacts/teacher_cache/centerpoint_pointpillar_mini \
   --top-k 300
 ```
 
-Measured cache result:
+Measured cache result for the official `mini_val` teacher output:
 
 - stored records: `81`
 - top-k per sample: `300`
 
 Cache summary:
 
-- [summary.json](/home/achbogga/projects/tsqbev-poc/artifacts/teachers/openpcdet_centerpoint_pp_mini/summary.json)
+- [summary.json](/home/achbogga/projects/tsqbev-poc/artifacts/teacher_cache/centerpoint_pointpillar_mini/summary.json)
+
+## mini_train Export And Import
+
+The stock OpenPCDet `tools/test.py` path always evaluates `v1.0-mini` against `mini_val`, so the
+`mini_train` teacher export was done with an export-only script that overrides
+`INFO_PATH['test'] = ['nuscenes_infos_10sweeps_train.pkl']` and never calls `dataset.evaluation()`.
+
+Measured `mini_train` export result:
+
+- samples exported: `323`
+- average predicted objects per sample: `164.66`
+- result JSON:
+  `/home/achbogga/projects/OpenPCDet_official/output/mini_train_export_true/results_nusc.json`
+
+Imported into the same repo-native teacher cache with:
+
+```bash
+cd /home/achbogga/projects/tsqbev-poc
+uv run tsqbev cache-teacher-nuscenes \
+  --dataset-root /home/achbogga/projects/research/nuscenes \
+  --version v1.0-mini \
+  --result-json /home/achbogga/projects/OpenPCDet_official/output/mini_train_export_true/results_nusc.json \
+  --teacher-cache-dir artifacts/teacher_cache/centerpoint_pointpillar_mini \
+  --top-k 300
+```
 
 ## Coverage Audit
 
-Audit command:
+Audit commands:
 
 ```bash
 cd /home/achbogga/projects/tsqbev-poc
 uv run tsqbev audit-teacher-cache-nuscenes \
   --dataset-root /home/achbogga/projects/research/nuscenes \
   --version v1.0-mini \
-  --teacher-cache-dir artifacts/teachers/openpcdet_centerpoint_pp_mini \
-  --output-dir artifacts/teachers/openpcdet_centerpoint_pp_mini_audit
+  --teacher-cache-dir artifacts/teacher_cache/centerpoint_pointpillar_mini \
+  --output-dir artifacts/teacher_cache_audit_train
+
+uv run tsqbev audit-teacher-cache-nuscenes \
+  --dataset-root /home/achbogga/projects/research/nuscenes \
+  --version v1.0-mini \
+  --split mini_val \
+  --teacher-cache-dir artifacts/teacher_cache/centerpoint_pointpillar_mini \
+  --output-dir artifacts/teacher_cache_audit_val
 ```
 
-Measured audit result on `mini_val`:
+Measured audit results:
 
+- `mini_train`: total `323`, present `323`, missing `0`, coverage `1.0`
 - total samples: `81`
 - present records: `81`
 - missing records: `0`
@@ -117,12 +150,15 @@ Measured audit result on `mini_val`:
 
 Audit summary:
 
-- [summary.json](/home/achbogga/projects/tsqbev-poc/artifacts/teachers/openpcdet_centerpoint_pp_mini_audit/summary.json)
+- [summary.json](/home/achbogga/projects/tsqbev-poc/artifacts/teacher_cache_audit_train/summary.json)
+- [summary.json](/home/achbogga/projects/tsqbev-poc/artifacts/teacher_cache_audit_val/summary.json)
 
 ## Interpretation
 
 - The workstation is no longer blocked for the external OpenPCDet teacher path.
 - The public pretrained teacher is strong enough on `v1.0-mini` to be a credible geometric bootstrap.
-- The repo-native teacher cache contract is now exercised end to end with full `mini_val` coverage.
-- This is not yet a teacher-lift claim for the student. The next required evidence is a paired
-  teacher-on versus teacher-off `tsqbev` run on the same bounded mini protocol.
+- The repo-native teacher cache contract is now exercised end to end with full `mini_train` and
+  `mini_val` coverage.
+- This is still not a teacher-lift claim for the student. The required next evidence is the paired
+  teacher-on versus teacher-off `tsqbev` run now writing to
+  `/home/achbogga/projects/tsqbev-poc/artifacts/research_teacher_v1/`.

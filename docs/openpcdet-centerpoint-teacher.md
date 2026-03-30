@@ -47,6 +47,7 @@ Measured local facts:
 - the OpenPCDet CUDA extensions built successfully against a local official CUDA `12.6` toolkit
 - the official pretrained `CenterPoint-PointPillar` checkpoint ran on `nuScenes v1.0-mini`
 - the resulting standard nuScenes JSON was converted into repo-local teacher-cache records
+- the resulting `mini_train` teacher-cache coverage is `323 / 323 = 1.0`
 - the resulting `mini_val` teacher-cache coverage is `81 / 81 = 1.0`
 
 The external teacher benchmark and cache audit are recorded in
@@ -174,8 +175,8 @@ sample token.
 
 Verified local cache result:
 
-- cache dir: `/home/achbogga/projects/tsqbev-poc/artifacts/teachers/openpcdet_centerpoint_pp_mini`
-- stored records: `81`
+- cache dir: `/home/achbogga/projects/tsqbev-poc/artifacts/teacher_cache/centerpoint_pointpillar_mini`
+- stored records after `mini_train` and `mini_val` import: `404`
 
 ## Audit Coverage Before Any Teacher-Lift Claim
 
@@ -204,11 +205,18 @@ Required discipline for a real teacher-lift experiment:
 - `mini_val` coverage should be at least `95%`
 - the teacher-lift run must be paired against a student-only run on the same mini setup
 
-Verified local `mini_val` audit result:
+Verified local audit results:
 
-- present records: `81`
-- missing records: `0`
-- coverage: `1.0`
+- `mini_train`: present `323`, missing `0`, coverage `1.0`
+- `mini_val`: present `81`, missing `0`, coverage `1.0`
+
+Important split-selection note from the official OpenPCDet code:
+
+- `tools/test.py` always builds the nuScenes dataloader with `training=False`
+- in that mode, `NuScenesDataset` selects `INFO_PATH['test']`, not `DATA_SPLIT['test']`
+- exporting real `mini_train` predictions therefore requires overriding `INFO_PATH['test']` to
+  `['nuscenes_infos_10sweeps_train.pkl']`
+- using `DATA_SPLIT.test=mini_train` alone does not switch the actual samples
 
 ## Train the Student From the Cache
 
@@ -230,3 +238,15 @@ uv run tsqbev train-nuscenes \
 
 This keeps the heavy teacher outside the default repo runtime while still allowing a clean,
 measured teacher-seed ablation inside `tsqbev-poc`.
+
+The first paired teacher-on versus teacher-off bounded mini loop is now running with:
+
+```bash
+cd /home/achbogga/projects/tsqbev-poc
+uv run tsqbev research-loop \
+  --dataset-root /home/achbogga/projects/research/nuscenes \
+  --artifact-dir artifacts/research_teacher_v1 \
+  --teacher-kind cache \
+  --teacher-cache-dir artifacts/teacher_cache/centerpoint_pointpillar_mini \
+  --device cuda
+```

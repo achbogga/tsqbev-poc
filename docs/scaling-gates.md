@@ -36,8 +36,7 @@ The latest measured 32-sample overfit gate also failed:
 - only one completed promoted recipe has clearly escaped the all-zero official-metric regime
 - the current direction has now been tested on the tiny-subset overfit gate and failed it
 - there is not yet a pretrained external LiDAR teacher lift measured against the same mini setup
-- teacher-cache coverage has not yet been audited to the `>= 95%` level on `mini_train` and
-  `mini_val`
+- repeatability of the current best public recipe has not yet been demonstrated
 
 ## What Must Happen First
 
@@ -52,7 +51,7 @@ The repo now has a dedicated artifact path for Gate 2:
 - `artifacts/gates/overfit_gate/summary.json`
 - `docs/benchmarks/nuscenes-overfit-gate.md`
 
-And teacher-cache audits should write:
+The teacher-cache audit prerequisite is now cleared, and the audited summaries are:
 
 - `artifacts/teacher_cache_audit_train/summary.json`
 - `artifacts/teacher_cache_audit_val/summary.json`
