@@ -178,3 +178,57 @@ def test_fit_nuscenes_warm_starts_from_init_checkpoint(
 
     assert result["epochs"] == 1
     assert loaded == [str(init_checkpoint)]
+
+
+def test_fit_nuscenes_early_stops_on_val_plateau(
+    monkeypatch,
+    small_config,
+    tmp_path: Path,
+) -> None:
+    batch = make_synthetic_batch(small_config, batch_size=1, with_teacher=False)
+    example = SceneExample(scene=batch, metadata={"sample_token": "sample-1"})
+
+    def fake_nuscenes_dataset(**kwargs: object) -> _RepeatedDataset:
+        del kwargs
+        return _RepeatedDataset(example, length=2)
+
+    train_calls: list[int] = []
+    val_totals = iter([10.0, 8.0, 8.03, 8.04, 8.05])
+
+    def fake_train_epoch(**kwargs: object) -> dict[str, float]:
+        del kwargs
+        train_calls.append(1)
+        return {"total": 12.0}
+
+    def fake_eval_epoch(**kwargs: object) -> dict[str, float]:
+        del kwargs
+        return {"total": next(val_totals)}
+
+    monkeypatch.setattr("tsqbev.train.NuScenesDataset", fake_nuscenes_dataset)
+    monkeypatch.setattr("tsqbev.train._train_epoch", fake_train_epoch)
+    monkeypatch.setattr("tsqbev.train._eval_epoch", fake_eval_epoch)
+
+    result = fit_nuscenes(
+        dataroot=tmp_path,
+        artifact_dir=tmp_path / "artifacts",
+        config=small_config,
+        version="v1.0-mini",
+        train_split="mini_train",
+        val_split="mini_val",
+        epochs=5,
+        batch_size=1,
+        num_workers=0,
+        device="cpu",
+        log_every_steps=None,
+        keep_best_checkpoint=True,
+        early_stop_patience=2,
+        early_stop_min_delta=0.05,
+        early_stop_min_epochs=2,
+    )
+
+    assert result["epochs"] == 4
+    assert result["selected_epoch"] == 2
+    assert result["best_epoch"] == 2
+    assert result["early_stop_triggered"] is True
+    assert "plateau" in str(result["early_stop_reason"])
+    assert len(train_calls) == 4

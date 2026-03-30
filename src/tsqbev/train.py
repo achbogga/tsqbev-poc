@@ -265,6 +265,9 @@ def fit_nuscenes(
     optimizer_schedule: Literal["cosine", "constant"] = "cosine",
     grad_clip_norm: float | None = 1.0,
     keep_best_checkpoint: bool = False,
+    early_stop_patience: int | None = None,
+    early_stop_min_delta: float = 0.0,
+    early_stop_min_epochs: int = 0,
     loss_mode: Literal["baseline", "focal_hardneg"] = "baseline",
     hard_negative_ratio: int = 3,
     hard_negative_cap: int = 96,
@@ -392,6 +395,9 @@ def fit_nuscenes(
                         "optimizer_schedule": optimizer_schedule,
                         "grad_clip_norm": grad_clip_norm,
                         "keep_best_checkpoint": keep_best_checkpoint,
+                        "early_stop_patience": early_stop_patience,
+                        "early_stop_min_delta": early_stop_min_delta,
+                        "early_stop_min_epochs": early_stop_min_epochs,
                         "loss_mode": loss_mode,
                         "hard_negative_ratio": hard_negative_ratio,
                         "hard_negative_cap": hard_negative_cap,
@@ -440,6 +446,9 @@ def fit_nuscenes(
         best_val_total = float("inf")
         best_train_metrics: dict[str, float] | None = None
         best_val_metrics: dict[str, float] | None = None
+        epochs_without_improvement = 0
+        early_stop_triggered = False
+        early_stop_reason: str | None = None
         train_steps_completed = 0
         epochs_run = 0
         for epoch in range(1, epochs + 1):
@@ -491,11 +500,13 @@ def fit_nuscenes(
                 epoch=epoch,
                 history=history,
             )
-            if float(val_metrics["total"]) <= best_val_total:
-                best_val_total = float(val_metrics["total"])
+            current_val_total = float(val_metrics["total"])
+            if current_val_total < (best_val_total - early_stop_min_delta):
+                best_val_total = current_val_total
                 best_epoch = epoch
                 best_train_metrics = dict(train_metrics)
                 best_val_metrics = dict(val_metrics)
+                epochs_without_improvement = 0
                 save_model_checkpoint(
                     model,
                     model_config,
@@ -503,6 +514,8 @@ def fit_nuscenes(
                     epoch=epoch,
                     history=history,
                 )
+            else:
+                epochs_without_improvement += 1
             if active_tracker is not None:
                 active_tracker.log(
                     {
@@ -514,6 +527,7 @@ def fit_nuscenes(
                         + (len(train_loader) if epoch_max_steps is None else epoch_max_steps),
                         "best_epoch": best_epoch,
                         "best_val_total": best_val_total,
+                        "epochs_without_improvement": epochs_without_improvement,
                     },
                     step=epoch,
                 )
@@ -526,6 +540,20 @@ def fit_nuscenes(
             train_steps_completed += (
                 len(train_loader) if epoch_max_steps is None else epoch_max_steps
             )
+            if (
+                early_stop_patience is not None
+                and epoch >= early_stop_min_epochs
+                and epochs_without_improvement >= early_stop_patience
+            ):
+                early_stop_triggered = True
+                early_stop_reason = (
+                    "plateau: "
+                    f"best_val_total={best_val_total:.4f} at epoch={best_epoch}, "
+                    f"no improvement > {early_stop_min_delta:.4f} for "
+                    f"{epochs_without_improvement} epoch(s)"
+                )
+                print(f"[early-stop] {early_stop_reason}", flush=True)
+                break
             if max_train_steps is not None and train_steps_completed >= max_train_steps:
                 break
 
@@ -582,6 +610,11 @@ def fit_nuscenes(
                 teacher_provider_config.kind if teacher_provider_config is not None else None
             ),
             "enable_teacher_distillation": enable_teacher_distillation,
+            "early_stop_patience": early_stop_patience,
+            "early_stop_min_delta": early_stop_min_delta,
+            "early_stop_min_epochs": early_stop_min_epochs,
+            "early_stop_triggered": early_stop_triggered,
+            "early_stop_reason": early_stop_reason,
             "history": history,
         }
         if active_tracker is not None:

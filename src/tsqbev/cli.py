@@ -239,6 +239,9 @@ def _make_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--hard-negative-ratio", type=int, default=3)
     parser.add_argument("--hard-negative-cap", type=int, default=96)
+    parser.add_argument("--early-stop-patience", type=int, default=None)
+    parser.add_argument("--early-stop-min-delta", type=float, default=None)
+    parser.add_argument("--early-stop-min-epochs", type=int, default=None)
     parser.add_argument("--grad-accum-steps", type=int, default=8)
     parser.add_argument("--batch-size", type=int, default=1)
     parser.add_argument("--num-workers", type=int, default=4)
@@ -326,6 +329,13 @@ def main() -> None:
                 ),
                 grad_clip_norm=1.0 if args.grad_clip_norm is None else args.grad_clip_norm,
                 keep_best_checkpoint=args.keep_best_checkpoint,
+                early_stop_patience=args.early_stop_patience,
+                early_stop_min_delta=(
+                    args.early_stop_min_delta if args.early_stop_min_delta is not None else 0.0
+                ),
+                early_stop_min_epochs=(
+                    args.early_stop_min_epochs if args.early_stop_min_epochs is not None else 0
+                ),
                 loss_mode=args.loss_mode,
                 hard_negative_ratio=args.hard_negative_ratio,
                 hard_negative_cap=args.hard_negative_cap,
@@ -392,6 +402,15 @@ def main() -> None:
                 ),
                 grad_clip_norm=5.0 if args.grad_clip_norm is None else args.grad_clip_norm,
                 keep_best_checkpoint=args.keep_best_checkpoint,
+                early_stop_patience=(
+                    args.early_stop_patience if args.early_stop_patience is not None else 8
+                ),
+                early_stop_min_delta=(
+                    args.early_stop_min_delta if args.early_stop_min_delta is not None else 0.02
+                ),
+                early_stop_min_epochs=(
+                    args.early_stop_min_epochs if args.early_stop_min_epochs is not None else 16
+                ),
                 loss_mode=args.loss_mode,
                 hard_negative_ratio=args.hard_negative_ratio,
                 hard_negative_cap=args.hard_negative_cap,

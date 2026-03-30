@@ -136,6 +136,9 @@ def run_nuscenes_overfit_gate(
     optimizer_schedule: Literal["cosine", "constant"] = "constant",
     grad_clip_norm: float | None = 5.0,
     keep_best_checkpoint: bool = True,
+    early_stop_patience: int | None = 8,
+    early_stop_min_delta: float = 0.02,
+    early_stop_min_epochs: int = 16,
     loss_mode: Literal["baseline", "focal_hardneg"] = "baseline",
     hard_negative_ratio: int = 3,
     hard_negative_cap: int = 96,
@@ -188,6 +191,9 @@ def run_nuscenes_overfit_gate(
                 "optimizer_schedule": optimizer_schedule,
                 "grad_clip_norm": grad_clip_norm,
                 "keep_best_checkpoint": keep_best_checkpoint,
+                "early_stop_patience": early_stop_patience,
+                "early_stop_min_delta": early_stop_min_delta,
+                "early_stop_min_epochs": early_stop_min_epochs,
                 "loss_mode": loss_mode,
                 "hard_negative_ratio": hard_negative_ratio,
                 "hard_negative_cap": hard_negative_cap,
@@ -231,6 +237,9 @@ def run_nuscenes_overfit_gate(
             optimizer_schedule=optimizer_schedule,
             grad_clip_norm=grad_clip_norm,
             keep_best_checkpoint=keep_best_checkpoint,
+            early_stop_patience=early_stop_patience,
+            early_stop_min_delta=early_stop_min_delta,
+            early_stop_min_epochs=early_stop_min_epochs,
             loss_mode=loss_mode,
             hard_negative_ratio=hard_negative_ratio,
             hard_negative_cap=hard_negative_cap,
@@ -351,6 +360,13 @@ def run_nuscenes_overfit_gate(
                 boxes_per_sample_mean=boxes_per_sample_mean,
                 boxes_per_sample_p95=boxes_per_sample_p95,
             ),
+            "early_stop": {
+                "triggered": bool(train_result.get("early_stop_triggered", False)),
+                "reason": train_result.get("early_stop_reason"),
+                "patience": early_stop_patience,
+                "min_delta": early_stop_min_delta,
+                "min_epochs": early_stop_min_epochs,
+            },
         }
         (artifact_root / "summary.json").write_text(json.dumps(summary, indent=2, default=str))
         epochs_run = _metric_int(train_result.get("epochs", 0))
