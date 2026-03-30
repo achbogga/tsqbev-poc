@@ -90,6 +90,15 @@ The current scale-up answer is still "not yet": the first measured 32-sample ove
 with `train_ratio=0.5079`, same-subset `NDS=0.0003752`, and same-subset `mAP=0.0007504`. See
 [docs/scaling-gates.md](docs/scaling-gates.md).
 
+External teacher bootstrap is now verified separately:
+
+| Teacher | Split | External mAP | External NDS | Cache Coverage |
+| --- | --- | ---: | ---: | ---: |
+| OpenPCDet `CenterPoint-PointPillar` | `nuScenes v1.0-mini` `mini_val` | 0.4369 | 0.4997 | `81 / 81` |
+
+That benchmark is documented in
+[docs/benchmarks/openpcdet-centerpoint-mini.md](docs/benchmarks/openpcdet-centerpoint-mini.md).
+
 ## Source Grounding
 
 Primary references include:
@@ -115,6 +124,7 @@ The full source map is in [docs/reference-matrix.md](docs/reference-matrix.md).
 - [Architecture](docs/architecture.md)
 - [RTX 5000 latency benchmark](docs/benchmarks/rtx5000.md)
 - [nuScenes mini baseline](docs/benchmarks/nuscenes-mini.md)
+- [OpenPCDet teacher bootstrap benchmark](docs/benchmarks/openpcdet-centerpoint-mini.md)
 - [nuScenes overfit gate](docs/benchmarks/nuscenes-overfit-gate.md)
 - [Scaling gates](docs/scaling-gates.md)
 - [Teacher bootstrap](docs/teacher-bootstrap.md)

@@ -34,10 +34,10 @@ It is a focused open-source POC for public datasets and deployable research arti
   into repo-local teacher-cache records.
 - The repo now has an explicit teacher-cache audit path for `mini_train` / `mini_val` coverage
   before any teacher-lift claim is allowed.
-- The exact OpenPCDet teacher runbook is documented, but the current workstation still lacks a
-  CUDA toolkit (`CUDA_HOME=None`, no `nvcc`), so the official OpenPCDet build remains blocked
-  locally until that machine-level dependency is installed or the teacher cache is generated
-  elsewhere.
+- The external OpenPCDet teacher path is now verified locally on this workstation:
+  CUDA extensions build, the official pretrained `CenterPoint-PointPillar` checkpoint runs on
+  `v1.0-mini`, and the resulting teacher cache covers `81 / 81` `mini_val` samples.
+- A paired teacher-on versus teacher-off bounded mini loop is now in progress against that cache.
 - The bounded mini loop now mirrors the strongest transferable `autoresearch` mechanics more closely:
   incumbent-first execution, bounded exploration then exploitation, append-only `results.jsonl` and
   `results.tsv`, per-run `manifest.json`, a fixed comparable `max_train_steps=960` budget per
@@ -69,6 +69,9 @@ It is a focused open-source POC for public datasets and deployable research arti
 - Added per-run manifests, a human-readable TSV ledger, and explicit scale-gate verdict emission.
 - Added an exact OpenPCDet `CenterPoint-PointPillar` teacher runbook, grounded in the official
   config and export paths, without adding heavy runtime dependencies to the core repo.
+- Verified the external OpenPCDet `CenterPoint-PointPillar` teacher end to end on
+  `nuScenes v1.0-mini`.
+- Verified repo-local teacher-cache conversion and full `mini_val` coverage auditing.
 
 ## Evidence Basis
 

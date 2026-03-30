@@ -129,7 +129,8 @@ The reasons are straightforward:
 - best official `mini_val` `NDS` is still only `0.0158`
 - best official `mini_val` `mAP` is still only `1.1140e-04`
 - the model has not yet cleared a deliberate tiny-subset overfit gate
-- a pretrained external LiDAR teacher has not yet produced a measured lift artifact
+- the external LiDAR teacher bootstrap is now verified, but a paired student teacher-lift artifact
+  is still missing
 
 The formal go/no-go rules are in [docs/scaling-gates.md](../scaling-gates.md) and
 [specs/005-scale-gate-contract.md](../../specs/005-scale-gate-contract.md).

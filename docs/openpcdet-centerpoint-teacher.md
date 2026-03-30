@@ -40,13 +40,20 @@ Do not add OpenPCDet, `spconv`, or other heavy sparse-3D dependencies to the def
 
 ## Current Local Status
 
-This runbook is documented precisely, but it has not yet been executed end to end on the current
-workstation. The blocking local fact is that the machine currently has no CUDA toolkit on `PATH`
-and PyTorch reports `CUDA_HOME=None`, while the official OpenPCDet `setup.py` builds multiple
-`CUDAExtension` modules. Until a CUDA toolkit is installed or the teacher is generated on another
-machine, this remains a prepared external-teacher path rather than a completed local measurement.
+This runbook has now been executed end to end on the current workstation.
 
-You can reproduce that readiness check from inside `tsqbev-poc`:
+Measured local facts:
+
+- the OpenPCDet CUDA extensions built successfully against a local official CUDA `12.6` toolkit
+- the official pretrained `CenterPoint-PointPillar` checkpoint ran on `nuScenes v1.0-mini`
+- the resulting standard nuScenes JSON was converted into repo-local teacher-cache records
+- the resulting `mini_val` teacher-cache coverage is `81 / 81 = 1.0`
+
+The external teacher benchmark and cache audit are recorded in
+[`docs/benchmarks/openpcdet-centerpoint-mini.md`](benchmarks/openpcdet-centerpoint-mini.md).
+
+The repo-local readiness check still exists and remains useful before trying this path on a new
+machine:
 
 ```bash
 uv run tsqbev check-openpcdet-env \
@@ -99,14 +106,23 @@ This writes the standard OpenPCDet info files under `data/nuscenes/v1.0-mini/`, 
 The official test entrypoint is `tools/test.py`. For the chosen teacher:
 
 ```bash
-cd /path/to/OpenPCDet/tools
-python test.py \
-  --cfg_file cfgs/nuscenes_models/cbgs_dyn_pp_centerpoint.yaml \
+cd /path/to/OpenPCDet
+. .venv/bin/activate
+export PYTHONPATH=$PWD/compat:$PWD:$PYTHONPATH
+export CUDA_HOME=$PWD/.cuda-12.6/usr/local/cuda-12.6
+export PATH=$CUDA_HOME/bin:$PATH
+export LD_LIBRARY_PATH=$CUDA_HOME/lib64:$CUDA_HOME/targets/x86_64-linux/lib:$LD_LIBRARY_PATH
+
+python tools/test.py \
+  --cfg_file tools/cfgs/nuscenes_models/cbgs_dyn_pp_centerpoint.yaml \
   --ckpt /path/to/centerpoint_pointpillar_checkpoint.pth \
-  --batch_size 4 \
+  --batch_size 1 \
   --workers 4 \
   --save_to_file \
-  --set DATA_CONFIG.VERSION v1.0-mini
+  --eval_tag mini_teacher_probe \
+  --set \
+    DATA_CONFIG.VERSION v1.0-mini \
+    DATA_CONFIG.DATA_PATH /path/to/OpenPCDet/data/nuscenes
 ```
 
 Notes grounded in the official code:
@@ -118,6 +134,11 @@ Notes grounded in the official code:
 - the default `cfgs/dataset_configs/nuscenes_dataset.yaml` still labels the test split as `val`,
   so the output directory name is usually still `val` even when `DATA_CONFIG.VERSION` is
   `v1.0-mini`
+- with the current latest Python package stack, a small NumPy compatibility shim is required for
+  legacy aliases such as `np.int`; on this workstation that shim lives at
+  `/home/achbogga/projects/OpenPCDet_official/compat/sitecustomize.py`
+- when launching from the repo root, `DATA_CONFIG.DATA_PATH` should be set explicitly to the repo's
+  `data/nuscenes` path so the loader does not resolve `../data/nuscenes` against the wrong cwd
 - `results_nusc.json` is written by the evaluation path itself; `--save_to_file` is still useful
   because it also preserves the per-sample prediction dumps under `final_result/data/`
 
@@ -126,6 +147,14 @@ Expected result path pattern:
 ```text
 OpenPCDet/output/nuscenes_models/cbgs_dyn_pp_centerpoint/default/eval/epoch_<id>/val/default/final_result/data/results_nusc.json
 ```
+
+Verified local result on March 30, 2026:
+
+- `mAP = 0.4369`
+- `NDS = 0.4997`
+- `Generate label finished(sec_per_example: 0.1027 second)`
+- artifact root:
+  `/home/achbogga/projects/OpenPCDet_official/output/cfgs/nuscenes_models/cbgs_dyn_pp_centerpoint/default/eval/epoch_no_number/val/mini_teacher_probe`
 
 ## Convert the Teacher Output Into tsqbev Cache Records
 
@@ -142,6 +171,11 @@ uv run tsqbev cache-teacher-nuscenes \
 
 This converts the standard nuScenes detection JSON into `TeacherCacheStore` records keyed by
 sample token.
+
+Verified local cache result:
+
+- cache dir: `/home/achbogga/projects/tsqbev-poc/artifacts/teachers/openpcdet_centerpoint_pp_mini`
+- stored records: `81`
 
 ## Audit Coverage Before Any Teacher-Lift Claim
 
@@ -169,6 +203,12 @@ Required discipline for a real teacher-lift experiment:
 - `mini_train` coverage should be at least `95%`
 - `mini_val` coverage should be at least `95%`
 - the teacher-lift run must be paired against a student-only run on the same mini setup
+
+Verified local `mini_val` audit result:
+
+- present records: `81`
+- missing records: `0`
+- coverage: `1.0`
 
 ## Train the Student From the Cache
 

@@ -183,19 +183,22 @@ The strengthened sweep produced the current best official \texttt{mini\_val} res
 
 The next gate was then measured directly on a fixed 32-sample subset of \texttt{mini\_train}. That overfit protocol failed: the final train-loss ratio was only reduced to \texttt{0.5079} relative to the initial train loss, same-subset official \texttt{NDS} reached only \texttt{0.0003752}, and same-subset \texttt{mAP} reached only \texttt{0.0007504}. This is important negative evidence: even after the routing fix and exploit-stage improvement, the current student is still not fitting the tiny public subset strongly enough to justify larger-scale spend.
 
+The external teacher bootstrap, however, is now verified. Using the official OpenPCDet \texttt{CenterPoint-PointPillar} nuScenes checkpoint and the standard OpenPCDet evaluation path on \texttt{v1.0-mini}, the external LiDAR teacher reached \texttt{mAP 0.4369} and \texttt{NDS 0.4997} on \texttt{mini\_val}. The resulting standard nuScenes result JSON was converted into repo-native teacher-cache records with full \texttt{mini\_val} coverage (\(81/81\) samples). This does not yet prove teacher lift for the student, but it materially lowers the risk of the next paired ablation because the teacher path itself is now measured rather than hypothetical.
+
 \section{Limitations}
 These results should be read carefully.
 \begin{itemize}
 \item They are \textbf{synthetic fixed-shape latency measurements}, not dataset accuracy results.
 \item The TensorRT numbers apply only to the current \textbf{exportable core}, not the full end-to-end multimodal pipeline.
 \item The \texttt{nuScenes} accuracy results are on the tiny \texttt{v1.0-mini} split only and should be interpreted as a functional public baseline, not as a claim of competitive accuracy.
-\item The current best official \texttt{mini\_val} result still has extremely weak detection quality (\texttt{mAP} \(\approx 1.1 \times 10^{-4}\), \texttt{NDS} \(\approx 0.0158\)), so the repo now explicitly blocks 10x compute scale-up until stronger gates are cleared.
+\item The current best official student \texttt{mini\_val} result still has extremely weak detection quality (\texttt{mAP} \(\approx 1.1 \times 10^{-4}\), \texttt{NDS} \(\approx 0.0158\)), so the repo now explicitly blocks 10x compute scale-up until stronger gates are cleared.
+\item Although the external OpenPCDet teacher bootstrap is now verified on \texttt{v1.0-mini}, the paired student teacher-lift experiment is still pending, so the teacher path should be read as an enabled next gate rather than a claimed student improvement.
 \item Local generated design summaries are treated as internal synthesis only and are not cited directly; this note cites the underlying primary papers, official documentation, and our own public repo artifact instead.
 \item These RTX 5000 numbers should \textbf{not} be reinterpreted as Orin numbers.
 \end{itemize}
 
 \section{Conclusion}
-The current \texttt{tsqbev-poc} repository now satisfies a stronger milestone than the original pre-research target: it has a minimal multimodal sparse-query architecture, a tested export path, a successful TensorRT engine build, a bounded local research loop on \texttt{nuScenes v1.0-mini}, and a promoted exploit-stage recipe with nonzero official \texttt{NDS} and \texttt{mAP} under a stabilized multimodal routing regime. The next engineering step is not blind scale. It is to clear the tiny-subset overfit gate and bootstrap the student with a public pretrained external LiDAR teacher, with CenterPoint/OpenPCDet-style models as the first target~\cite{centerpoint,opencpdet}, and require a material official-metric lift before larger-scale training is authorized.
+The current \texttt{tsqbev-poc} repository now satisfies a stronger milestone than the original pre-research target: it has a minimal multimodal sparse-query architecture, a tested export path, a successful TensorRT engine build, a bounded local research loop on \texttt{nuScenes v1.0-mini}, a promoted exploit-stage student recipe with nonzero official \texttt{NDS} and \texttt{mAP}, and a verified public external LiDAR teacher bootstrap through OpenPCDet CenterPoint-PointPillar~\cite{centerpoint,opencpdet}. The next engineering step is still not blind scale. It is to clear the tiny-subset overfit gate and require a material paired teacher-lift for the student before larger-scale training is authorized.
 
 \begin{thebibliography}{10}
 

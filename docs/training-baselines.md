@@ -106,6 +106,14 @@ uv run tsqbev cache-teacher-nuscenes \
 This converts a standard nuScenes detection result JSON from an external detector into the local
 `TeacherCacheStore` format expected by the repo.
 
+Verified external teacher bootstrap:
+
+- public teacher: OpenPCDet `CenterPoint-PointPillar`
+- measured external `v1.0-mini` result: `mAP 0.4369`, `NDS 0.4997`
+- measured repo-local cache audit on `mini_val`: `81 / 81` records, `coverage = 1.0`
+- benchmark details:
+  [`docs/benchmarks/openpcdet-centerpoint-mini.md`](openpcdet-centerpoint-mini.md)
+
 Then train from the cache:
 
 ```bash
@@ -146,7 +154,8 @@ uv run tsqbev audit-teacher-cache-nuscenes \
 ```
 
 The exact external OpenPCDet `CenterPoint-PointPillar` runbook is in
-[`docs/openpcdet-centerpoint-teacher.md`](openpcdet-centerpoint-teacher.md).
+[`docs/openpcdet-centerpoint-teacher.md`](openpcdet-centerpoint-teacher.md), and the measured
+teacher benchmark is in [`docs/benchmarks/openpcdet-centerpoint-mini.md`](openpcdet-centerpoint-mini.md).
 
 Before trying that path on any machine, run the prerequisite check:
 
@@ -310,7 +319,8 @@ Current answer on scale:
 - do **not** scale by 10x compute yet
 - current best completed official `mini_val` result is `NDS = 0.0158068933`, `mAP = 1.1140e-04`
 - no passing overfit-gate artifact is recorded yet
-- no measured teacher-lift artifact is recorded yet
+- the external teacher bootstrap is now verified, but no paired student teacher-lift artifact is
+  recorded yet
 - see [docs/scaling-gates.md](scaling-gates.md) for the required promotion thresholds
 
 Artifact locations for the strengthened loop:
