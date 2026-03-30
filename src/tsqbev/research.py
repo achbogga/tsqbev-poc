@@ -348,16 +348,18 @@ def _make_query_boost_recipe(
 
 
 def _make_teacher_seed_recipe(recipe: ResearchRecipe) -> ResearchRecipe:
-    config = _updated_config(recipe.config, teacher_seed_mode="replace_lidar")
+    config = _updated_config(recipe.config, teacher_seed_mode="replace_lidar_refs")
     return _clone_recipe(
         recipe,
-        name=f"{recipe.name}_teacher_seed",
-        note="replace raw LiDAR seeds with cached external teacher seeds",
+        name=f"{recipe.name}_teacher_ref_seed",
+        note="replace LiDAR reference centers with cached external teacher centers",
         hypothesis=(
-            "a strong external LiDAR teacher should improve geometric grounding faster "
-            "than further student-only tuning"
+            "a strong external LiDAR teacher should improve geometric grounding without "
+            "discarding the student's learned LiDAR query embeddings"
         ),
-        mutation_reason="turn on cached external teacher seed replacement for a paired ablation",
+        mutation_reason=(
+            "inject teacher geometry into the LiDAR reference path as a paired ablation"
+        ),
         config=config,
         stage="exploit",
     )
@@ -426,6 +428,23 @@ def _serialize_recipe(recipe: ResearchRecipe) -> dict[str, Any]:
         "score_threshold": recipe.score_threshold,
         "top_k": recipe.top_k,
     }
+
+
+def _warm_start_checkpoint_for_recipe(
+    recipe: ResearchRecipe,
+    incumbent_recipe: ResearchRecipe | None,
+    incumbent_record: dict[str, Any] | None,
+) -> str | None:
+    if incumbent_recipe is None or incumbent_record is None:
+        return None
+    if recipe.stage != "exploit" or recipe.parent_recipe != incumbent_recipe.name:
+        return None
+    if recipe.config.image_backbone != incumbent_recipe.config.image_backbone:
+        return None
+    if recipe.config.model_dim != incumbent_recipe.config.model_dim:
+        return None
+    checkpoint_path = incumbent_record.get("checkpoint_path")
+    return str(checkpoint_path) if checkpoint_path is not None else None
 
 
 def _write_jsonl(path: Path, rows: list[dict[str, Any]]) -> None:
@@ -1092,6 +1111,11 @@ def run_bounded_research_loop(
                 num_workers=recipe.num_workers,
                 device=device,
                 teacher_provider_config=teacher_provider_config,
+                init_checkpoint=_warm_start_checkpoint_for_recipe(
+                    recipe,
+                    incumbent_recipe,
+                    incumbent_record,
+                ),
                 use_amp=False,
                 log_every_steps=25,
                 tracker=tracker,

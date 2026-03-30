@@ -1,10 +1,51 @@
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 
 from PIL import Image
 
-from tsqbev.datasets import OpenLaneDataset, collate_scene_examples
+from tsqbev.datasets import OpenLaneDataset, SceneExample, collate_scene_examples
+
+
+def _slice_optional_teacher_field(field, index: int):
+    if field is None:
+        return None
+    return field[index : index + 1]
+
+
+def _single_example_from_batch(batch, index: int) -> SceneExample:
+    teacher_targets = None
+    if batch.teacher_targets is not None:
+        teacher_targets = replace(
+            batch.teacher_targets,
+            object_features=_slice_optional_teacher_field(
+                batch.teacher_targets.object_features,
+                index,
+            ),
+            object_boxes=_slice_optional_teacher_field(batch.teacher_targets.object_boxes, index),
+            object_labels=_slice_optional_teacher_field(batch.teacher_targets.object_labels, index),
+            object_scores=_slice_optional_teacher_field(batch.teacher_targets.object_scores, index),
+            lane_features=_slice_optional_teacher_field(batch.teacher_targets.lane_features, index),
+            router_logits=_slice_optional_teacher_field(batch.teacher_targets.router_logits, index),
+            valid_mask=_slice_optional_teacher_field(batch.teacher_targets.valid_mask, index),
+        )
+    example_batch = replace(
+        batch,
+        images=batch.images[index : index + 1],
+        lidar_points=batch.lidar_points[index : index + 1],
+        lidar_mask=batch.lidar_mask[index : index + 1],
+        intrinsics=batch.intrinsics[index : index + 1],
+        extrinsics=batch.extrinsics[index : index + 1],
+        ego_pose=batch.ego_pose[index : index + 1],
+        time_delta_s=batch.time_delta_s[index : index + 1],
+        camera_proposals=None,
+        od_targets=None,
+        lane_targets=None,
+        map_priors=None,
+        teacher_targets=teacher_targets,
+    )
+    return SceneExample(scene=example_batch, metadata={"sample_token": f"sample-{index}"})
 
 
 def test_openlane_dataset_reads_public_layout(tmp_path) -> None:
@@ -92,4 +133,21 @@ def test_collate_scene_examples_pads_and_batches_openlane(tmp_path) -> None:
     assert batch.lane_targets.valid_mask.shape == (2, 2)
     assert batch.lane_targets.valid_mask[0].sum().item() == 0
     assert batch.lane_targets.valid_mask[1].sum().item() == 2
+    assert len(metadata) == 2
+
+
+def test_collate_scene_examples_preserves_teacher_targets(synthetic_batch) -> None:
+    assert synthetic_batch.teacher_targets is not None
+    examples = [
+        _single_example_from_batch(synthetic_batch, 0),
+        _single_example_from_batch(synthetic_batch, 1),
+    ]
+
+    batch, metadata = collate_scene_examples(examples)
+
+    assert batch.teacher_targets is not None
+    assert batch.teacher_targets.object_boxes is not None
+    assert batch.teacher_targets.object_boxes.shape[0] == 2
+    assert batch.teacher_targets.valid_mask is not None
+    assert batch.teacher_targets.valid_mask.shape[0] == 2
     assert len(metadata) == 2

@@ -22,7 +22,7 @@ from PIL import Image
 from torch.utils.data import Dataset
 from torchvision.transforms.functional import pil_to_tensor
 
-from tsqbev.contracts import CameraProposals, LaneTargets, ObjectTargets, SceneBatch
+from tsqbev.contracts import CameraProposals, LaneTargets, ObjectTargets, SceneBatch, TeacherTargets
 from tsqbev.labels import (
     NUSCENES_CAMERA_NAMES,
     NUSCENES_DETECTION_NAME_TO_INDEX,
@@ -149,6 +149,137 @@ def _collate_camera_proposals(examples: list[SceneExample]) -> CameraProposals |
     )
 
 
+def _max_teacher_rows(
+    examples: list[SceneExample],
+    *field_names: str,
+) -> int:
+    max_rows = 0
+    for example in examples:
+        targets = example.scene.teacher_targets
+        if targets is None:
+            continue
+        for field_name in field_names:
+            field = getattr(targets, field_name)
+            if field is not None:
+                max_rows = max(max_rows, int(field.shape[1]))
+    return max_rows
+
+
+def _teacher_field_present(examples: list[SceneExample], field_name: str) -> bool:
+    for example in examples:
+        targets = example.scene.teacher_targets
+        if targets is not None and getattr(targets, field_name) is not None:
+            return True
+    return False
+
+
+def _teacher_feature_dim(examples: list[SceneExample], field_name: str) -> int:
+    for example in examples:
+        targets = example.scene.teacher_targets
+        if targets is None:
+            continue
+        field = getattr(targets, field_name)
+        if field is not None:
+            return int(field.shape[-1])
+    raise ValueError(f"teacher field {field_name} is not present in any example")
+
+
+def _collate_teacher_targets(examples: list[SceneExample]) -> TeacherTargets | None:
+    if all(example.scene.teacher_targets is None for example in examples):
+        return None
+
+    max_object_rows = _max_teacher_rows(
+        examples,
+        "object_features",
+        "object_boxes",
+        "object_labels",
+        "object_scores",
+        "router_logits",
+        "valid_mask",
+    )
+    max_lane_rows = _max_teacher_rows(examples, "lane_features")
+    if max_object_rows == 0 and max_lane_rows == 0:
+        return None
+
+    object_features: list[Tensor] = []
+    object_boxes: list[Tensor] = []
+    object_labels: list[Tensor] = []
+    object_scores: list[Tensor] = []
+    lane_features: list[Tensor] = []
+    router_logits: list[Tensor] = []
+    valid_masks: list[Tensor] = []
+
+    has_object_features = _teacher_field_present(examples, "object_features")
+    has_object_boxes = _teacher_field_present(examples, "object_boxes")
+    has_object_labels = _teacher_field_present(examples, "object_labels")
+    has_object_scores = _teacher_field_present(examples, "object_scores")
+    has_lane_features = _teacher_field_present(examples, "lane_features")
+    has_router_logits = _teacher_field_present(examples, "router_logits")
+    has_valid_mask = _teacher_field_present(examples, "valid_mask")
+
+    object_feature_dim = (
+        _teacher_feature_dim(examples, "object_features") if has_object_features else 0
+    )
+    lane_feature_dim = _teacher_feature_dim(examples, "lane_features") if has_lane_features else 0
+
+    for example in examples:
+        scene = example.scene
+        targets = scene.teacher_targets
+        image_tensor = scene.images
+
+        if has_object_features:
+            if targets is None or targets.object_features is None:
+                object_features.append(
+                    image_tensor.new_zeros(max_object_rows, object_feature_dim)
+                )
+            else:
+                object_features.append(
+                    _pad_rows(targets.object_features.squeeze(0), max_object_rows)
+                )
+        if has_object_boxes:
+            if targets is None or targets.object_boxes is None:
+                object_boxes.append(image_tensor.new_zeros(max_object_rows, 9))
+            else:
+                object_boxes.append(_pad_rows(targets.object_boxes.squeeze(0), max_object_rows))
+        if has_object_labels:
+            if targets is None or targets.object_labels is None:
+                object_labels.append(torch.zeros(max_object_rows, dtype=torch.long))
+            else:
+                object_labels.append(_pad_rows(targets.object_labels.squeeze(0), max_object_rows))
+        if has_object_scores:
+            if targets is None or targets.object_scores is None:
+                object_scores.append(image_tensor.new_zeros(max_object_rows))
+            else:
+                object_scores.append(_pad_rows(targets.object_scores.squeeze(0), max_object_rows))
+        if has_lane_features:
+            if targets is None or targets.lane_features is None:
+                lane_features.append(image_tensor.new_zeros(max_lane_rows, lane_feature_dim))
+            else:
+                lane_features.append(_pad_rows(targets.lane_features.squeeze(0), max_lane_rows))
+        if has_router_logits:
+            if targets is None or targets.router_logits is None:
+                router_logits.append(image_tensor.new_zeros(max_object_rows))
+            else:
+                router_logits.append(_pad_rows(targets.router_logits.squeeze(0), max_object_rows))
+        if has_valid_mask or max_object_rows > 0:
+            if targets is None or targets.valid_mask is None:
+                valid_masks.append(torch.zeros(max_object_rows, dtype=torch.bool))
+            else:
+                valid_masks.append(_pad_rows(targets.valid_mask.squeeze(0), max_object_rows))
+
+    collated = TeacherTargets(
+        object_features=torch.stack(object_features, dim=0) if has_object_features else None,
+        object_boxes=torch.stack(object_boxes, dim=0) if has_object_boxes else None,
+        object_labels=torch.stack(object_labels, dim=0) if has_object_labels else None,
+        object_scores=torch.stack(object_scores, dim=0) if has_object_scores else None,
+        lane_features=torch.stack(lane_features, dim=0) if has_lane_features else None,
+        router_logits=torch.stack(router_logits, dim=0) if has_router_logits else None,
+        valid_mask=torch.stack(valid_masks, dim=0) if valid_masks else None,
+    )
+    collated.validate(len(examples))
+    return collated
+
+
 def collate_scene_examples(examples: list[SceneExample]) -> tuple[SceneBatch, list[dict[str, Any]]]:
     """Collate real dataset examples into a padded batch."""
 
@@ -176,6 +307,7 @@ def collate_scene_examples(examples: list[SceneExample]) -> tuple[SceneBatch, li
         camera_proposals=_collate_camera_proposals(examples),
         od_targets=_collate_object_targets(examples),
         lane_targets=_collate_lane_targets(examples),
+        teacher_targets=_collate_teacher_targets(examples),
     )
     batch.validate()
     return batch, [example.metadata for example in examples]

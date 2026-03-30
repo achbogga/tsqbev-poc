@@ -203,7 +203,7 @@ def _make_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--teacher-seed-mode",
-        choices=("off", "replace_lidar"),
+        choices=("off", "replace_lidar", "replace_lidar_refs"),
         default=None,
     )
     parser.add_argument("--openlane-repo-root", type=Path, default=Path("/tmp/OpenLane"))

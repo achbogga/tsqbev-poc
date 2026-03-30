@@ -113,3 +113,13 @@ def test_model_can_replace_lidar_seeds_with_teacher_targets(synthetic_batch) -> 
     outputs = model(synthetic_batch)
     seed_bank = outputs["seed_bank"]
     assert (seed_bank.source_ids == 0).any()
+
+
+def test_model_can_replace_lidar_refs_with_teacher_targets(synthetic_batch) -> None:
+    assert synthetic_batch.teacher_targets is not None
+    config = ModelConfig.small().model_copy(update={"teacher_seed_mode": "replace_lidar_refs"})
+    model = TSQBEVModel(config)
+    outputs = model(synthetic_batch)
+    seed_bank = outputs["seed_bank"]
+    assert seed_bank.refs_xyz.shape[1] == config.max_object_queries
+    assert (seed_bank.source_ids == 0).any()

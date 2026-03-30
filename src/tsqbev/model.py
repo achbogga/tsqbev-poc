@@ -39,6 +39,7 @@ from tsqbev.contracts import (
     MapPriorBatch,
     QuerySeedBank,
     SceneBatch,
+    TeacherTargets,
     TemporalState,
 )
 from tsqbev.geometry import normalize_grid, project_points
@@ -413,6 +414,39 @@ class TSQBEVModel(nn.Module):
         )
         self.core = TSQBEVCore(config)
 
+    def _replace_lidar_refs_from_teacher(
+        self,
+        lidar_refs: Tensor,
+        lidar_scores: Tensor,
+        teacher_targets: TeacherTargets | None,
+    ) -> tuple[Tensor, Tensor]:
+        if (
+            teacher_targets is None
+            or teacher_targets.object_boxes is None
+            or teacher_targets.object_scores is None
+        ):
+            return lidar_refs, lidar_scores
+
+        refs = lidar_refs.clone()
+        scores = lidar_scores.clone()
+        valid_mask = (
+            teacher_targets.valid_mask
+            if teacher_targets.valid_mask is not None
+            else torch.ones_like(teacher_targets.object_scores, dtype=torch.bool)
+        )
+        for batch_index in range(refs.shape[0]):
+            valid = valid_mask[batch_index]
+            if not bool(valid.any()):
+                continue
+            teacher_boxes = teacher_targets.object_boxes[batch_index][valid]
+            teacher_scores = teacher_targets.object_scores[batch_index][valid]
+            order = torch.argsort(teacher_scores, descending=True)
+            keep = order[: self.config.q_lidar]
+            count = int(keep.numel())
+            refs[batch_index, :count] = teacher_boxes[keep, :3]
+            scores[batch_index, :count] = teacher_scores[keep]
+        return refs, scores
+
     def forward(
         self, batch: SceneBatch, state: TemporalState | None = None
     ) -> dict[str, Tensor | QuerySeedBank | TemporalState]:
@@ -430,6 +464,12 @@ class TSQBEVModel(nn.Module):
             )
         else:
             lidar_queries, lidar_refs, lidar_scores = teacher_seed_bank
+        if self.config.teacher_seed_mode == "replace_lidar_refs":
+            lidar_refs, lidar_scores = self._replace_lidar_refs_from_teacher(
+                lidar_refs,
+                lidar_scores,
+                batch.teacher_targets,
+            )
         return self.core(
             images=batch.images,
             intrinsics=batch.intrinsics,

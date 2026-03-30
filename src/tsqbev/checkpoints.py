@@ -88,3 +88,30 @@ def load_model_from_checkpoint(
             f"missing={missing}, unexpected={unexpected}"
         )
     return model, payload
+
+
+def load_weights_into_model_from_checkpoint(
+    model: TSQBEVModel,
+    checkpoint_path: str | Path,
+    *,
+    map_location: str | torch.device = "cpu",
+) -> list[str]:
+    """Load checkpoint weights into an existing model."""
+
+    payload = load_checkpoint_payload(checkpoint_path, map_location=map_location)
+    state_dict = payload.get("model_state_dict", payload)
+    if not isinstance(state_dict, dict):
+        raise TypeError("checkpoint model_state_dict must be a dict")
+    incompatible = model.load_state_dict(state_dict, strict=False)
+    unexpected = [
+        key for key in incompatible.unexpected_keys if not _allowed_checkpoint_key_mismatch(key)
+    ]
+    missing = [
+        key for key in incompatible.missing_keys if not _allowed_checkpoint_key_mismatch(key)
+    ]
+    if unexpected or missing:
+        raise RuntimeError(
+            "checkpoint state_dict mismatch: "
+            f"missing={missing}, unexpected={unexpected}"
+        )
+    return list(incompatible.missing_keys)

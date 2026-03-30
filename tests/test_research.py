@@ -181,3 +181,52 @@ def test_initial_recipes_can_carry_forward_previous_incumbent(tmp_path: Path) ->
     assert recipes[0].name == "carryover_mini_propheavy_effb0_frozen"
     assert recipes[0].stage == "baseline"
     assert recipes[0].parent_recipe == "mini_propheavy_effb0_frozen"
+
+
+def test_warm_start_checkpoint_for_recipe_only_applies_to_compatible_exploit_recipe() -> None:
+    incumbent_recipe = research.ResearchRecipe(
+        name="incumbent",
+        note="incumbent",
+        hypothesis="incumbent",
+        mutation_reason="incumbent",
+        config=ModelConfig.rtx5000_nuscenes_baseline(),
+        stage="explore",
+    )
+    exploit_recipe = research.ResearchRecipe(
+        name="incumbent_query_boost",
+        note="exploit",
+        hypothesis="exploit",
+        mutation_reason="exploit",
+        config=ModelConfig.rtx5000_nuscenes_baseline().model_copy(update={"q_2d": 112}),
+        stage="exploit",
+        parent_recipe="incumbent",
+    )
+    incompatible_recipe = research.ResearchRecipe(
+        name="incumbent_effb0",
+        note="exploit",
+        hypothesis="exploit",
+        mutation_reason="exploit",
+        config=ModelConfig.rtx5000_nuscenes_baseline().model_copy(
+            update={"image_backbone": "efficientnet_b0"}
+        ),
+        stage="exploit",
+        parent_recipe="incumbent",
+    )
+    incumbent_record = {"checkpoint_path": "/tmp/incumbent.pt"}
+
+    assert (
+        research._warm_start_checkpoint_for_recipe(
+            exploit_recipe,
+            incumbent_recipe,
+            incumbent_record,
+        )
+        == "/tmp/incumbent.pt"
+    )
+    assert (
+        research._warm_start_checkpoint_for_recipe(
+            incompatible_recipe,
+            incumbent_recipe,
+            incumbent_record,
+        )
+        is None
+    )

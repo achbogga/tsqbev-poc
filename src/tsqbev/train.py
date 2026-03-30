@@ -20,7 +20,7 @@ from torch.optim import AdamW
 from torch.optim.lr_scheduler import CosineAnnealingLR
 from torch.utils.data import DataLoader, Dataset, Subset
 
-from tsqbev.checkpoints import save_model_checkpoint
+from tsqbev.checkpoints import load_weights_into_model_from_checkpoint, save_model_checkpoint
 from tsqbev.config import ModelConfig
 from tsqbev.datasets import NuScenesDataset, OpenLaneDataset, collate_scene_examples
 from tsqbev.losses import MultitaskCriterion
@@ -232,6 +232,7 @@ def fit_nuscenes(
     max_val_samples: int | None = None,
     max_train_steps: int | None = None,
     teacher_provider_config: TeacherProviderConfig | None = None,
+    init_checkpoint: str | Path | None = None,
     use_amp: bool = False,
     log_every_steps: int | None = 100,
     tracker: ExperimentTracker | None = None,
@@ -351,6 +352,9 @@ def fit_nuscenes(
                         "max_train_steps": max_train_steps,
                         "max_train_samples": max_train_samples,
                         "max_val_samples": max_val_samples,
+                        "init_checkpoint": (
+                            str(init_checkpoint) if init_checkpoint is not None else None
+                        ),
                     },
                 },
             )
@@ -365,6 +369,13 @@ def fit_nuscenes(
             flush=True,
         )
         model = TSQBEVModel(model_config).to(resolved_device)
+        if init_checkpoint is not None:
+            load_weights_into_model_from_checkpoint(
+                model,
+                init_checkpoint,
+                map_location=resolved_device,
+            )
+            print(f"[setup] warm-started model from {init_checkpoint}", flush=True)
         criterion = MultitaskCriterion()
         optimizer = AdamW(model.parameters(), lr=lr, weight_decay=weight_decay)
         scheduler = CosineAnnealingLR(optimizer, T_max=max(epochs, 1))
