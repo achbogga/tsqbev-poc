@@ -101,6 +101,10 @@ The stock OpenPCDet `tools/test.py` path always evaluates `v1.0-mini` against `m
 `mini_train` teacher export was done with an export-only script that overrides
 `INFO_PATH['test'] = ['nuscenes_infos_10sweeps_train.pkl']` and never calls `dataset.evaluation()`.
 
+The repo now carries that helper script at:
+
+- `/home/achbogga/projects/tsqbev-poc/research/scripts/export_openpcdet_nuscenes_teacher.py`
+
 Measured `mini_train` export result:
 
 - samples exported: `323`

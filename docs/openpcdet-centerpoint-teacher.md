@@ -218,6 +218,13 @@ Important split-selection note from the official OpenPCDet code:
   `['nuscenes_infos_10sweeps_train.pkl']`
 - using `DATA_SPLIT.test=mini_train` alone does not switch the actual samples
 
+To avoid repeating that mistake, the repo now includes a helper script:
+
+- `research/scripts/export_openpcdet_nuscenes_teacher.py`
+
+That helper exports standard `results_nusc.json` files from OpenPCDet without calling the stock
+evaluation path.
+
 ## Train the Student From the Cache
 
 ```bash
