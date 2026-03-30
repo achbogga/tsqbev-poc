@@ -246,6 +246,8 @@ def _make_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--hard-negative-ratio", type=int, default=3)
     parser.add_argument("--hard-negative-cap", type=int, default=96)
+    parser.add_argument("--teacher-anchor-class-weight", type=float, default=0.5)
+    parser.add_argument("--teacher-anchor-objectness-weight", type=float, default=0.5)
     parser.add_argument("--early-stop-patience", type=int, default=None)
     parser.add_argument("--early-stop-min-delta", type=float, default=None)
     parser.add_argument("--early-stop-min-epochs", type=int, default=None)
@@ -346,6 +348,8 @@ def main() -> None:
                 loss_mode=args.loss_mode,
                 hard_negative_ratio=args.hard_negative_ratio,
                 hard_negative_cap=args.hard_negative_cap,
+                teacher_anchor_class_weight=args.teacher_anchor_class_weight,
+                teacher_anchor_objectness_weight=args.teacher_anchor_objectness_weight,
                 enable_teacher_distillation=args.teacher_distillation,
                 grad_accum_steps=args.grad_accum_steps,
                 batch_size=args.batch_size,
@@ -421,6 +425,8 @@ def main() -> None:
                 loss_mode=args.loss_mode,
                 hard_negative_ratio=args.hard_negative_ratio,
                 hard_negative_cap=args.hard_negative_cap,
+                teacher_anchor_class_weight=args.teacher_anchor_class_weight,
+                teacher_anchor_objectness_weight=args.teacher_anchor_objectness_weight,
                 enable_teacher_distillation=args.teacher_distillation,
                 score_threshold_candidates=tuple(
                     args.score_threshold_candidates

@@ -26,9 +26,9 @@ When tracking is enabled, runs are mirrored to Weights & Biases under the entity
 | CI | 🟢 Passing | `ruff`, `mypy`, `pytest` currently pass locally; GitHub Actions badge is wired in |
 | Current mini incumbent | 🟡 Real but weak | `mini_propheavy_mbv3_frozen_query_boost`, `mini_val NDS = 0.01581`, `mAP = 1.11e-04`, `17.19 ms` |
 | Teacher bootstrap | 🟢 Verified | external OpenPCDet `CenterPoint-PointPillar` reached `0.4997 NDS` on `mini_val`; cache coverage is full |
-| Teacher lift into student | 🟡 Partial | corrected 32-sample teacher-anchor overfit control reached `NDS = 0.0484`, `mAP = 0.0150`; the teacher-KD path is still weak and paired `mini_val` lift is still unproven |
-| Recovery branch | 🟡 Code-ready | best-checkpoint evaluation, focal hard negatives, bounded calibration, anchor-first teacher routing, explicit teacher-anchor vs teacher-KD separation, and class-balanced teacher seed selection are implemented and tested |
-| Scale-up readiness | 🔴 Blocked | overfit, repeatability, and mini generalization gates are still failing |
+| Teacher lift into student | 🟡 Strong on overfit, not scale-ready | corrected 32-sample balanced teacher-anchor overfit reached `NDS = 0.1001`, `mAP = 0.1391`, `car AP@4m = 0.5327`, and `7` nonzero classes; paired `mini_val` lift is still unproven |
+| Recovery branch | 🟢 Real lift | best-checkpoint evaluation, anchor-first teacher routing, explicit teacher-anchor vs teacher-KD separation, class-balanced teacher seed selection, and corrected gate extraction now produce the first overfit run above `0.10 NDS` |
+| Scale-up readiness | 🔴 Blocked | the main remaining blocker is optimization: the repaired overfit run still missed the `train_total_ratio <= 0.40` gate at `0.4703` |
 | Tracking | 🟢 Online | W&B smoke run synced under `achbogga-track` |
 
 The current state is straightforward: the public repo is healthy, tested, deploy-checked, and tracked, but the student model is not yet strong enough to justify scaling compute by 10x.
@@ -120,17 +120,17 @@ The current scale-up answer is still "not yet": the repaired 32-sample overfit g
 with `train_ratio=0.5310`, same-subset `NDS=0.0085868`, and same-subset `mAP=0.0005329`. See
 [docs/scaling-gates.md](docs/scaling-gates.md).
 
-The strongest measured overfit rescue so far is the corrected teacher-seeded variant on the same
-32-sample subset: `NDS=0.0401`, `mAP=0.0214`, and `16.92 ms`, but it still failed the gate because
-`car AP @ 4.0m` remained `0.0` and the subset did not overfit enough. The current branch therefore
-pushes ROI into ranking/overproduction fixes first: selected-checkpoint evaluation, focal-style
-hard-negative training, and bounded export calibration.
+The strongest measured overfit rescue so far is the corrected balanced teacher-anchor variant on
+the same 32-sample subset: `NDS=0.1001`, `mAP=0.1391`, `car AP @ 4.0m=0.5327`, `7` nonzero
+classes, and `17.92 ms`. It still did not clear the scale gate because the subset did not overfit
+enough: `train_total_ratio = 0.4703` vs the required `<= 0.40`. The current branch therefore moves
+from “recover car emergence” to the narrower optimization question: how to push the same repaired
+teacher-anchor recipe to actually memorize the fixed subset more completely.
 
-The current first-principles diagnosis is narrower now: the fixed 32-sample subset contains real
-cars, and the teacher cache contains many more car anchors than the student is emitting, but raw
-teacher-score truncation was still overfilling the fixed teacher seed budget with barrier and
-pedestrian anchors. Teacher-anchor runs now default to a class-balanced teacher seed selection
-policy before any further KD complexity is added.
+The current first-principles diagnosis is narrower now: raw teacher-score truncation really was
+starving the student of car anchors, and class-balanced teacher seed selection fixed that enough to
+produce a real multi-class overfit result. The remaining blocker is no longer “all queries collapse
+to one easy class”; it is optimization on the fixed subset.
 
 External teacher bootstrap is now verified separately:
 

@@ -6,7 +6,12 @@ from tsqbev.datasets import SceneExample
 from tsqbev.synthetic import make_synthetic_batch
 from tsqbev.teacher_backends import TeacherProviderConfig
 from tsqbev.teacher_cache import TeacherCacheStore
-from tsqbev.train import fit_nuscenes, maybe_attach_teacher_targets, resolve_nuscenes_splits
+from tsqbev.train import (
+    _make_detection_criterion,
+    fit_nuscenes,
+    maybe_attach_teacher_targets,
+    resolve_nuscenes_splits,
+)
 
 
 class _SingleExampleDataset:
@@ -47,6 +52,18 @@ def test_resolve_nuscenes_splits_preserves_explicit_values() -> None:
         "custom_train",
         "custom_val",
     )
+
+
+def test_make_detection_criterion_exposes_teacher_anchor_weights() -> None:
+    criterion = _make_detection_criterion(
+        loss_mode="baseline",
+        hard_negative_ratio=3,
+        hard_negative_cap=96,
+        teacher_anchor_class_weight=2.0,
+        teacher_anchor_objectness_weight=1.5,
+    )
+    assert criterion.teacher_anchor_class_weight == 2.0
+    assert criterion.teacher_anchor_objectness_weight == 1.5
 
 
 def test_maybe_attach_teacher_targets_wraps_dataset_when_cache_is_configured(

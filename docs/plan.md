@@ -76,10 +76,12 @@ integration cost, uncertainty, and evidence gain before more time or compute is 
 - The repaired overfit-gate artifact still failed, with `train_total_ratio = 0.5310`,
   same-subset `NDS = 0.0085868`, same-subset `mAP = 0.0005329`, `3` nonzero classes, and still no
   nonzero `car AP @ 4.0m`.
-- The strongest measured recovery probe so far is the corrected `replace_lidar` teacher-seed
-  overfit run on the same 32-sample subset, which reached `NDS = 0.0401`, `mAP = 0.0214`, and
-  `16.92 ms`, but still failed the gate because `car AP @ 4.0m = 0.0` and train-loss reduction
-  remained too weak.
+- The strongest measured recovery probe so far is the corrected balanced teacher-anchor overfit
+  run on the same 32-sample subset, which reached `NDS = 0.1001`, `mAP = 0.1391`,
+  `car AP @ 4.0m = 0.5327`, `7` nonzero classes, and `17.92 ms`.
+- That repaired run still failed the scale gate, but now for a much narrower reason:
+  `train_total_ratio = 0.4703` remained above the required `0.40` threshold even though the
+  official metric thresholds and `car AP @ 4.0m` were satisfied.
 - Direct artifact inspection now shows the fixed 32-sample subset contains `308` ground-truth
   cars and the external teacher cache contains many more car anchors than that, but the old raw
   teacher-score top-k truncation was still overfilling the fixed teacher seed budget with barrier
@@ -92,7 +94,8 @@ integration cost, uncertainty, and evidence gain before more time or compute is 
   selected-checkpoint evaluation, focal-style hard-negative detection loss, bounded
   score-threshold / `top_k` calibration, and teacher-seed-first exploitation in the bounded loop.
 - The current teacher-anchor branch now also uses a bounded class-balanced teacher seed-selection
-  policy before further KD complexity is introduced.
+  policy, which materially improved class diversity and unlocked the first overfit run above
+  `0.10 NDS`.
 - The next active diagnostic is the repaired overfit recovery loop on the same fixed 32-sample
   subset, not another unconstrained `mini_val` sweep.
 - OpenLane support still needs version alignment against the OpenLane-V2 getting-started instructions before any lane baseline can be treated as final.

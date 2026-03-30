@@ -92,11 +92,15 @@ def _make_detection_criterion(
     loss_mode: Literal["baseline", "focal_hardneg"],
     hard_negative_ratio: int,
     hard_negative_cap: int,
+    teacher_anchor_class_weight: float,
+    teacher_anchor_objectness_weight: float,
 ) -> DetectionSetCriterion:
     return DetectionSetCriterion(
         loss_mode=loss_mode,
         hard_negative_ratio=hard_negative_ratio,
         hard_negative_cap=hard_negative_cap,
+        teacher_anchor_class_weight=teacher_anchor_class_weight,
+        teacher_anchor_objectness_weight=teacher_anchor_objectness_weight,
     )
 
 
@@ -271,6 +275,8 @@ def fit_nuscenes(
     loss_mode: Literal["baseline", "focal_hardneg"] = "baseline",
     hard_negative_ratio: int = 3,
     hard_negative_cap: int = 96,
+    teacher_anchor_class_weight: float = 0.5,
+    teacher_anchor_objectness_weight: float = 0.5,
     enable_teacher_distillation: bool = True,
     tracker: ExperimentTracker | None = None,
     tracking_metadata: TrackingMetadata | None = None,
@@ -401,6 +407,8 @@ def fit_nuscenes(
                         "loss_mode": loss_mode,
                         "hard_negative_ratio": hard_negative_ratio,
                         "hard_negative_cap": hard_negative_cap,
+                        "teacher_anchor_class_weight": teacher_anchor_class_weight,
+                        "teacher_anchor_objectness_weight": teacher_anchor_objectness_weight,
                         "enable_teacher_distillation": enable_teacher_distillation,
                     },
                 },
@@ -428,6 +436,8 @@ def fit_nuscenes(
                 loss_mode=loss_mode,
                 hard_negative_ratio=hard_negative_ratio,
                 hard_negative_cap=hard_negative_cap,
+                teacher_anchor_class_weight=teacher_anchor_class_weight,
+                teacher_anchor_objectness_weight=teacher_anchor_objectness_weight,
             ),
             enable_distillation=enable_teacher_distillation,
         )

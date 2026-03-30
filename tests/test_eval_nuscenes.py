@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import torch
 
-from tsqbev.eval_nuscenes import _rank_detection_queries
+from tsqbev.eval_nuscenes import _car_ap_4m, _rank_detection_queries
 
 
 def test_objectness_aware_ranking_prefers_high_objectness_queries() -> None:
@@ -25,3 +25,8 @@ def test_objectness_aware_ranking_prefers_high_objectness_queries() -> None:
     assert int(order[1]) == 2
     assert int(order[-1]) == 0
     assert combined_scores[1] > combined_scores[2] > combined_scores[0]
+
+
+def test_car_ap_4m_accepts_numeric_distance_keys() -> None:
+    evaluation = {"label_aps": {"car": {4.0: 0.42}}}
+    assert _car_ap_4m(evaluation) == 0.42

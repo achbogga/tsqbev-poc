@@ -17,6 +17,7 @@ from tsqbev.checkpoints import load_model_from_checkpoint
 from tsqbev.config import ModelConfig
 from tsqbev.datasets import NuScenesDataset
 from tsqbev.eval_nuscenes import (
+    _car_ap_4m,
     export_and_evaluate_nuscenes_grid,
     prediction_geometry_diagnostics,
 )
@@ -142,6 +143,8 @@ def run_nuscenes_overfit_gate(
     loss_mode: Literal["baseline", "focal_hardneg"] = "baseline",
     hard_negative_ratio: int = 3,
     hard_negative_cap: int = 96,
+    teacher_anchor_class_weight: float = 0.5,
+    teacher_anchor_objectness_weight: float = 0.5,
     enable_teacher_distillation: bool = True,
     score_threshold_candidates: tuple[float, ...] = (0.05, 0.15, 0.25),
     top_k_candidates: tuple[int, ...] = (32, 64, 112),
@@ -197,6 +200,8 @@ def run_nuscenes_overfit_gate(
                 "loss_mode": loss_mode,
                 "hard_negative_ratio": hard_negative_ratio,
                 "hard_negative_cap": hard_negative_cap,
+                "teacher_anchor_class_weight": teacher_anchor_class_weight,
+                "teacher_anchor_objectness_weight": teacher_anchor_objectness_weight,
                 "enable_teacher_distillation": enable_teacher_distillation,
                 "score_threshold_candidates": list(score_threshold_candidates),
                 "top_k_candidates": list(top_k_candidates),
@@ -243,6 +248,8 @@ def run_nuscenes_overfit_gate(
             loss_mode=loss_mode,
             hard_negative_ratio=hard_negative_ratio,
             hard_negative_cap=hard_negative_cap,
+            teacher_anchor_class_weight=teacher_anchor_class_weight,
+            teacher_anchor_objectness_weight=teacher_anchor_objectness_weight,
             enable_teacher_distillation=enable_teacher_distillation,
             tracker=tracker,
         )
@@ -290,10 +297,7 @@ def run_nuscenes_overfit_gate(
 
         label_aps = evaluation.get("label_aps", {})
         assert isinstance(label_aps, dict)
-        car_distance_aps = label_aps.get("car", {})
-        if not isinstance(car_distance_aps, dict):
-            car_distance_aps = {}
-        car_ap_4m = float(cast(float, car_distance_aps.get("4.0", 0.0)))
+        car_ap_4m = _car_ap_4m(evaluation)
         nds = float(cast(float, evaluation.get("nd_score", 0.0)))
         mean_ap = float(cast(float, evaluation.get("mean_ap", 0.0)))
         prediction_path = Path(str(selected_calibration["prediction_path"]))

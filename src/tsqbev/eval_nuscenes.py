@@ -39,7 +39,11 @@ def _car_ap_4m(evaluation: dict[str, object]) -> float:
     car_aps = label_aps.get("car", {})
     if not isinstance(car_aps, dict):
         return 0.0
-    value = car_aps.get("4.0", 0.0)
+    value = 0.0
+    for key in ("4.0", 4.0, 4):
+        if key in car_aps:
+            value = car_aps[key]
+            break
     try:
         return float(value)
     except (TypeError, ValueError):
