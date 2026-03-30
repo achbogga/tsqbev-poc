@@ -2,6 +2,12 @@
 
 `tsqbev-poc` is a public proof-of-concept repository for a multimodal temporal sparse-query BEV stack built for open datasets and deployment validation.
 
+[![CI](https://github.com/achbogga/tsqbev-poc/actions/workflows/ci.yml/badge.svg)](https://github.com/achbogga/tsqbev-poc/actions/workflows/ci.yml)
+![Scale Up](https://img.shields.io/badge/scale_up-blocked-d73a49)
+![Teacher Cache](https://img.shields.io/badge/teacher_cache-verified-1f883d)
+![W%26B](https://img.shields.io/badge/W%26B-online-FFBE00)
+![Best mini_val NDS](https://img.shields.io/badge/best_mini__val_NDS-0.0125-f2cc60)
+
 - LiDAR grounds 3D object anchors and geometry
 - cameras provide semantics, sparse refinement, and lane structure
 - map priors are optional
@@ -12,6 +18,19 @@
 
 This repo is intentionally small and evidence-driven. Every substantive module is tied back to an original paper and, where available, an official codebase. Local generated summaries are treated as internal synthesis only. The repo cites the underlying original papers, official codebases, and our own public repo/paper artifacts instead.
 When tracking is enabled, runs are mirrored to Weights & Biases under the entity `achbogga-track`.
+
+## Quick Status
+
+| Track | Status | Evidence |
+| --- | --- | --- |
+| CI | 🟢 Passing | `ruff`, `mypy`, `pytest` currently pass locally; GitHub Actions badge is wired in |
+| Current mini incumbent | 🟡 Real but weak | `mini_propheavy_effb0_frozen`, `mini_val NDS = 0.01247`, `mAP = 4.62e-05`, `21.95 ms` |
+| Teacher bootstrap | 🟢 Verified | external OpenPCDet `CenterPoint-PointPillar` reached `0.4997 NDS` on `mini_val`; cache coverage is full |
+| Teacher lift into student | 🔴 Failed | current `replace_lidar` paired ablation regressed to `NDS = 0.0` |
+| Scale-up readiness | 🔴 Blocked | overfit, repeatability, and mini generalization gates are still failing |
+| Tracking | 🟢 Online | W&B smoke run synced under `achbogga-track` |
+
+The current state is straightforward: the public repo is healthy, tested, deploy-checked, and tracked, but the student model is not yet strong enough to justify scaling compute by 10x.
 
 ## What This Repo Is
 
@@ -73,20 +92,21 @@ RTX 5000 latency, batch size `1`, image size `256x704`:
 
 The latency measurements are summarized in [docs/benchmarks/rtx5000.md](docs/benchmarks/rtx5000.md). The TensorRT result applies to the current exportable core only, not the full end-to-end multimodal pipeline.
 
-Latest completed bounded `nuScenes v1.0-mini` sweep:
+Latest completed teacher-backed bounded `nuScenes v1.0-mini` sweep:
 
 | Run | Stage | Key Setting | Val Total | mAP | NDS | Mean ms | Source Mix | Decision |
 | --- | --- | --- | ---: | ---: | ---: | ---: | --- | --- |
-| Balanced `MobileNetV3-Large` | baseline | frozen, `q_lidar=96`, `q_2d=64` | 22.0419 | 0.0 | 0.0 | 17.4492 | `50/33/17` | discard |
-| Proposal-heavy `MobileNetV3-Large` | explore | frozen, `q_lidar=64`, `q_2d=96` | 23.0423 | `3.1083e-04` | `1.5541e-04` | 17.1797 | `33/50/17` | discard |
-| Proposal-heavy `EfficientNet-B0` | explore | frozen, `q_lidar=64`, `q_2d=96` | 24.1645 | 0.0 | 0.0 | 21.6682 | `33/50/17` | discard |
-| Query-boost `MobileNetV3-Large` | exploit | frozen, `q_lidar=64`, `q_2d=112`, `max_q=112` | 20.1352 | `1.1140e-04` | `0.0158` | 17.1938 | `31/54/15` | promote |
-| Lower-LR `MobileNetV3-Large` | exploit | frozen, lower LR | 24.7614 | 0.0 | 0.0 | 17.1298 | `33/50/17` | discard |
+| Balanced `MobileNetV3-Large` | baseline | frozen, `q_lidar=96`, `q_2d=64` | 21.0663 | `8.7234e-05` | `4.3617e-05` | 17.2304 | `50/33/17` | discard |
+| Proposal-heavy `MobileNetV3-Large` | explore | frozen, `q_lidar=64`, `q_2d=96` | 24.7025 | `2.6575e-04` | `1.3288e-04` | 17.2103 | `33/50/17` | discard |
+| Proposal-heavy `EfficientNet-B0` | explore | frozen, `q_lidar=64`, `q_2d=96` | 19.4404 | `4.6209e-05` | `0.01247` | 21.9496 | `33/50/17` | promote |
+| Teacher-seeded `EfficientNet-B0` | exploit | frozen, `replace_lidar` teacher seeds | 22.9615 | 0.0 | 0.0 | 21.1112 | `33/50/17` | discard |
+| Query-boost `EfficientNet-B0` | exploit | frozen, `q_2d=112`, `max_q=112` | 19.6120 | `5.2059e-05` | `0.01165` | 21.7800 | `31/54/15` | discard |
 
-The loop now selects by official `mini_val` `NDS`, then `mAP`, then loss, and the current best
-recipe came from the exploit stage rather than the initial flat sweep. The promoted mini result is
-the query-boost MobileNetV3 recipe with nonzero official `mAP` and `NDS`. The sweep artifacts are
-summarized in [docs/benchmarks/nuscenes-mini.md](docs/benchmarks/nuscenes-mini.md).
+The loop selects by official `mini_val` `NDS`, then `mAP`, then loss. The current incumbent is the
+proposal-heavy frozen `EfficientNet-B0` recipe. It is a real, reproducible local signal, but still
+well below the threshold required to justify scaling the training budget. The sweep artifacts are
+summarized in [docs/benchmarks/nuscenes-mini.md](docs/benchmarks/nuscenes-mini.md) and the latest
+teacher-backed bounded run in `artifacts/research_teacher_v1/research_loop/`.
 The same loop is also tracked in W&B when credentials are available; hyperparameter and
 performance sweeps stay grouped within the same architecture-family project, while materially
 different architectures are logged to separate projects.
@@ -266,10 +286,12 @@ uv run tsqbev trt-bench
 - ONNX export smoke passing
 - TensorRT engine build validated on RTX 5000
 - optional W&B tracking integrated for all substantive experiment entrypoints
-- strengthened bounded `nuScenes v1.0-mini` sweep recorded with official per-recipe `mini_val` evaluation
-- current best completed `mini_val` result: `NDS = 0.0158`, `mAP = 1.1140e-04`
-- explicit scale gates added; current answer is still "do not scale by 10x compute yet"
+- latest bounded `nuScenes v1.0-mini` teacher-backed sweep recorded with official per-recipe `mini_val` evaluation
+- current best completed `mini_val` result: `NDS = 0.01247`, `mAP = 4.6209e-05`, `mean latency = 21.95 ms`
+- explicit scale gates added; current answer remains "do not scale by 10x compute yet"
 - exact-token overfit gate recorded; current verdict is fail
 - optional external LiDAR teacher cache/provider scaffolding added and tested
+- external OpenPCDet `CenterPoint-PointPillar` teacher verified at `0.4997 NDS` on `mini_val`
+- teacher-seed replacement ablation recorded; current verdict is regression and needs redesign
 - bounded mini-dataset research loop enabled via `program.md`
 - research loop upgraded to staged baseline/explore/exploit with `results.tsv`, per-run `manifest.json`, and machine-readable `scale_gate_verdict`
