@@ -32,7 +32,7 @@ Allowed mutation surfaces:
 - learning rate
 - batch size
 - gradient accumulation
-- optional cached external LiDAR teacher seed replacement
+- optional cached external LiDAR teacher guidance, including reference replacement
 
 Read-only surfaces during the loop:
 

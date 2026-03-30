@@ -247,8 +247,9 @@ uv run tsqbev train-nuscenes \
   --teacher-cache-dir /path/to/teacher-cache
 ```
 
-Use `--preset rtx5000-nuscenes-teacher` or `--teacher-seed-mode replace_lidar` when the cached
-teacher outputs include `object_boxes`, `object_labels`, and `object_scores` for seed replacement.
+Use `--preset rtx5000-nuscenes-teacher` or `--teacher-seed-mode replace_lidar_refs` when the
+cached teacher outputs include `object_boxes`, `object_labels`, and `object_scores` for reference
+replacement. Keep `replace_lidar` as the harsher full seed-replacement ablation.
 
 Audit cache coverage before claiming any teacher lift:
 
