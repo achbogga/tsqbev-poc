@@ -10,6 +10,7 @@ CHECKPOINT_PATH="${CHECKPOINT_PATH:-pretrained/bevfusion-det.pth}"
 EVAL_KIND="${EVAL_KIND:-bbox}"
 TSQBEV_ROOT="${TSQBEV_ROOT:-/home/achbogga/projects/tsqbev-poc}"
 CFG_OPTIONS="${CFG_OPTIONS:-data.test.samples_per_gpu=1 data.samples_per_gpu=1}"
+TORCH_CACHE_DIR="${TORCH_CACHE_DIR:-/workspace/tsqbev-poc/artifacts/bevfusion_cache/torch_hub}"
 
 if [[ ! -d "${BEVFUSION_ROOT}" ]]; then
   echo "missing BEVFusion repo at ${BEVFUSION_ROOT}" >&2
@@ -29,6 +30,8 @@ docker run --rm --gpus all --shm-size 16g \
   "${IMAGE_TAG}" \
   /bin/bash -lc "mkdir -p data && \
     ln -sfn /dataset data/nuscenes && \
+    mkdir -p ${TORCH_CACHE_DIR} && \
+    export TORCH_HOME=${TORCH_CACHE_DIR} && \
     export PYTHONPATH=/workspace/tsqbev-poc/compat:/workspace/bevfusion:\$PYTHONPATH && \
     python -m pip install ninja && \
     python /workspace/tsqbev-poc/research/scripts/build_bevfusion_feature_decorator_ext.py \
