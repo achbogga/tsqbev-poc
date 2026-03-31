@@ -27,6 +27,11 @@ representation.
 - The legacy sparse-query line remains in the repo as comparison evidence only.
 - Dense-BEV baselines must be reproduced from public upstreams before any large-scale redesign is
   claimed successful.
+- Upstream runtimes with incompatible dependency stacks must be isolated behind their official
+  environment boundary. For BEVFusion, that means the official Docker path rather than folding the
+  old OpenMMLab stack into the main repo environment.
+- Public upstream baselines must carry their full dataset-side prerequisites. For BEVFusion on
+  nuScenes, that includes the official map-expansion bundle under `maps/{basemap,expansion,prediction}`.
 - Detection and lane/map are equal-priority tasks on the same shared BEV trunk.
 - Public checkpoints and official code paths take priority over custom reimplementation when both
   are available.

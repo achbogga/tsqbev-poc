@@ -51,11 +51,25 @@ integration cost, uncertainty, and evidence gain before more time or compute is 
 ## Current Status
 
 - The public repo is bootstrapped, tested, and published on GitHub.
-- The public `nuScenes` data is present under `/home/achbogga/projects/research/nuscenes`.
+- The public `nuScenes` data is present under `/mnt/storage/research/nuscenes`.
 - Real-data `nuScenes` readiness checks pass.
+- All selected dense-BEV upstream repos are now cloned locally under `/home/achbogga/projects`
+  with branch and head-sha provenance tracked in the repo.
+- The official BEVFusion Docker workflow is now codified in this repo with a dedicated readiness
+  checker, runbook, and helper scripts, because the host Python version is outside BEVFusion's
+  official runtime range.
+- The current BEVFusion reproduction blocker is now explicit and evidence-backed: the local
+  `nuScenes` dataset root is still missing the official map-expansion bundle under
+  `maps/{basemap,expansion,prediction}`, and BEVFusion's shared nuScenes pipeline constructs
+  `NuScenesMap` even for the detection config.
 - A float32 real-data smoke run on the RTX 5000 completed successfully on a tiny subset, which confirmed the loader and training path are functional on real data.
 - The repo is now in migration state: the legacy sparse-query line remains documented and measured,
   but the primary target is a public dense-BEV fusion stack.
+- All primary upstream reset repos are now cloned locally with recorded branch and `HEAD`
+  provenance.
+- The official `BEVFusion` path now has a repo-native readiness check, a dedicated runbook, and a
+  repo-local ann-file helper that emits the exact `nuscenes_infos_train.pkl` / `nuscenes_infos_val.pkl`
+  files expected by the upstream configs without editing the archived upstream source tree.
 - The active local research contract is now bounded `nuScenes v1.0-mini`, not full `v1.0-trainval`.
 - The first bounded `v1.0-mini` sweep established a functioning public baseline but remained near-zero on official metrics.
 - The strengthened bounded `v1.0-mini` sweep fixed the routed query-bank collapse and changed recipe selection to official `mini_val` `NDS`, then `mAP`, then loss.
@@ -145,6 +159,10 @@ integration cost, uncertainty, and evidence gain before more time or compute is 
 - Verified the external OpenPCDet `CenterPoint-PointPillar` teacher end to end on
   `nuScenes v1.0-mini`.
 - Verified repo-local teacher-cache conversion and full `mini_train` / `mini_val` coverage auditing.
+- Cloned and provenance-checked the public dense-BEV reset upstream repos:
+  `BEVFusion`, `BEVDet`, `MapTRv2`, `PersFormer`, `DINOv2`, `DINOv3`, and `EfficientViT`.
+- Added a BEVFusion-specific official Docker runbook and helper scripts so the next reset milestone
+  can be executed reproducibly on this workstation.
 
 ## Evidence Basis
 

@@ -26,7 +26,7 @@ When tracking is enabled, runs are mirrored to Weights & Biases under the entity
 | --- | --- | --- |
 | CI | 🟢 Passing | `ruff`, `mypy`, `pytest` currently pass locally; GitHub Actions badge is wired in |
 | Legacy mini incumbent | 🟡 Real but weak | `mini_propheavy_mbv3_frozen_query_boost`, `mini_val NDS = 0.01581`, `mAP = 1.11e-04`, `17.19 ms` |
-| Dense-BEV reset | 🟡 Scaffolded | target stack documented in [docs/stack-reset.md](docs/stack-reset.md); public upstream baselines still need to be reproduced in the repo |
+| Dense-BEV reset | 🟡 Reproduction in progress | target stack documented in [docs/stack-reset.md](docs/stack-reset.md); upstream repos are cloned, the official BEVFusion Docker path is codified in [docs/bevfusion-baseline-runbook.md](docs/bevfusion-baseline-runbook.md), and the current hard blocker is the missing official nuScenes map-expansion bundle under `maps/{basemap,expansion,prediction}` |
 | Teacher bootstrap | 🟢 Verified | external OpenPCDet `CenterPoint-PointPillar` reached `0.4997 NDS` on `mini_val`; cache coverage is full |
 | Legacy teacher lift | 🟡 Strong on overfit, not scale-ready | corrected 32-sample balanced teacher-anchor overfit reached `NDS = 0.1001`, `mAP = 0.1391`, `car AP@4m = 0.5327`, and `7` nonzero classes; paired `mini_val` lift is still unproven |
 | Scale-up readiness | 🔴 Blocked | the main remaining blocker is optimization: the repaired overfit run still missed the `train_total_ratio <= 0.40` gate at `0.4703` |
@@ -198,6 +198,7 @@ The full source map is in [docs/reference-matrix.md](docs/reference-matrix.md).
 - [Teacher bootstrap](docs/teacher-bootstrap.md)
 - [OpenPCDet CenterPoint teacher runbook](docs/openpcdet-centerpoint-teacher.md)
 - [Dense-BEV reset stack](docs/stack-reset.md)
+- [BEVFusion baseline runbook](docs/bevfusion-baseline-runbook.md)
 - [Upstream baselines](docs/upstream-baselines.md)
 - [Reference matrix](docs/reference-matrix.md)
 - [Public baseline workflow](docs/training-baselines.md)
@@ -246,6 +247,13 @@ uv run tsqbev reset-gap-report
 uv run tsqbev upstream-registry
 uv run tsqbev check-upstream-stack --projects-root /home/achbogga/projects
 uv run tsqbev upstream-baselines --projects-root /home/achbogga/projects
+uv run tsqbev check-bevfusion-env \
+  --dataset-root /mnt/storage/research/nuscenes \
+  --bevfusion-repo-root /home/achbogga/projects/bevfusion
+uv run tsqbev bevfusion-runbook \
+  --dataset-root /mnt/storage/research/nuscenes \
+  --bevfusion-repo-root /home/achbogga/projects/bevfusion \
+  --report-format markdown
 ```
 
 The repo now also has a dedicated tiny-subset overfit gate for `nuScenes`, which evaluates the

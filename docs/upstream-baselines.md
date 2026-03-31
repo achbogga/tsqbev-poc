@@ -26,7 +26,13 @@ Then inspect the machine-readable manifest:
 ```bash
 uv run tsqbev check-upstream-stack --projects-root /home/achbogga/projects
 uv run tsqbev upstream-baselines --projects-root /home/achbogga/projects
+uv run tsqbev check-bevfusion-env \
+  --dataset-root /mnt/storage/research/nuscenes \
+  --bevfusion-repo-root /home/achbogga/projects/bevfusion
 ```
+
+The BEVFusion-specific bootstrap and evaluation path is documented in
+[docs/bevfusion-baseline-runbook.md](bevfusion-baseline-runbook.md).
 
 ## Current Local Provenance
 
@@ -58,6 +64,10 @@ As of March 31, 2026, the local clones on this workstation are:
 
 - The repos and pinned configs are now present locally.
 - The OpenPCDet baseline is the only one already executed end to end in this repo.
+- The BEVFusion official Docker path is now codified with a machine-readable checker and
+  repo-local helper scripts.
+- The current BEVFusion detection and segmentation reproduction blocker is the missing official
+  nuScenes map-expansion bundle under `maps/{basemap,expansion,prediction}`.
 - The next concrete work is environment-specific baseline reproduction for `BEVFusion`, `BEVDet`,
   `MapTRv2`, and `PersFormer`.
 - For `BEVDet` and `MapTR`, the public checkpoint sources are still external download links rather

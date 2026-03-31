@@ -18,6 +18,11 @@ from pathlib import Path
 
 from rich import print
 
+from tsqbev.bevfusion_env import (
+    bevfusion_official_commands,
+    check_bevfusion_environment,
+    render_bevfusion_runbook_markdown,
+)
 from tsqbev.checkpoints import load_model_from_checkpoint
 from tsqbev.config import ModelConfig
 from tsqbev.data_checks import check_nuscenes_root, check_openlane_root
@@ -129,6 +134,53 @@ def upstream_baselines_report(projects_root: Path) -> None:
     )
 
 
+def bevfusion_env_report(
+    repo_root: Path,
+    dataset_root: Path,
+    image_tag: str,
+    gpu_count: int,
+) -> None:
+    print(
+        {
+            "status": check_bevfusion_environment(
+                repo_root=repo_root,
+                dataset_root=dataset_root,
+            ).to_dict(),
+            "commands": bevfusion_official_commands(
+                repo_root=repo_root,
+                dataset_root=dataset_root,
+                image_tag=image_tag,
+                gpu_count=gpu_count,
+            ),
+        }
+    )
+
+
+def bevfusion_runbook_report(
+    repo_root: Path,
+    dataset_root: Path,
+    image_tag: str,
+    gpu_count: int,
+    report_format: str,
+) -> None:
+    if report_format == "markdown":
+        print(
+            render_bevfusion_runbook_markdown(
+                repo_root=repo_root,
+                dataset_root=dataset_root,
+                image_tag=image_tag,
+                gpu_count=gpu_count,
+            )
+        )
+        return
+    bevfusion_env_report(
+        repo_root=repo_root,
+        dataset_root=dataset_root,
+        image_tag=image_tag,
+        gpu_count=gpu_count,
+    )
+
+
 def _model_for_export(default_config: ModelConfig, checkpoint: Path | None) -> TSQBEVModel:
     if checkpoint is None:
         return TSQBEVModel(default_config)
@@ -209,6 +261,8 @@ def _make_parser() -> argparse.ArgumentParser:
             "upstream-registry",
             "check-upstream-stack",
             "upstream-baselines",
+            "check-bevfusion-env",
+            "bevfusion-runbook",
         ),
     )
     parser.add_argument("--dataset-root", type=Path, default=None)
@@ -255,6 +309,13 @@ def _make_parser() -> argparse.ArgumentParser:
         default=None,
     )
     parser.add_argument("--openlane-repo-root", type=Path, default=Path("/tmp/OpenLane"))
+    parser.add_argument(
+        "--bevfusion-repo-root",
+        type=Path,
+        default=Path("/home/achbogga/projects/bevfusion"),
+    )
+    parser.add_argument("--docker-image-tag", type=str, default="tsqbev-bevfusion-official:latest")
+    parser.add_argument("--num-gpus", type=int, default=1)
     parser.add_argument("--version", type=str, default="v1.0-mini")
     parser.add_argument("--train-split", type=str, default=None)
     parser.add_argument("--split", type=str, default=None)
@@ -375,6 +436,27 @@ def main() -> None:
         return
     if args.command == "upstream-baselines":
         upstream_baselines_report(args.projects_root)
+        return
+    if args.command == "check-bevfusion-env":
+        if args.dataset_root is None:
+            raise ValueError("--dataset-root is required for check-bevfusion-env")
+        bevfusion_env_report(
+            repo_root=args.bevfusion_repo_root,
+            dataset_root=args.dataset_root,
+            image_tag=args.docker_image_tag,
+            gpu_count=args.num_gpus,
+        )
+        return
+    if args.command == "bevfusion-runbook":
+        if args.dataset_root is None:
+            raise ValueError("--dataset-root is required for bevfusion-runbook")
+        bevfusion_runbook_report(
+            repo_root=args.bevfusion_repo_root,
+            dataset_root=args.dataset_root,
+            image_tag=args.docker_image_tag,
+            gpu_count=args.num_gpus,
+            report_format=args.report_format,
+        )
         return
     if args.command == "check-data":
         if args.dataset_root is None:
