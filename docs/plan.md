@@ -63,9 +63,19 @@ integration cost, uncertainty, and evidence gain before more time or compute is 
 - The archived BEVFusion runtime import blockers are now neutralized in the repo-local eval
   wrapper: missing `feature_decorator_ext`, unused `flash_attn` imports, and broken archived
   `numba` / `numpy` interactions for the selected non-radar baseline.
-- The current BEVFusion long pole is ann-file generation for
-  `nuscenes_infos_train.pkl` / `nuscenes_infos_val.pkl` on the full `v1.0-trainval` validation
-  split.
+- The BEVFusion ann-file long pole is resolved: the local dataset root now has the exact
+  `nuscenes_infos_train.pkl` / `nuscenes_infos_val.pkl` files expected by the archived upstream
+  configs.
+- The current BEVFusion long pole is the archived runtime compatibility stack rather than data
+  prep. The repo-local wrapper now applies a bounded set of reproduction fixes:
+  - rebuild archived CUDA ops inside the official container
+  - patch the missing `feature_decorator_ext`
+  - patch the archived `DepthLSSTransform` channel mismatch in the mounted upstream checkout
+  - patch the detection checkpoint so the pretrained scalar-depth stem survives the channel fix
+  - force single-sample val batches because the archived batched sparse `spconv` path is unstable
+    on this workstation while the single-sample sparse path is healthy
+- The official public BEVFusion nuScenes detection eval is now running successfully on real
+  `v1.0-trainval` val samples through the repo-local wrapper.
 - A float32 real-data smoke run on the RTX 5000 completed successfully on a tiny subset, which confirmed the loader and training path are functional on real data.
 - The repo is now in migration state: the legacy sparse-query line remains documented and measured,
   but the primary target is a public dense-BEV fusion stack.

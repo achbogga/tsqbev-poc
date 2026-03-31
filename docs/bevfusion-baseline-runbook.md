@@ -59,6 +59,17 @@ path, citing `25 FPS` on Jetson Orin.
 - The archived import surface also pulls in `flash_attn` and `numba` through unused codepaths for
   the selected non-radar config. The repo-local eval wrapper prepends compatibility shims for
   those imports so the published camera+lidar baseline can load without patching upstream source.
+- The archived `DepthLSSTransform` path is internally inconsistent on this workstation: the runtime
+  data path produces a six-channel depth tensor while the pretrained checkpoint and source expect a
+  one-channel stem. The repo-local eval wrapper therefore:
+  - patches `depth_lss.py` in the mounted upstream checkout at container startup so the stem input
+    channels match the actual depth tensor contract
+  - writes a patched checkpoint copy that preserves the pretrained scalar-depth stem weights in
+    channel `0` and zero-initializes the added feature channels
+- The archived sparse BEVFusion LiDAR path is also batch-sensitive on this workstation. Raw nuScenes
+  points, raw voxelization, and the single-sample sparse encoder path all work, but the batched
+  sparse path fails in `spconv` with `N > 0` assertions. The eval wrapper therefore forces
+  `data.test.samples_per_gpu=1` and `data.samples_per_gpu=1` for the current reproduction path.
 
 ## Why The Repo Uses A Helper Instead Of `tools/create_data.py`
 
@@ -165,6 +176,15 @@ DATASET_ROOT=/mnt/storage/research/nuscenes \
 NUM_GPUS=1 \
   ./research/scripts/run_bevfusion_nuscenes_eval.sh
 ```
+
+The current wrapper also:
+
+- patches the archived `DepthLSSTransform` source in the mounted upstream checkout
+- writes `pretrained/bevfusion-det.depthlss-compat.pth`
+- forces single-sample val batches via `--cfg-options data.test.samples_per_gpu=1 data.samples_per_gpu=1`
+
+Those are compatibility measures for the archived upstream on this workstation. They are not new
+model ideas and should be treated as reproduction plumbing.
 
 Evaluate segmentation:
 

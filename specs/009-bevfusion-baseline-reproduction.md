@@ -50,7 +50,17 @@ Primary sources:
   shims fail loudly if a radar or JIT-dependent path is actually instantiated.
 - Repo-local compatibility shims may also supply minimal interpreter startup fixes for archived
   dependency combinations, such as restoring `numpy.long` for older codepaths.
+- The repo-local reproduction path may patch archived upstream runtime inconsistencies in the
+  mounted checkout at container startup when those inconsistencies prevent the official pretrained
+  eval from running at all. Current allowed examples are:
+  - fixing the `DepthLSSTransform` input-stem channel count so it matches the depth tensor
+    emitted by the archived pipeline on this workstation
+  - writing a derived compatibility checkpoint that preserves pretrained scalar-depth weights in
+    channel `0` and zero-initializes the added feature channels
 - This repo must not patch the archived BEVFusion source tree just to make eval work.
+- The current local reproduction contract may force single-sample validation batches if the
+  archived sparse `spconv` path is batch-unstable on this workstation and the single-sample path is
+  otherwise healthy. This must be documented as a compatibility deviation, not hidden.
 - The repo-local ann-file helper may be used, but it must:
   - use the official upstream converter and split logic
   - emit the exact ann-file names expected by `configs/nuscenes/default.yaml`
@@ -67,6 +77,8 @@ The BEVFusion reproduction path is considered operational only when all of these
 - the official nuScenes detection eval command runs to completion locally
 - the repo-local compatibility build for `feature_decorator_ext` succeeds when the upstream image
   does not already contain that artifact
+- any local compatibility deviations from the archived upstream runtime are recorded explicitly in
+  the reproduction report
 
 The reset stack should not be declared reproduced until the local report records:
 
