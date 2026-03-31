@@ -38,6 +38,7 @@ from tsqbev.teacher_backends import TeacherProviderConfig
 from tsqbev.teacher_import import cache_nuscenes_detection_results
 from tsqbev.train import fit_nuscenes, fit_openlane
 from tsqbev.trt import run_trt_benchmark
+from tsqbev.upstream_baselines import local_upstream_baselines, upstream_baselines
 from tsqbev.upstream_readiness import check_upstream_stack
 
 
@@ -115,6 +116,17 @@ def upstream_registry_report() -> None:
 
 def upstream_stack_report(projects_root: Path) -> None:
     print([status.to_dict() for status in check_upstream_stack(projects_root)])
+
+
+def upstream_baselines_report(projects_root: Path) -> None:
+    print(
+        {
+            "manifest": [baseline.to_dict() for baseline in upstream_baselines()],
+            "local_status": [
+                status.to_dict() for status in local_upstream_baselines(projects_root)
+            ],
+        }
+    )
 
 
 def _model_for_export(default_config: ModelConfig, checkpoint: Path | None) -> TSQBEVModel:
@@ -196,6 +208,7 @@ def _make_parser() -> argparse.ArgumentParser:
             "reset-gap-report",
             "upstream-registry",
             "check-upstream-stack",
+            "upstream-baselines",
         ),
     )
     parser.add_argument("--dataset-root", type=Path, default=None)
@@ -359,6 +372,9 @@ def main() -> None:
         return
     if args.command == "check-upstream-stack":
         upstream_stack_report(args.projects_root)
+        return
+    if args.command == "upstream-baselines":
+        upstream_baselines_report(args.projects_root)
         return
     if args.command == "check-data":
         if args.dataset_root is None:

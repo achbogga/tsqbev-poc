@@ -198,6 +198,7 @@ The full source map is in [docs/reference-matrix.md](docs/reference-matrix.md).
 - [Teacher bootstrap](docs/teacher-bootstrap.md)
 - [OpenPCDet CenterPoint teacher runbook](docs/openpcdet-centerpoint-teacher.md)
 - [Dense-BEV reset stack](docs/stack-reset.md)
+- [Upstream baselines](docs/upstream-baselines.md)
 - [Reference matrix](docs/reference-matrix.md)
 - [Public baseline workflow](docs/training-baselines.md)
 - [Implementation plan](docs/plan.md)
@@ -244,6 +245,7 @@ uv run tsqbev reset-stack --report-format markdown
 uv run tsqbev reset-gap-report
 uv run tsqbev upstream-registry
 uv run tsqbev check-upstream-stack --projects-root /home/achbogga/projects
+uv run tsqbev upstream-baselines --projects-root /home/achbogga/projects
 ```
 
 The repo now also has a dedicated tiny-subset overfit gate for `nuScenes`, which evaluates the
