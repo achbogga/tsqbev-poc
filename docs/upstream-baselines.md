@@ -63,17 +63,20 @@ As of March 31, 2026, the local clones on this workstation are:
 ## Current Reality
 
 - The repos and pinned configs are now present locally.
-- The OpenPCDet baseline is the only one already executed end to end in this repo.
+- The OpenPCDet baseline is already executed end to end in this repo.
 - The BEVFusion official Docker path is now codified with a machine-readable checker and
-  repo-local helper scripts.
+  repo-local helper scripts, and the official nuScenes detection checkpoint has now been
+  reproduced locally.
 - The official nuScenes map-expansion bundle is now present locally under
   `maps/{basemap,expansion,prediction}`.
 - The archived BEVFusion runtime blockers are now handled by the repo-local wrapper via a missing
   `feature_decorator_ext` compatibility build plus guarded `flash_attn` / `numba` shims for the
   selected non-radar baseline.
-- The active BEVFusion reproduction step is generating
-  `nuscenes_infos_train.pkl` / `nuscenes_infos_val.pkl` with the repo-local eval-only helper.
-- The next concrete work is environment-specific baseline reproduction for `BEVFusion`, `BEVDet`,
-  `MapTRv2`, and `PersFormer`.
+- The archived runtime still segfaults during MPI teardown after successful eval, so the wrapper
+  treats emitted metrics as the source of truth and records them in a machine-readable artifact.
+- The reproduced detection result is `mAP 0.6730`, `NDS 0.7072`, which is within `-1.22 mAP` and
+  `-0.66 NDS` of the published validation baseline.
+- The next concrete work is environment-specific baseline reproduction for BEVFusion segmentation,
+  then `BEVDet`, `MapTRv2`, and `PersFormer`.
 - For `BEVDet` and `MapTR`, the public checkpoint sources are still external download links rather
   than lightweight model-hub APIs.

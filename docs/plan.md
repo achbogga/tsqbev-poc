@@ -74,8 +74,13 @@ integration cost, uncertainty, and evidence gain before more time or compute is 
   - patch the detection checkpoint so the pretrained scalar-depth stem survives the channel fix
   - force single-sample val batches because the archived batched sparse `spconv` path is unstable
     on this workstation while the single-sample sparse path is healthy
-- The official public BEVFusion nuScenes detection eval is now running successfully on real
-  `v1.0-trainval` val samples through the repo-local wrapper.
+- The official public BEVFusion nuScenes detection eval is now reproduced successfully on real
+  `v1.0-trainval` val samples through the repo-local wrapper:
+  - local result: `mAP 0.6730`, `NDS 0.7072`
+  - published upstream reference: `mAP 0.6852`, `NDS 0.7138`
+  - local delta: `-0.0122 mAP`, `-0.0066 NDS`
+  - caveat: the archived runtime still segfaults during MPI teardown after printing metrics, so the
+    wrapper now parses the emitted metrics and records the run as successful
 - A float32 real-data smoke run on the RTX 5000 completed successfully on a tiny subset, which confirmed the loader and training path are functional on real data.
 - The repo is now in migration state: the legacy sparse-query line remains documented and measured,
   but the primary target is a public dense-BEV fusion stack.

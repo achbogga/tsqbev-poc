@@ -11,6 +11,25 @@ EVAL_KIND="${EVAL_KIND:-bbox}"
 TSQBEV_ROOT="${TSQBEV_ROOT:-/home/achbogga/projects/tsqbev-poc}"
 CFG_OPTIONS="${CFG_OPTIONS:-data.test.samples_per_gpu=1 data.samples_per_gpu=1}"
 TORCH_CACHE_DIR="${TORCH_CACHE_DIR:-/workspace/tsqbev-poc/artifacts/bevfusion_cache/torch_hub}"
+ARTIFACT_DIR="${ARTIFACT_DIR:-${TSQBEV_ROOT}/artifacts/bevfusion_repro}"
+CHECKPOINT_BASENAME="$(basename "${CHECKPOINT_PATH}")"
+CHECKPOINT_STEM="${CHECKPOINT_BASENAME%.pth}"
+PATCHED_CHECKPOINT_PATH="${PATCHED_CHECKPOINT_PATH:-pretrained/${CHECKPOINT_STEM}.compat.pth}"
+
+case "${EVAL_KIND}" in
+  bbox)
+    RUN_LABEL="detection"
+    ;;
+  map)
+    RUN_LABEL="segmentation"
+    ;;
+  *)
+    RUN_LABEL="${EVAL_KIND}"
+    ;;
+esac
+
+LOG_PATH="${LOG_PATH:-${ARTIFACT_DIR}/bevfusion_${RUN_LABEL}_eval.log}"
+SUMMARY_PATH="${SUMMARY_PATH:-${ARTIFACT_DIR}/bevfusion_${EVAL_KIND}_summary.json}"
 
 if [[ ! -d "${BEVFUSION_ROOT}" ]]; then
   echo "missing BEVFusion repo at ${BEVFUSION_ROOT}" >&2
@@ -22,6 +41,10 @@ if [[ ! -d "${DATASET_ROOT}" ]]; then
   exit 1
 fi
 
+mkdir -p "${ARTIFACT_DIR}"
+UPSTREAM_HEAD="$(git -C "${BEVFUSION_ROOT}" rev-parse HEAD)"
+
+set +e
 docker run --rm --gpus all --shm-size 16g \
   -v "${BEVFUSION_ROOT}:/workspace/bevfusion" \
   -v "${DATASET_ROOT}:/dataset" \
@@ -40,9 +63,38 @@ docker run --rm --gpus all --shm-size 16g \
       --bevfusion-root /workspace/bevfusion && \
     python /workspace/tsqbev-poc/research/scripts/patch_bevfusion_checkpoint.py \
       --input /workspace/bevfusion/${CHECKPOINT_PATH} \
-      --output /workspace/bevfusion/pretrained/bevfusion-det.depthlss-compat.pth && \
+      --output /workspace/bevfusion/${PATCHED_CHECKPOINT_PATH} && \
     torchpack dist-run -np ${NUM_GPUS} python tools/test.py \
       ${CONFIG_REL} \
-      pretrained/bevfusion-det.depthlss-compat.pth \
+      ${PATCHED_CHECKPOINT_PATH} \
       --eval ${EVAL_KIND} \
-      --cfg-options ${CFG_OPTIONS}"
+      --cfg-options ${CFG_OPTIONS}" 2>&1 | tee "${LOG_PATH}"
+docker_status=${PIPESTATUS[0]}
+set -e
+
+set +e
+python "${TSQBEV_ROOT}/research/scripts/parse_bevfusion_eval_log.py" \
+  --log "${LOG_PATH}" \
+  --output "${SUMMARY_PATH}" \
+  --require-kind "${EVAL_KIND}" \
+  --config-rel "${CONFIG_REL}" \
+  --checkpoint-path "${CHECKPOINT_PATH}" \
+  --dataset-root "${DATASET_ROOT}" \
+  --upstream-repo-root "${BEVFUSION_ROOT}" \
+  --upstream-head "${UPSTREAM_HEAD}" \
+  --docker-exit-code "${docker_status}"
+parse_status=$?
+set -e
+
+if [[ ${parse_status} -eq 0 ]]; then
+  if [[ ${docker_status} -ne 0 ]]; then
+    echo "wrapper_note: metrics were emitted successfully; treating docker exit ${docker_status} as post-eval teardown failure" >&2
+  fi
+  exit 0
+fi
+
+if [[ ${docker_status} -ne 0 ]]; then
+  exit "${docker_status}"
+fi
+
+exit "${parse_status}"

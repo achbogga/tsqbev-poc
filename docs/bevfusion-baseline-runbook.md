@@ -47,8 +47,8 @@ path, citing `25 FPS` on Jetson Orin.
 - nuScenes is extracted at `/mnt/storage/research/nuscenes`.
 - The dataset root already contains `samples`, `sweeps`, `maps`, `maps/{basemap,expansion,prediction}`,
   and `v1.0-trainval`.
-- The remaining prep step before official eval is creating the exact
-  `nuscenes_infos_train.pkl` / `nuscenes_infos_val.pkl` files expected by BEVFusion configs.
+- The exact `nuscenes_infos_train.pkl` / `nuscenes_infos_val.pkl` files expected by BEVFusion
+  configs are now present and were used for the reproduced detection eval.
 - The official nuScenes map-expansion bundle was downloaded from the public Zenodo mirror linked
   above and extracted into `maps/{basemap,expansion,prediction}`. This was a hard prerequisite
   because BEVFusion's shared nuScenes pipeline instantiates `NuScenesMap` even for the detection
@@ -70,6 +70,26 @@ path, citing `25 FPS` on Jetson Orin.
   points, raw voxelization, and the single-sample sparse encoder path all work, but the batched
   sparse path fails in `spconv` with `N > 0` assertions. The eval wrapper therefore forces
   `data.test.samples_per_gpu=1` and `data.samples_per_gpu=1` for the current reproduction path.
+
+## Reproduced Detection Result
+
+Local official nuScenes validation detection result, measured on March 31, 2026:
+
+- config: `configs/nuscenes/det/transfusion/secfpn/camera+lidar/swint_v0p075/convfuser.yaml`
+- checkpoint: `pretrained/bevfusion-det.pth`
+- reproduced: `mAP 0.6730`, `NDS 0.7072`
+- published upstream reference: `mAP 0.6852`, `NDS 0.7138`
+- delta: `-0.0122 mAP`, `-0.0066 NDS`
+
+Machine-readable artifact:
+
+- [bevfusion_bbox_summary.json](/home/achbogga/projects/tsqbev-poc/artifacts/bevfusion_repro/bevfusion_bbox_summary.json)
+
+Important note:
+
+- the archived runtime segfaults during MPI teardown after metrics are already printed
+- the repo-local wrapper now parses the emitted official metrics and records the run as successful
+  when that specific failure mode occurs
 
 ## Why The Repo Uses A Helper Instead Of `tools/create_data.py`
 

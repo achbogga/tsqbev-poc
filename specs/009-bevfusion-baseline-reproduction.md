@@ -75,6 +75,8 @@ The BEVFusion reproduction path is considered operational only when all of these
 - repo-local ann-file generation succeeds on local nuScenes data
 - official pretrained checkpoints download successfully
 - the official nuScenes detection eval command runs to completion locally
+  - or emits complete official metrics locally and only fails during post-eval MPI teardown; the
+    repo-local parser must then record the run as successful and persist the metrics artifact
 - the repo-local compatibility build for `feature_decorator_ext` succeeds when the upstream image
   does not already contain that artifact
 - any local compatibility deviations from the archived upstream runtime are recorded explicitly in

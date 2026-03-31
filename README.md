@@ -9,6 +9,7 @@ BEV fusion stack built from public upstreams and tuned for deployment validation
 ![Teacher Cache](https://img.shields.io/badge/teacher_cache-verified-1f883d)
 ![W%26B](https://img.shields.io/badge/W%26B-online-FFBE00)
 ![Best mini_val NDS](https://img.shields.io/badge/best_mini__val_NDS-0.0158-f2cc60)
+![BEVFusion Detection](https://img.shields.io/badge/BEVFusion_det_nuScenes-0.7072_NDS-1f883d)
 
 - the legacy sparse-query line remains comparison evidence only
 - LiDAR, camera, and map/lane are equal-priority targets in the reset stack
@@ -26,13 +27,13 @@ When tracking is enabled, runs are mirrored to Weights & Biases under the entity
 | --- | --- | --- |
 | CI | 🟢 Passing | `ruff`, `mypy`, `pytest` currently pass locally; GitHub Actions badge is wired in |
 | Legacy mini incumbent | 🟡 Real but weak | `mini_propheavy_mbv3_frozen_query_boost`, `mini_val NDS = 0.01581`, `mAP = 1.11e-04`, `17.19 ms` |
-| Dense-BEV reset | 🟡 Reproduction in progress | target stack documented in [docs/stack-reset.md](docs/stack-reset.md); upstream repos are cloned, the official BEVFusion Docker path is codified in [docs/bevfusion-baseline-runbook.md](docs/bevfusion-baseline-runbook.md), the map-expansion bundle is installed locally, the archived runtime import blockers are neutralized with repo-local compatibility wrappers, and the current long pole is generating `nuscenes_infos_{train,val}.pkl` |
+| Dense-BEV reset | 🟢 Detection reproduced | target stack documented in [docs/stack-reset.md](docs/stack-reset.md); the official BEVFusion Docker path is codified in [docs/bevfusion-baseline-runbook.md](docs/bevfusion-baseline-runbook.md), local detection reproduction reached `mAP 0.6730 / NDS 0.7072`, and the next upstream step is segmentation |
 | Teacher bootstrap | 🟢 Verified | external OpenPCDet `CenterPoint-PointPillar` reached `0.4997 NDS` on `mini_val`; cache coverage is full |
 | Legacy teacher lift | 🟡 Strong on overfit, not scale-ready | corrected 32-sample balanced teacher-anchor overfit reached `NDS = 0.1001`, `mAP = 0.1391`, `car AP@4m = 0.5327`, and `7` nonzero classes; paired `mini_val` lift is still unproven |
 | Scale-up readiness | 🔴 Blocked | the main remaining blocker is optimization: the repaired overfit run still missed the `train_total_ratio <= 0.40` gate at `0.4703` |
 | Tracking | 🟢 Online | W&B smoke run synced under `achbogga-track` |
 
-The current state is straightforward: the public repo is healthy, tested, deploy-checked, and tracked, but the legacy student model is not yet strong enough to justify scaling compute by 10x. The reset stack is documented, not yet reproduced.
+The current state is straightforward: the public repo is healthy, tested, deploy-checked, and tracked. The legacy student model is still not strong enough to justify scaling compute by 10x, but the reset stack is no longer hypothetical: the official BEVFusion detection baseline has now been reproduced locally, and segmentation is next.
 
 ## What This Repo Is
 
