@@ -10,6 +10,24 @@ repeated in chat.
 - move fast, but only with bounded, evidence-backed steps
 - fix small issues immediately when they are clearly blocking progress
 - do not stop at a single result; continue to the next highest-ROI step unless a boundary is hit
+- if a public upstream dense-BEV stack is materially better grounded than the current custom
+  path, pivot to that stack rather than deepening the custom path
+
+## Target Stack Bias
+
+The default migration target for this repo is now a public dense-BEV fusion stack built from
+official upstreams such as:
+
+- BEVFusion
+- OpenPCDet
+- BEVDet / BEVDepth
+- MapTR / MapTRv2
+- EfficientViT
+- DINOv2 / DINOv3
+- OFA / AMC / HAQ
+
+Use the legacy sparse-query line only as comparison evidence unless the dense-BEV reset is
+demonstrably worse on the same gate.
 
 ## Literature And Source Discipline
 
@@ -27,6 +45,9 @@ the agent must consult:
 - primary papers
 - official codebases
 - official pretrained weights when available
+
+For efficiency and deployment-oriented work, prefer primary references from MIT HAN Lab and
+official NVIDIA deployment docs when they exist.
 
 The repo should prefer primary-source citations over secondary summaries. Novel repo-specific claims
 must cite the local artifact, code path, or paper draft in this repo.

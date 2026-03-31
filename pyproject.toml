@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "tsqbev-poc"
 version = "0.1.0"
-description = "Multimodal temporal sparse-query BEV proof of concept"
+description = "Public multimodal BEV migration scaffold with dense-BEV reset contracts"
 readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "Apache-2.0" }

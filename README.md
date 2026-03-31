@@ -1,6 +1,8 @@
 # tsqbev-poc
 
-`tsqbev-poc` is a public proof-of-concept repository for a multimodal temporal sparse-query BEV stack built for open datasets and deployment validation.
+`tsqbev-poc` is a public migration scaffold for multimodal BEV perception. The current codebase
+still carries a legacy sparse-query student for comparison, but the primary target is now a dense
+BEV fusion stack built from public upstreams and tuned for deployment validation.
 
 [![CI](https://github.com/achbogga/tsqbev-poc/actions/workflows/ci.yml/badge.svg)](https://github.com/achbogga/tsqbev-poc/actions/workflows/ci.yml)
 ![Scale Up](https://img.shields.io/badge/scale_up-blocked-d73a49)
@@ -8,13 +10,12 @@
 ![W%26B](https://img.shields.io/badge/W%26B-online-FFBE00)
 ![Best mini_val NDS](https://img.shields.io/badge/best_mini__val_NDS-0.0158-f2cc60)
 
-- LiDAR grounds 3D object anchors and geometry
-- cameras provide semantics, sparse refinement, and lane structure
-- map priors are optional
-- temporal state is sparse and streaming
+- the legacy sparse-query line remains comparison evidence only
+- LiDAR, camera, and map/lane are equal-priority targets in the reset stack
+- dense BEV fusion is the primary target architecture
 - distillation is designed in from the start
-- optional external LiDAR teacher bootstrap is now scaffolded
-- ONNX and TensorRT deployment are first-class concerns
+- optional external LiDAR teacher bootstrap is scaffolded
+- ONNX, TensorRT, and Orin deployment stay first-class concerns
 
 This repo is intentionally small and evidence-driven. Every substantive module is tied back to an original paper and, where available, an official codebase. Local generated summaries are treated as internal synthesis only. The repo cites the underlying original papers, official codebases, and our own public repo/paper artifacts instead.
 When tracking is enabled, runs are mirrored to Weights & Biases under the entity `achbogga-track`.
@@ -24,63 +25,76 @@ When tracking is enabled, runs are mirrored to Weights & Biases under the entity
 | Track | Status | Evidence |
 | --- | --- | --- |
 | CI | 🟢 Passing | `ruff`, `mypy`, `pytest` currently pass locally; GitHub Actions badge is wired in |
-| Current mini incumbent | 🟡 Real but weak | `mini_propheavy_mbv3_frozen_query_boost`, `mini_val NDS = 0.01581`, `mAP = 1.11e-04`, `17.19 ms` |
+| Legacy mini incumbent | 🟡 Real but weak | `mini_propheavy_mbv3_frozen_query_boost`, `mini_val NDS = 0.01581`, `mAP = 1.11e-04`, `17.19 ms` |
+| Dense-BEV reset | 🟡 Scaffolded | target stack documented in [docs/stack-reset.md](docs/stack-reset.md); public upstream baselines still need to be reproduced in the repo |
 | Teacher bootstrap | 🟢 Verified | external OpenPCDet `CenterPoint-PointPillar` reached `0.4997 NDS` on `mini_val`; cache coverage is full |
-| Teacher lift into student | 🟡 Strong on overfit, not scale-ready | corrected 32-sample balanced teacher-anchor overfit reached `NDS = 0.1001`, `mAP = 0.1391`, `car AP@4m = 0.5327`, and `7` nonzero classes; paired `mini_val` lift is still unproven |
-| Recovery branch | 🟢 Real lift | best-checkpoint evaluation, anchor-first teacher routing, explicit teacher-anchor vs teacher-KD separation, class-balanced teacher seed selection, and corrected gate extraction now produce the first overfit run above `0.10 NDS` |
+| Legacy teacher lift | 🟡 Strong on overfit, not scale-ready | corrected 32-sample balanced teacher-anchor overfit reached `NDS = 0.1001`, `mAP = 0.1391`, `car AP@4m = 0.5327`, and `7` nonzero classes; paired `mini_val` lift is still unproven |
 | Scale-up readiness | 🔴 Blocked | the main remaining blocker is optimization: the repaired overfit run still missed the `train_total_ratio <= 0.40` gate at `0.4703` |
 | Tracking | 🟢 Online | W&B smoke run synced under `achbogga-track` |
 
-The current state is straightforward: the public repo is healthy, tested, deploy-checked, and tracked, but the student model is not yet strong enough to justify scaling compute by 10x.
+The current state is straightforward: the public repo is healthy, tested, deploy-checked, and tracked, but the legacy student model is not yet strong enough to justify scaling compute by 10x. The reset stack is documented, not yet reproduced.
 
 ## What This Repo Is
 
 - a minimal multimodal BEV research artifact
 - a spec-driven and test-first implementation
-- a public `nuScenes` / `OpenLane` / `MapTR`-style prototype
+- a migration scaffold from the legacy sparse-query line to a public dense-BEV stack
 - a deployment-oriented codebase with measured RTX 5000 latency
+
+## Target Stack
+
+The current reset target is a dense-BEV fusion stack built from public upstreams:
+
+- LiDAR encoder: `OpenPCDet` / `PointPillars` / `CenterPoint`
+- camera encoder: `BEVDet` / `BEVDepth`
+- fusion trunk: `BEVFusion`
+- lane / map head: `MapTRv2` family
+- public lane reference path: `OpenLane` / `PersFormer`
+- optional dense teachers or feature priors: `DINOv2` / `DINOv3`
+- deployment specialization: `EfficientViT`, then `OFA` / `AMC` / `HAQ` for compression and quantization
+
+The dense-BEV reset is still a scaffolded migration target in this repo. It is not yet the fully
+integrated runtime.
 
 ## What This Repo Is Not
 
 - a large-scale training platform
 - a private or proprietary dataset integration layer
 - an unbounded autonomous research loop
+- a fully integrated dense-BEV runtime yet
 - a finished embedded deployment product
 
 ## Architecture At A Glance
 
 ```mermaid
 flowchart LR
-    A[Multi-view images] --> B[Image backbone + neck]
-    C[LiDAR points] --> D[Pillar encoder]
-    B --> E[2D proposal head]
-    E --> F[Proposal-ray seeds]
-    G[Learned global seeds] --> H[Tri-source router]
-    D --> H
-    F --> H
-    B --> I[Sparse cross-view sampler]
-    H --> I
-    I --> J[Query fusion]
-    K[Temporal state t-1] --> L[Temporal updater]
-    J --> L
-    L --> M[Object head]
-    L --> N[Lane head]
-    O[Optional map priors] --> N
-    L --> P[Temporal state t]
+    A[Multi-view images] --> B[BEVDet / BEVDepth camera BEV]
+    C[LiDAR points] --> D[OpenPCDet / CenterPoint LiDAR BEV]
+    B --> E[BEVFusion trunk]
+    D --> E
+    F[Temporal BEV queue] --> E
+    G[Optional DINOv2 / DINOv3 prior] --> B
+    H[Optional map priors] --> I[MapTRv2 lane / map head]
+    E --> J[CenterHead-style detection head]
+    E --> I
+    E --> K[Temporal BEV state]
 ```
 
-More detail and additional diagrams are in [docs/architecture.md](docs/architecture.md) and the paper in [docs/paper/tsqbev_short_paper.pdf](docs/paper/tsqbev_short_paper.pdf).
+More detail, including the legacy sparse-query comparison line, is in
+[docs/architecture.md](docs/architecture.md) and the paper in
+[docs/paper/tsqbev_short_paper.pdf](docs/paper/tsqbev_short_paper.pdf).
 
 ## Current Public Scope
 
 - Object detection: `nuScenes`, with `v1.0-mini` as the active local research contract
-- Lane supervision: `OpenLane V1`
-- Map priors: `MapTR`-style vectorized public priors
-- Teacher bootstrap: optional cached external LiDAR teacher path, starting with public `CenterPoint-PointPillar` style teachers
+- Lane and map supervision: `OpenLane V1` plus `MapTRv2`-style vectorized public priors
+- Teacher bootstrap: optional cached external LiDAR teacher path, starting with public
+  `CenterPoint` / `PointPillars`-style teachers
 - Deployment validation: ONNX export and TensorRT engine build for the exportable core
 - Experiment tracking: optional W&B logging for baselines, gates, and research-loop recipes
+- Legacy sparse-query measurements: retained only as comparison evidence while the reset stack is scaffolded
 
-## Measured Results
+## Legacy Sparse-Query Measurements
 
 RTX 5000 latency, batch size `1`, image size `256x704`:
 
@@ -91,7 +105,9 @@ RTX 5000 latency, batch size `1`, image size `256x704`:
 | Exportable core, PyTorch FP16 | 7.492 | 7.650 |
 | Exportable core, TensorRT FP16-enabled engine | 0.785 | 0.795 |
 
-The latency measurements are summarized in [docs/benchmarks/rtx5000.md](docs/benchmarks/rtx5000.md). The TensorRT result applies to the current exportable core only, not the full end-to-end multimodal pipeline.
+The latency measurements are summarized in [docs/benchmarks/rtx5000.md](docs/benchmarks/rtx5000.md).
+The TensorRT result applies to the current exportable core only, not the full end-to-end multimodal
+pipeline.
 
 Latest completed teacher-backed bounded `nuScenes v1.0-mini` sweep:
 
@@ -145,6 +161,17 @@ That benchmark and the audited cache import are documented in
 
 Primary references include:
 
+- [BEVFusion](https://github.com/mit-han-lab/bevfusion)
+- [OpenPCDet](https://github.com/open-mmlab/OpenPCDet)
+- [BEVDet / BEVDepth](https://github.com/HuangJunJie2017/BEVDet)
+- [MapTR / MapTRv2](https://github.com/hustvl/MapTR)
+- [PersFormer](https://github.com/OpenDriveLab/PersFormer_3DLane)
+- [DINOv2](https://github.com/facebookresearch/dinov2)
+- [DINOv3](https://github.com/facebookresearch/dinov3)
+- [EfficientViT](https://github.com/mit-han-lab/efficientvit)
+- [MIT HAN Lab OFA](https://hanlab.mit.edu/projects/ofa)
+- [MIT HAN Lab AMC](https://hanlab.mit.edu/projects/amc)
+- [MIT HAN Lab HAQ](https://hanlab.mit.edu/projects/haq)
 - [DETR3D](https://proceedings.mlr.press/v164/wang22b.html)
 - [PETR / PETRv2](https://github.com/megvii-research/PETR)
 - [StreamPETR](https://github.com/exiawsh/StreamPETR)
@@ -155,9 +182,8 @@ Primary references include:
 - [BEVDistill](https://arxiv.org/abs/2211.09386)
 - [PillarNet](https://github.com/VISION-SJTU/PillarNet)
 - [CMT](https://github.com/junjie18/CMT)
-- [BEVFusion](https://arxiv.org/abs/2205.13542)
-- [MapTR](https://github.com/hustvl/MapTR)
 - [HotBEV](https://proceedings.neurips.cc/paper_files/paper/2023/file/081b08068e4733ae3e7ad019fe8d172f-Paper-Conference.pdf)
+- [NVIDIA DeepStream DS3D BEVFusion docs](https://docs.nvidia.com/metropolis/deepstream/7.1/text/DS_3D_MultiModal_Lidar_Camera_BEVFusion.html)
 
 The full source map is in [docs/reference-matrix.md](docs/reference-matrix.md).
 
@@ -171,6 +197,7 @@ The full source map is in [docs/reference-matrix.md](docs/reference-matrix.md).
 - [Scaling gates](docs/scaling-gates.md)
 - [Teacher bootstrap](docs/teacher-bootstrap.md)
 - [OpenPCDet CenterPoint teacher runbook](docs/openpcdet-centerpoint-teacher.md)
+- [Dense-BEV reset stack](docs/stack-reset.md)
 - [Reference matrix](docs/reference-matrix.md)
 - [Public baseline workflow](docs/training-baselines.md)
 - [Implementation plan](docs/plan.md)
@@ -209,6 +236,15 @@ uv run tsqbev check-data --dataset-root /path/to/dataset/root
 ```
 
 The full workflow for `nuScenes` and `OpenLane` is documented in [docs/training-baselines.md](docs/training-baselines.md). Full `v1.0-trainval` accuracy is not published yet; the repo currently reports measured `v1.0-mini` results only.
+
+Inspect the dense-BEV reset recommendation and the local migration gap directly from the CLI:
+
+```bash
+uv run tsqbev reset-stack --report-format markdown
+uv run tsqbev reset-gap-report
+uv run tsqbev upstream-registry
+uv run tsqbev check-upstream-stack --projects-root /home/achbogga/projects
+```
 
 The repo now also has a dedicated tiny-subset overfit gate for `nuScenes`, which evaluates the
 exact same fixed token subset used for training:
@@ -317,5 +353,6 @@ uv run tsqbev trt-bench
 - optional external LiDAR teacher cache/provider scaffolding added and tested
 - external OpenPCDet `CenterPoint-PointPillar` teacher verified at `0.4997 NDS` on `mini_val`
 - teacher-seed replacement ablation recorded; current verdict is regression and needs redesign
+- dense-BEV reset contracts, upstream registry, and local readiness/gap reports are now implemented
 - bounded mini-dataset research loop enabled via `program.md`
 - research loop upgraded to staged baseline/explore/exploit with `results.tsv`, per-run `manifest.json`, and machine-readable `scale_gate_verdict`

@@ -5,6 +5,10 @@
 Prevent premature 10x-compute scale-up by requiring strong, measured evidence that the current
 direction is both learnable and improving for the right reasons.
 
+This contract currently describes the legacy sparse-query line and its associated evidence. The
+dense-BEV reset stack will inherit a separate scale contract once it is reproduced from public
+upstreams.
+
 ## Current Measured Status
 
 As of the bounded `nuScenes v1.0-mini` sweep recorded under `artifacts/research_v3/`:

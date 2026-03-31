@@ -2,7 +2,8 @@
 
 ## Purpose
 
-`tsqbev-poc` is a public-facing proof-of-concept repo for a production-minded multimodal temporal sparse-query BEV system.
+`tsqbev-poc` is a public-facing proof-of-concept repo for a production-minded multimodal BEV
+system.
 
 The repo is meant to:
 
@@ -14,6 +15,23 @@ The repo is meant to:
 
 The repo is not a final large-scale production training system.
 It is a focused open-source POC for public datasets and deployable research artifacts.
+The current codebase is now being migrated from the legacy sparse-query line toward a dense BEV
+fusion reset stack built from public upstreams.
+
+## Reset Target Stack
+
+The new primary target is a dense-BEV fusion stack with public upstream support:
+
+- LiDAR BEV encoder: `OpenPCDet` / `CenterPoint-PointPillar`
+- camera BEV encoder: `BEVDet` / `BEVDepth`
+- fusion trunk: `BEVFusion`
+- detection head: `CenterHead`-style dense detection
+- lane / map head: `MapTRv2`-style vector output on the shared BEV
+- efficiency branch: `EfficientViT`, then `OFA` / `AMC` / `HAQ`
+- optional dense priors: `DINOv2` / `DINOv3`
+
+The legacy sparse-query line remains in this repo as comparison evidence and a fallback benchmark,
+but it is no longer the primary architecture target.
 
 ## Standing Research Directives
 
@@ -36,6 +54,8 @@ integration cost, uncertainty, and evidence gain before more time or compute is 
 - The public `nuScenes` data is present under `/home/achbogga/projects/research/nuscenes`.
 - Real-data `nuScenes` readiness checks pass.
 - A float32 real-data smoke run on the RTX 5000 completed successfully on a tiny subset, which confirmed the loader and training path are functional on real data.
+- The repo is now in migration state: the legacy sparse-query line remains documented and measured,
+  but the primary target is a public dense-BEV fusion stack.
 - The active local research contract is now bounded `nuScenes v1.0-mini`, not full `v1.0-trainval`.
 - The first bounded `v1.0-mini` sweep established a functioning public baseline but remained near-zero on official metrics.
 - The strengthened bounded `v1.0-mini` sweep fixed the routed query-bank collapse and changed recipe selection to official `mini_val` `NDS`, then `mAP`, then loss.
@@ -147,9 +167,9 @@ integration cost, uncertainty, and evidence gain before more time or compute is 
 - Public-data work should stay measured and reproducible.
 - Local tuning should use `v1.0-mini` first and only promote after recorded evidence.
 
-## System Goal
+## Legacy System Goal
 
-Build a multimodal temporal sparse-query detector with:
+The historical implementation goal was to build a multimodal temporal sparse-query detector with:
 
 - LiDAR grounding for 3D object depth and anchors
 - camera semantics for object refinement and lane reasoning
@@ -158,7 +178,7 @@ Build a multimodal temporal sparse-query detector with:
 - distillation designed in from day one
 - graceful fallback behavior when LiDAR is degraded or absent
 
-## Primary Model Design
+## Legacy Model Design
 
 ### Modalities
 

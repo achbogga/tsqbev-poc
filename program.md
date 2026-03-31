@@ -21,6 +21,10 @@ These instructions are durable repo policy, not one-off chat guidance.
   pretrained backbones, query design, multimodal fusion, and deployment tradeoffs
 - treat KD as a broad menu, not a single method: logits, feature, `1x1` alignment, relational,
   online, mutual, self-distillation, and teacher-anchor transfer are all in scope
+- if a public dense-BEV upstream stack is better supported than the current custom path, pivot to
+  it rather than deepening the custom sparse-query line
+- treat BEVFusion, OpenPCDet, BEVDet / BEVDepth, MapTRv2, EfficientViT, DINOv2 / DINOv3, and
+  MIT HAN Lab compression methods as first-class candidates
 - prefer the highest-ROI falsifiable change first, not the most fashionable or largest one
 - fix small blockers immediately when they are clearly slowing the loop
 - do not stop after one run if the next step is clear and bounded
@@ -61,11 +65,17 @@ Before any invocation:
 
 ## In-Scope Surface
 
-The bounded loop is intentionally narrower than the official `autoresearch` baseline.
+The bounded loop is intentionally narrower than the official `autoresearch` baseline, and the
+active architecture search target is now a dense-BEV fusion stack rather than the legacy
+sparse-query prototype.
 
 Allowed mutation surfaces:
 
-- sparse query-budget allocation across LiDAR / proposal / global seeds
+- LiDAR BEV encoder family
+- camera BEV encoder family
+- BEV fusion trunk choice
+- detection head choice
+- lane / map head choice
 - compact pretrained image-backbone family
 - pretrained image-backbone freeze policy
 - learning rate
@@ -98,6 +108,8 @@ Follow the strongest transferable ideas from `karpathy/autoresearch`, adapted to
 - advance only when official metrics improve
 - preserve failed runs in the ledger instead of deleting evidence
 - record the active bottleneck and token-burn score for each direction under investigation
+- keep the legacy sparse-query line only as a bounded comparison control unless the dense-BEV
+  reset is clearly worse on the same evidence
 
 The active local loop shape is:
 

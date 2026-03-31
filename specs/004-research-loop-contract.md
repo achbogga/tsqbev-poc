@@ -16,6 +16,8 @@ The loop must be run with first-principles skepticism:
 - refresh the design space with primary papers, official repos, and official weights when
   progress stalls, especially for KD, teacher-student design, pretrained backbones, query design,
   multimodal fusion, and deployment tradeoffs
+- if a public dense-BEV upstream stack is materially better supported than the current custom
+  sparse-query line, treat that reset as the main search direction
 
 The loop must treat KD as a menu of candidate mechanisms, not a single checkbox. Candidate
 directions include logits, feature, lightweight `1x1` alignment, relational, online, mutual,
@@ -58,13 +60,14 @@ current intervention.
 - fixed comparable train budget per recipe: `max_train_steps = 960`
 - loop shape:
   - baseline or carry-over incumbent recheck
+  - dense-BEV reset baselines when available
   - paired teacher-off versus teacher-on comparison when a teacher cache is available
   - bounded exploration
   - bounded exploitation derived from the current incumbent
 
 ## Allowed Recipe Changes
 
-- sparse query-budget allocation across seed sources
+- dense-BEV architecture choices across LiDAR, camera, fusion, detection, and lane/map heads
 - compact pretrained image-backbone family
 - pretrained image-backbone freeze policy
 - optional cache-backed external teacher provider

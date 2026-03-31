@@ -24,11 +24,13 @@ from tsqbev.data_checks import check_nuscenes_root, check_openlane_root
 from tsqbev.eval_nuscenes import evaluate_nuscenes_predictions, export_nuscenes_predictions
 from tsqbev.eval_openlane import evaluate_openlane_predictions, export_openlane_predictions
 from tsqbev.export import export_core_to_onnx
+from tsqbev.gap_analysis import analyze_reset_gap
 from tsqbev.latency import LatencyPredictor, features_from_config
 from tsqbev.model import TSQBEVModel
 from tsqbev.openpcdet_env import check_openpcdet_environment
 from tsqbev.overfit import run_nuscenes_overfit_gate
 from tsqbev.research import run_bounded_research_loop
+from tsqbev.reset_stack import recommended_reset_plan, render_reset_plan_markdown, upstream_registry
 from tsqbev.runtime import benchmark_forward, run_eval_step, run_train_step
 from tsqbev.synthetic import make_synthetic_batch
 from tsqbev.teacher_audit import audit_nuscenes_teacher_cache
@@ -36,6 +38,7 @@ from tsqbev.teacher_backends import TeacherProviderConfig
 from tsqbev.teacher_import import cache_nuscenes_detection_results
 from tsqbev.train import fit_nuscenes, fit_openlane
 from tsqbev.trt import run_trt_benchmark
+from tsqbev.upstream_readiness import check_upstream_stack
 
 
 def smoke() -> None:
@@ -92,6 +95,26 @@ def trt_bench_smoke() -> None:
             steps=50,
         )
     )
+
+
+def reset_stack_report(report_format: str) -> None:
+    if report_format == "markdown":
+        print(render_reset_plan_markdown())
+        return
+    plan = recommended_reset_plan()
+    print(plan.to_dict())
+
+
+def reset_gap_report() -> None:
+    print(analyze_reset_gap().to_dict())
+
+
+def upstream_registry_report() -> None:
+    print([component.to_dict() for component in upstream_registry()])
+
+
+def upstream_stack_report(projects_root: Path) -> None:
+    print([status.to_dict() for status in check_upstream_stack(projects_root)])
 
 
 def _model_for_export(default_config: ModelConfig, checkpoint: Path | None) -> TSQBEVModel:
@@ -169,6 +192,10 @@ def _make_parser() -> argparse.ArgumentParser:
             "export-openlane",
             "eval-openlane",
             "research-loop",
+            "reset-stack",
+            "reset-gap-report",
+            "upstream-registry",
+            "check-upstream-stack",
         ),
     )
     parser.add_argument("--dataset-root", type=Path, default=None)
@@ -279,6 +306,16 @@ def _make_parser() -> argparse.ArgumentParser:
     parser.add_argument("--teacher-cache-dir", type=Path, default=None)
     parser.add_argument("--teacher-checkpoint", type=Path, default=None)
     parser.add_argument(
+        "--projects-root",
+        type=Path,
+        default=Path("/home/achbogga/projects"),
+    )
+    parser.add_argument(
+        "--report-format",
+        choices=("json", "markdown"),
+        default="json",
+    )
+    parser.add_argument(
         "--openpcdet-repo-root",
         type=Path,
         default=Path("/home/achbogga/projects/OpenPCDet_official"),
@@ -310,6 +347,18 @@ def main() -> None:
         return
     if args.command == "latency":
         latency_smoke()
+        return
+    if args.command == "reset-stack":
+        reset_stack_report(args.report_format)
+        return
+    if args.command == "reset-gap-report":
+        reset_gap_report()
+        return
+    if args.command == "upstream-registry":
+        upstream_registry_report()
+        return
+    if args.command == "check-upstream-stack":
+        upstream_stack_report(args.projects_root)
         return
     if args.command == "check-data":
         if args.dataset_root is None:

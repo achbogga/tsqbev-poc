@@ -1,8 +1,10 @@
-# Spec 002: Model Contract
+# Spec 002: Legacy Sparse-Query Model Contract
 
 ## Goal
 
-Implement a minimal multimodal temporal sparse-query system with evidence-backed design choices.
+Document the legacy sparse-query system that remains in the repo as comparison evidence while the
+reset stack is being migrated to a dense BEV fusion architecture. The new target stack is defined
+in [Spec 008](./008-dense-bev-reset.md).
 
 ## Fixed v1 Decisions
 
