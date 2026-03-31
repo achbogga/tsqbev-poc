@@ -9,6 +9,7 @@ CONFIG_REL="${CONFIG_REL:-configs/nuscenes/det/transfusion/secfpn/camera+lidar/s
 CHECKPOINT_PATH="${CHECKPOINT_PATH:-pretrained/bevfusion-det.pth}"
 EVAL_KIND="${EVAL_KIND:-bbox}"
 TSQBEV_ROOT="${TSQBEV_ROOT:-/home/achbogga/projects/tsqbev-poc}"
+CFG_OPTIONS="${CFG_OPTIONS:-data.test.samples_per_gpu=1 data.samples_per_gpu=1}"
 
 if [[ ! -d "${BEVFUSION_ROOT}" ]]; then
   echo "missing BEVFusion repo at ${BEVFUSION_ROOT}" >&2
@@ -32,7 +33,13 @@ docker run --rm --gpus all --shm-size 16g \
     python -m pip install ninja && \
     python /workspace/tsqbev-poc/research/scripts/build_bevfusion_feature_decorator_ext.py \
       --bevfusion-root /workspace/bevfusion && \
+    python /workspace/tsqbev-poc/research/scripts/patch_bevfusion_depth_lss.py \
+      --bevfusion-root /workspace/bevfusion && \
+    python /workspace/tsqbev-poc/research/scripts/patch_bevfusion_checkpoint.py \
+      --input /workspace/bevfusion/${CHECKPOINT_PATH} \
+      --output /workspace/bevfusion/pretrained/bevfusion-det.depthlss-compat.pth && \
     torchpack dist-run -np ${NUM_GPUS} python tools/test.py \
       ${CONFIG_REL} \
-      ${CHECKPOINT_PATH} \
-      --eval ${EVAL_KIND}"
+      pretrained/bevfusion-det.depthlss-compat.pth \
+      --eval ${EVAL_KIND} \
+      --cfg-options ${CFG_OPTIONS}"
