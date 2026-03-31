@@ -11,6 +11,7 @@ Primary sources:
 - <https://github.com/mit-han-lab/bevfusion/blob/main/docker/Dockerfile>
 - <https://github.com/mit-han-lab/bevfusion/blob/main/configs/nuscenes/default.yaml>
 - <https://github.com/mit-han-lab/bevfusion/issues/569>
+- <https://zenodo.org/records/15667707>
 - <https://docs.nvidia.com/metropolis/deepstream/7.1/text/DS_3D_MultiModal_Lidar_Camera_BEVFusion.html>
 
 ## Contract
@@ -38,6 +39,17 @@ Primary sources:
 - Treat the nuScenes map-expansion bundle as a hard prerequisite for both detection and
   segmentation reproduction, because BEVFusion's shared nuScenes pipeline instantiates
   `NuScenesMap` even for the detection config inherited from `configs/nuscenes/default.yaml`.
+- The public map-expansion recovery path may use the official nuScenes mirror at
+  `https://zenodo.org/records/15667707`, but the repo must keep citing the upstream BEVFusion and
+  nuScenes sources that make the dependency necessary.
+- The repo-local eval wrapper may build `feature_decorator_ext` as a compatibility step because
+  the archived upstream `setup.py` omits that extension from `ext_modules` even though
+  `mmdet3d.ops.__init__` imports it unconditionally.
+- The repo-local eval wrapper may prepend compatibility shims for import-only dependencies that are
+  not used by the chosen camera+lidar config, such as `flash_attn` and `numba`, as long as those
+  shims fail loudly if a radar or JIT-dependent path is actually instantiated.
+- Repo-local compatibility shims may also supply minimal interpreter startup fixes for archived
+  dependency combinations, such as restoring `numpy.long` for older codepaths.
 - This repo must not patch the archived BEVFusion source tree just to make eval work.
 - The repo-local ann-file helper may be used, but it must:
   - use the official upstream converter and split logic
@@ -53,6 +65,8 @@ The BEVFusion reproduction path is considered operational only when all of these
 - repo-local ann-file generation succeeds on local nuScenes data
 - official pretrained checkpoints download successfully
 - the official nuScenes detection eval command runs to completion locally
+- the repo-local compatibility build for `feature_decorator_ext` succeeds when the upstream image
+  does not already contain that artifact
 
 The reset stack should not be declared reproduced until the local report records:
 

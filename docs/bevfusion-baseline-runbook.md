@@ -10,6 +10,7 @@ Primary sources:
 - [BEVFusion nuScenes config contract](https://github.com/mit-han-lab/bevfusion/blob/main/configs/nuscenes/default.yaml)
 - [Archived official issue on the `create_data.py` failure mode](https://github.com/mit-han-lab/bevfusion/issues/569)
 - [nuScenes devkit releases](https://github.com/nutonomy/nuscenes-devkit/releases)
+- [nuScenes map expansion bundle mirror](https://zenodo.org/records/15667707)
 - [NVIDIA DeepStream DS3D BEVFusion docs](https://docs.nvidia.com/metropolis/deepstream/7.1/text/DS_3D_MultiModal_Lidar_Camera_BEVFusion.html)
 
 ## Why This Exists
@@ -44,14 +45,20 @@ path, citing `25 FPS` on Jetson Orin.
 - Docker is installed and working.
 - NVIDIA container support is installed and container GPU access works.
 - nuScenes is extracted at `/mnt/storage/research/nuscenes`.
-- The dataset root already contains `samples`, `sweeps`, `maps`, and `v1.0-trainval`.
+- The dataset root already contains `samples`, `sweeps`, `maps`, `maps/{basemap,expansion,prediction}`,
+  and `v1.0-trainval`.
 - The remaining prep step before official eval is creating the exact
   `nuscenes_infos_train.pkl` / `nuscenes_infos_val.pkl` files expected by BEVFusion configs.
-- The current dataset root is still missing the official nuScenes map-expansion bundle under
-  `maps/{basemap,expansion,prediction}`. Per the nuScenes devkit release notes, the official map
-  expansion supplies these assets, and BEVFusion's shared nuScenes pipeline instantiates
-  `NuScenesMap` even for the detection config. That means detection and segmentation reproduction
-  are both blocked until those assets are present.
+- The official nuScenes map-expansion bundle was downloaded from the public Zenodo mirror linked
+  above and extracted into `maps/{basemap,expansion,prediction}`. This was a hard prerequisite
+  because BEVFusion's shared nuScenes pipeline instantiates `NuScenesMap` even for the detection
+  config inherited from `configs/nuscenes/default.yaml`.
+- The archived upstream `setup.py` omits `feature_decorator_ext` from its compiled extension list,
+  while `mmdet3d.ops.__init__` imports it unconditionally. This repo's eval wrapper builds that
+  missing compatibility extension before calling `tools/test.py`.
+- The archived import surface also pulls in `flash_attn` and `numba` through unused codepaths for
+  the selected non-radar config. The repo-local eval wrapper prepends compatibility shims for
+  those imports so the published camera+lidar baseline can load without patching upstream source.
 
 ## Why The Repo Uses A Helper Instead Of `tools/create_data.py`
 
@@ -114,7 +121,16 @@ Prepare ann files:
 cd /home/achbogga/projects/tsqbev-poc
 BEVFUSION_ROOT=/home/achbogga/projects/bevfusion \
 DATASET_ROOT=/mnt/storage/research/nuscenes \
+INFO_MODE=eval-only \
   ./research/scripts/run_bevfusion_nuscenes_prep.sh
+```
+
+Download the official map expansion if `maps/{basemap,expansion,prediction}` is still missing:
+
+```bash
+cd /home/achbogga/projects/tsqbev-poc
+DATASET_ROOT=/mnt/storage/research/nuscenes \
+  ./research/scripts/download_nuscenes_map_expansion.sh
 ```
 
 Download checkpoints:
@@ -123,6 +139,21 @@ Download checkpoints:
 cd /home/achbogga/projects/tsqbev-poc
 BEVFUSION_ROOT=/home/achbogga/projects/bevfusion \
   ./research/scripts/run_bevfusion_download_pretrained.sh
+```
+
+The eval wrapper will prepend the repo-local compat path and build the missing
+`feature_decorator_ext` compatibility module automatically. If you need to do it explicitly:
+
+```bash
+docker run --rm --gpus all --shm-size 16g \
+  -v /home/achbogga/projects/bevfusion:/workspace/bevfusion \
+  -v /home/achbogga/projects/tsqbev-poc:/workspace/tsqbev-poc \
+  -w /workspace/bevfusion \
+  tsqbev-bevfusion-official:latest \
+  /bin/bash -lc "export PYTHONPATH=/workspace/tsqbev-poc/compat:/workspace/bevfusion:\$PYTHONPATH && \
+    python -m pip install ninja && \
+    python /workspace/tsqbev-poc/research/scripts/build_bevfusion_feature_decorator_ext.py \
+      --bevfusion-root /workspace/bevfusion"
 ```
 
 Evaluate detection:

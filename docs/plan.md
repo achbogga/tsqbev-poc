@@ -58,10 +58,14 @@ integration cost, uncertainty, and evidence gain before more time or compute is 
 - The official BEVFusion Docker workflow is now codified in this repo with a dedicated readiness
   checker, runbook, and helper scripts, because the host Python version is outside BEVFusion's
   official runtime range.
-- The current BEVFusion reproduction blocker is now explicit and evidence-backed: the local
-  `nuScenes` dataset root is still missing the official map-expansion bundle under
-  `maps/{basemap,expansion,prediction}`, and BEVFusion's shared nuScenes pipeline constructs
-  `NuScenesMap` even for the detection config.
+- The local `nuScenes` dataset root now includes the official map-expansion bundle under
+  `maps/{basemap,expansion,prediction}`.
+- The archived BEVFusion runtime import blockers are now neutralized in the repo-local eval
+  wrapper: missing `feature_decorator_ext`, unused `flash_attn` imports, and broken archived
+  `numba` / `numpy` interactions for the selected non-radar baseline.
+- The current BEVFusion long pole is ann-file generation for
+  `nuscenes_infos_train.pkl` / `nuscenes_infos_val.pkl` on the full `v1.0-trainval` validation
+  split.
 - A float32 real-data smoke run on the RTX 5000 completed successfully on a tiny subset, which confirmed the loader and training path are functional on real data.
 - The repo is now in migration state: the legacy sparse-query line remains documented and measured,
   but the primary target is a public dense-BEV fusion stack.

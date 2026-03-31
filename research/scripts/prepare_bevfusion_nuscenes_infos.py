@@ -141,9 +141,16 @@ def main() -> None:
     }
 
     if args.mode == "eval-only":
-        original_samples = nusc.sample
+        filtered_samples = [sample for sample in nusc.sample if sample["scene_token"] in val_tokens]
+        original_track_iter_progress = mmcv.track_iter_progress
+
+        def _filtered_track_iter_progress(iterable: object):
+            if iterable is nusc.sample:
+                return original_track_iter_progress(filtered_samples)
+            return original_track_iter_progress(iterable)
+
         try:
-            nusc.sample = [sample for sample in original_samples if sample["scene_token"] in val_tokens]
+            mmcv.track_iter_progress = _filtered_track_iter_progress
             train_infos, val_infos = nuscenes_converter["_fill_trainval_infos"](
                 nusc,
                 set(),
@@ -153,7 +160,7 @@ def main() -> None:
                 max_radar_sweeps=args.max_sweeps,
             )
         finally:
-            nusc.sample = original_samples
+            mmcv.track_iter_progress = original_track_iter_progress
     else:
         train_infos, val_infos = nuscenes_converter["_fill_trainval_infos"](
             nusc,

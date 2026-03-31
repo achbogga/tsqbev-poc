@@ -86,6 +86,8 @@ def test_bevfusion_official_commands_embed_repo_and_dataset_paths(tmp_path: Path
 
     assert "bootstrap_bevfusion_official.sh" in commands["build_image"]
     assert "run_bevfusion_nuscenes_prep.sh" in commands["prepare_nuscenes"]
+    assert "build_bevfusion_feature_decorator_ext.py" in commands["build_feature_decorator_compat"]
+    assert "download_nuscenes_map_expansion.sh" in commands["download_map_expansion"]
     assert str(repo_root.resolve()) in commands["prepare_nuscenes"]
     assert str(dataset_root.resolve()) in commands["evaluate_detection"]
     assert "run_bevfusion_nuscenes_eval.sh" in commands["evaluate_segmentation"]
@@ -98,5 +100,7 @@ def test_bevfusion_runbook_mentions_helper_and_exact_ann_files(tmp_path: Path) -
     report = render_bevfusion_runbook_markdown(repo_root=repo_root, dataset_root=dataset_root)
 
     assert "run_bevfusion_nuscenes_prep.sh" in report
+    assert "feature_decorator" in report
+    assert "download_nuscenes_map_expansion.sh" in report
     assert "bootstrap_bevfusion_official.sh" in report
     assert "run_bevfusion_nuscenes_eval.sh" in report

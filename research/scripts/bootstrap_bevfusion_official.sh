@@ -41,6 +41,7 @@ for line in source:
     )
     if line.strip() == "ENV PATH=$CONDA_DIR/bin:$PATH":
         injected.append(line)
+        injected.append("RUN apt-get update && apt-get install -y ninja-build")
         injected.append("RUN conda create -y -n bevfusion python=3.8")
         injected.append("ENV PATH=$CONDA_DIR/envs/bevfusion/bin:$PATH")
         continue
@@ -52,6 +53,7 @@ for line in source:
             "pytorch==1.10.1 torchvision==0.11.2 torchaudio==0.10.1 cudatoolkit=11.3 "
             "-c pytorch"
         )
+        injected.append("RUN pip install ninja")
         continue
     if line.strip() == "RUN pip install mmcv==1.4.0 mmcv-full==1.4.0 mmdet==2.20.0":
         injected.append(

@@ -13,6 +13,10 @@ Primary sources:
   https://github.com/nutonomy/nuscenes-devkit/releases
 - nuScenes devkit:
   https://github.com/nutonomy/nuscenes-devkit
+- nuScenes map expansion bundle mirror:
+  https://zenodo.org/records/15667707
+- Upstream setup.py, which omits the feature_decorator extension:
+  https://github.com/mit-han-lab/bevfusion/blob/main/setup.py
 - NVIDIA DeepStream DS3D BEVFusion docs:
   https://docs.nvidia.com/metropolis/deepstream/7.1/text/DS_3D_MultiModal_Lidar_Camera_BEVFusion.html
 - NVIDIA CUDA-BEVFusion:
@@ -44,6 +48,7 @@ class BevFusionEnvStatus:
     download_pretrained_present: bool
     create_data_present: bool
     detection_config_present: bool
+    feature_decorator_ext_present: bool
     samples_present: bool
     sweeps_present: bool
     maps_present: bool
@@ -114,6 +119,9 @@ def check_bevfusion_environment(repo_root: Path, dataset_root: Path) -> BevFusio
         / "swint_v0p075"
         / "convfuser.yaml"
     ).exists()
+    feature_decorator_ext_present = any(
+        (repo_root / "mmdet3d" / "ops" / "feature_decorator").glob("feature_decorator_ext*.so")
+    )
 
     samples_present = (dataset_root / "samples").exists()
     sweeps_present = (dataset_root / "sweeps").exists()
@@ -172,6 +180,16 @@ def check_bevfusion_environment(repo_root: Path, dataset_root: Path) -> BevFusio
             "here; the repo-local helper writes the exact ann-file names expected by "
             "configs/nuscenes/default.yaml."
         )
+    if not feature_decorator_ext_present:
+        notes.append(
+            "Upstream setup.py omits feature_decorator_ext from ext_modules, so the repo-local "
+            "eval wrapper builds that missing compatibility extension before running tools/test.py."
+        )
+    notes.append(
+        "The repo-local eval wrapper prepends compat shims for non-radar BEVFusion evaluation, "
+        "including a guarded flash_attn shim, a no-op numba decorator shim, and a numpy "
+        "sitecustomize alias for np.long."
+    )
     if maps_present and not map_basemap_present:
         notes.append(
             "nuScenes maps/basemap is missing; the official devkit map expansion bundle "
@@ -215,6 +233,7 @@ def check_bevfusion_environment(repo_root: Path, dataset_root: Path) -> BevFusio
         download_pretrained_present=download_pretrained_present,
         create_data_present=create_data_present,
         detection_config_present=detection_config_present,
+        feature_decorator_ext_present=feature_decorator_ext_present,
         samples_present=samples_present,
         sweeps_present=sweeps_present,
         maps_present=maps_present,
@@ -251,13 +270,30 @@ def bevfusion_official_commands(
     prep = (
         f"cd {tsqbev_repo_root} && "
         f"BEVFUSION_ROOT={repo_root} DATASET_ROOT={dataset_root} IMAGE_TAG={image_tag} "
-        f"VERSION=v1.0-trainval MAX_SWEEPS=10 "
+        f"VERSION=v1.0-trainval INFO_MODE=eval-only MAX_SWEEPS=10 "
         f"./research/scripts/run_bevfusion_nuscenes_prep.sh"
     )
     download = (
         f"cd {tsqbev_repo_root} && "
         f"BEVFUSION_ROOT={repo_root} IMAGE_TAG={image_tag} "
         f"./research/scripts/run_bevfusion_download_pretrained.sh"
+    )
+    build_feature_decorator_compat = (
+        f"docker run --rm --gpus all --shm-size 16g "
+        f"-v {repo_root}:/workspace/bevfusion "
+        f"-v {tsqbev_repo_root}:/workspace/tsqbev-poc "
+        f"-w /workspace/bevfusion "
+        f"{image_tag} "
+        "/bin/bash -lc \"export "
+        "PYTHONPATH=/workspace/tsqbev-poc/compat:/workspace/bevfusion:\\$PYTHONPATH "
+        "&& python -m pip install ninja "
+        "&& python /workspace/tsqbev-poc/research/scripts/"
+        "build_bevfusion_feature_decorator_ext.py --bevfusion-root /workspace/bevfusion\""
+    )
+    download_map_expansion = (
+        f"cd {tsqbev_repo_root} && "
+        f"DATASET_ROOT={dataset_root} "
+        f"./research/scripts/download_nuscenes_map_expansion.sh"
     )
     evaluate = (
         f"cd {tsqbev_repo_root} && "
@@ -276,6 +312,8 @@ def bevfusion_official_commands(
     return {
         "build_image": build,
         "prepare_nuscenes": prep,
+        "build_feature_decorator_compat": build_feature_decorator_compat,
+        "download_map_expansion": download_map_expansion,
         "download_pretrained": download,
         "evaluate_detection": evaluate,
         "evaluate_segmentation": evaluate_seg,
@@ -310,6 +348,7 @@ def render_bevfusion_runbook_markdown(
         "- https://github.com/mit-han-lab/bevfusion/blob/main/configs/nuscenes/default.yaml",
         "- https://github.com/mit-han-lab/bevfusion/issues/569",
         "- https://github.com/nutonomy/nuscenes-devkit/releases",
+        "- https://zenodo.org/records/15667707",
         (
             "- https://docs.nvidia.com/metropolis/deepstream/7.1/text/"
             "DS_3D_MultiModal_Lidar_Camera_BEVFusion.html"
@@ -330,6 +369,7 @@ def render_bevfusion_runbook_markdown(
             f"- ann files present: train=`{status.train_info_present}`, "
             f"val=`{status.val_info_present}`"
         ),
+        f"- feature_decorator compat extension present: `{status.feature_decorator_ext_present}`",
         (
             f"- map expansion present: `{status.map_expansion_present}`, "
             f"basemap=`{status.map_basemap_present}`, "
@@ -356,6 +396,18 @@ def render_bevfusion_runbook_markdown(
             "",
             "```bash",
             commands["prepare_nuscenes"],
+            "```",
+            "",
+            "## Build Missing feature_decorator Compatibility Extension",
+            "",
+            "```bash",
+            commands["build_feature_decorator_compat"],
+            "```",
+            "",
+            "## Download nuScenes Map Expansion",
+            "",
+            "```bash",
+            commands["download_map_expansion"],
             "```",
             "",
             "## Download Official Checkpoints",
