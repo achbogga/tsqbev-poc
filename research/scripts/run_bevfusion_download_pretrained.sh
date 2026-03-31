@@ -13,4 +13,4 @@ docker run --rm --gpus all --shm-size 16g \
   -v "${BEVFUSION_ROOT}:/workspace/bevfusion" \
   -w /workspace/bevfusion \
   "${IMAGE_TAG}" \
-  /bin/bash -lc "python setup.py develop && bash tools/download_pretrained.sh"
+  /bin/bash -lc "bash tools/download_pretrained.sh"

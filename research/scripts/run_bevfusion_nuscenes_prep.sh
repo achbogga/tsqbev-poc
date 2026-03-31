@@ -6,6 +6,7 @@ DATASET_ROOT="${DATASET_ROOT:-/mnt/storage/research/nuscenes}"
 IMAGE_TAG="${IMAGE_TAG:-tsqbev-bevfusion-official:latest}"
 VERSION="${VERSION:-v1.0-trainval}"
 MAX_SWEEPS="${MAX_SWEEPS:-10}"
+INFO_MODE="${INFO_MODE:-eval-only}"
 TSQBEV_ROOT="${TSQBEV_ROOT:-/home/achbogga/projects/tsqbev-poc}"
 
 if [[ ! -d "${BEVFUSION_ROOT}" ]]; then
@@ -26,9 +27,9 @@ docker run --rm --gpus all --shm-size 16g \
   "${IMAGE_TAG}" \
   /bin/bash -lc "mkdir -p data && \
     ln -sfn /dataset data/nuscenes && \
-    python setup.py develop && \
     python /workspace/tsqbev-poc/research/scripts/prepare_bevfusion_nuscenes_infos.py \
       --bevfusion-root /workspace/bevfusion \
       --dataset-root /dataset \
       --version ${VERSION} \
+      --mode ${INFO_MODE} \
       --max-sweeps ${MAX_SWEEPS}"

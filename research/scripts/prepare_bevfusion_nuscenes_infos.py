@@ -13,6 +13,7 @@ Primary sources:
 from __future__ import annotations
 
 import argparse
+import ast
 import importlib
 import sys
 from pathlib import Path
@@ -30,7 +31,78 @@ def _build_parser() -> argparse.ArgumentParser:
         default="v1.0-trainval",
     )
     parser.add_argument("--max-sweeps", type=int, default=10)
+    parser.add_argument(
+        "--mode",
+        choices=("eval-only", "trainval"),
+        default="eval-only",
+        help=(
+            "Use eval-only to generate the val ann file needed by tools/test.py "
+            "without traversing every train sample."
+        ),
+    )
     return parser
+
+
+def _load_name_mapping(bevfusion_root: Path) -> dict[str, str]:
+    dataset_path = bevfusion_root / "mmdet3d" / "datasets" / "nuscenes_dataset.py"
+    module = ast.parse(dataset_path.read_text(encoding="utf-8"))
+    for node in module.body:
+        if isinstance(node, ast.ClassDef) and node.name == "NuScenesDataset":
+            for class_node in node.body:
+                if not isinstance(class_node, ast.Assign):
+                    continue
+                for target in class_node.targets:
+                    if isinstance(target, ast.Name) and target.id == "NameMapping":
+                        return ast.literal_eval(class_node.value)
+    raise RuntimeError("failed to locate NuScenesDataset.NameMapping in upstream nuscenes_dataset.py")
+
+
+def _load_converter_namespace(bevfusion_root: Path) -> dict[str, object]:
+    converter_path = bevfusion_root / "tools" / "data_converter" / "nuscenes_converter.py"
+    source = converter_path.read_text(encoding="utf-8")
+    source = source.replace("from mmdet3d.core.bbox.box_np_ops import points_cam2img\n", "")
+    source = source.replace("from mmdet3d.datasets import NuScenesDataset\n", "")
+    source = source.replace(
+        """            locs = np.array([b.center for b in boxes]).reshape(-1, 3)\n"""
+        """            dims = np.array([b.wlh for b in boxes]).reshape(-1, 3)\n"""
+        """            rots = np.array([b.orientation.yaw_pitch_roll[0]\n"""
+        """                             for b in boxes]).reshape(-1, 1)\n""",
+        """            locs = np.array([anno['translation'] for anno in annotations]).reshape(-1, 3)\n"""
+        """            dims = np.array([anno['size'] for anno in annotations]).reshape(-1, 3)\n"""
+        """            rots = np.array([\n"""
+        """                Quaternion(anno['rotation']).yaw_pitch_roll[0] for anno in annotations\n"""
+        """            ]).reshape(-1, 1)\n""",
+    )
+    source = source.replace(
+        """            names = [b.name for b in boxes]\n""",
+        """            names = [anno['category_name'] for anno in annotations]\n""",
+    )
+    source = source.replace(
+        """            for i in range(len(boxes)):\n""",
+        """            for i in range(len(annotations)):\n""",
+    )
+    source = source.replace(
+        """            assert len(gt_boxes) == len(\n"""
+        """                annotations), f'{len(gt_boxes)}, {len(annotations)}'\n""",
+        "",
+    )
+
+    def _points_cam2img_unused(*args: object, **kwargs: object) -> None:
+        raise RuntimeError(
+            "points_cam2img should not be reached when generating nuscenes_infos_train/val.pkl"
+        )
+
+    class _NuScenesDatasetShim:
+        NameMapping = _load_name_mapping(bevfusion_root)
+
+    namespace: dict[str, object] = {
+        "__file__": str(converter_path),
+        "__name__": "tsqbev_prepare_nuscenes_converter",
+        "points_cam2img": _points_cam2img_unused,
+        "NuScenesDataset": _NuScenesDatasetShim,
+    }
+    exec(compile(source, str(converter_path), "exec"), namespace)
+    return namespace
 
 
 def main() -> None:
@@ -44,10 +116,10 @@ def main() -> None:
     mmcv = importlib.import_module("mmcv")  # type: ignore
     NuScenes = importlib.import_module("nuscenes.nuscenes").NuScenes  # type: ignore[attr-defined]
     splits = importlib.import_module("nuscenes.utils.splits")  # type: ignore
-    nuscenes_converter = importlib.import_module("tools.data_converter.nuscenes_converter")
+    nuscenes_converter = _load_converter_namespace(bevfusion_root)
 
     nusc = NuScenes(version=args.version, dataroot=str(dataset_root), verbose=True)
-    available_scenes = nuscenes_converter.get_available_scenes(nusc)
+    available_scenes = nuscenes_converter["get_available_scenes"](nusc)
     available_scene_names = [scene["name"] for scene in available_scenes]
 
     if args.version == "v1.0-trainval":
@@ -68,14 +140,29 @@ def main() -> None:
         if name in available_scene_names
     }
 
-    train_infos, val_infos = nuscenes_converter._fill_trainval_infos(  # type: ignore[attr-defined]
-        nusc,
-        train_tokens,
-        val_tokens,
-        False,
-        max_sweeps=args.max_sweeps,
-        max_radar_sweeps=args.max_sweeps,
-    )
+    if args.mode == "eval-only":
+        original_samples = nusc.sample
+        try:
+            nusc.sample = [sample for sample in original_samples if sample["scene_token"] in val_tokens]
+            train_infos, val_infos = nuscenes_converter["_fill_trainval_infos"](
+                nusc,
+                set(),
+                val_tokens,
+                False,
+                max_sweeps=args.max_sweeps,
+                max_radar_sweeps=args.max_sweeps,
+            )
+        finally:
+            nusc.sample = original_samples
+    else:
+        train_infos, val_infos = nuscenes_converter["_fill_trainval_infos"](
+            nusc,
+            train_tokens,
+            val_tokens,
+            False,
+            max_sweeps=args.max_sweeps,
+            max_radar_sweeps=args.max_sweeps,
+        )
 
     metadata = {"version": args.version}
     mmcv.dump(
@@ -91,6 +178,7 @@ def main() -> None:
         {
             "dataset_root": str(dataset_root),
             "version": args.version,
+            "mode": args.mode,
             "train_samples": len(train_infos),
             "val_samples": len(val_infos),
             "train_path": str(dataset_root / "nuscenes_infos_train.pkl"),
