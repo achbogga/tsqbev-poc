@@ -4,5 +4,8 @@ from __future__ import annotations
 
 import numpy as np
 
-if not hasattr(np, "long"):
+if "long" not in np.__dict__:
     np.long = np.int_
+
+if "bool" not in np.__dict__:
+    np.bool = np.bool_

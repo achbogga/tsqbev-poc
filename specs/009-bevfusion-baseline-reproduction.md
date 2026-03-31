@@ -50,6 +50,9 @@ Primary sources:
   shims fail loudly if a radar or JIT-dependent path is actually instantiated.
 - Repo-local compatibility shims may also supply minimal interpreter startup fixes for archived
   dependency combinations, such as restoring `numpy.long` for older codepaths.
+- Repo-local compatibility shims may also restore other removed NumPy aliases still referenced by
+  the archived upstream, such as `numpy.bool`, as long as those aliases map to the modern scalar
+  equivalents.
 - The repo-local reproduction path may patch archived upstream runtime inconsistencies in the
   mounted checkout at container startup when those inconsistencies prevent the official pretrained
   eval from running at all. Current allowed examples are:
@@ -57,6 +60,9 @@ Primary sources:
     emitted by the archived pipeline on this workstation
   - writing a derived compatibility checkpoint that preserves pretrained scalar-depth weights in
     channel `0` and zero-initializes the added feature channels
+  - teaching `NuScenesDataset` to expose raw radar metadata only when the active pipeline actually
+    includes `LoadRadarPointsMultiSweeps`, so non-radar segmentation pipelines do not receive an
+    incompatible `dict` in place of processed radar points
 - This repo must not patch the archived BEVFusion source tree just to make eval work.
 - The current local reproduction contract may force single-sample validation batches if the
   archived sparse `spconv` path is batch-unstable on this workstation and the single-sample path is
@@ -64,6 +70,8 @@ Primary sources:
 - The repo-local ann-file helper may be used, but it must:
   - use the official upstream converter and split logic
   - emit the exact ann-file names expected by `configs/nuscenes/default.yaml`
+  - inject the nuScenes log `location` into serialized infos when the archived converter omits it
+    but the archived map-segmentation pipeline requires it
   - avoid GT-database creation unless a training path explicitly needs it
 
 ## Acceptance

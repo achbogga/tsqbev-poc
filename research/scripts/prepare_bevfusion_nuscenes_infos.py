@@ -33,11 +33,12 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--max-sweeps", type=int, default=10)
     parser.add_argument(
         "--mode",
-        choices=("eval-only", "trainval"),
+        choices=("eval-only", "trainval", "location-only"),
         default="eval-only",
         help=(
             "Use eval-only to generate the val ann file needed by tools/test.py "
-            "without traversing every train sample."
+            "without traversing every train sample. Use location-only to patch "
+            "existing info files in-place with map metadata needed by segmentation."
         ),
     )
     return parser
@@ -54,7 +55,9 @@ def _load_name_mapping(bevfusion_root: Path) -> dict[str, str]:
                 for target in class_node.targets:
                     if isinstance(target, ast.Name) and target.id == "NameMapping":
                         return ast.literal_eval(class_node.value)
-    raise RuntimeError("failed to locate NuScenesDataset.NameMapping in upstream nuscenes_dataset.py")
+    raise RuntimeError(
+        "failed to locate NuScenesDataset.NameMapping in upstream nuscenes_dataset.py"
+    )
 
 
 def _load_converter_namespace(bevfusion_root: Path) -> dict[str, object]:
@@ -67,10 +70,13 @@ def _load_converter_namespace(bevfusion_root: Path) -> dict[str, object]:
         """            dims = np.array([b.wlh for b in boxes]).reshape(-1, 3)\n"""
         """            rots = np.array([b.orientation.yaw_pitch_roll[0]\n"""
         """                             for b in boxes]).reshape(-1, 1)\n""",
-        """            locs = np.array([anno['translation'] for anno in annotations]).reshape(-1, 3)\n"""
-        """            dims = np.array([anno['size'] for anno in annotations]).reshape(-1, 3)\n"""
+        """            locs = np.array([anno['translation'] for anno in annotations])"""
+        """.reshape(-1, 3)\n"""
+        """            dims = np.array([anno['size'] for anno in annotations])"""
+        """.reshape(-1, 3)\n"""
         """            rots = np.array([\n"""
-        """                Quaternion(anno['rotation']).yaw_pitch_roll[0] for anno in annotations\n"""
+        """                Quaternion(anno['rotation']).yaw_pitch_roll[0]\n"""
+        """                for anno in annotations\n"""
         """            ]).reshape(-1, 1)\n""",
     )
     source = source.replace(
@@ -105,6 +111,35 @@ def _load_converter_namespace(bevfusion_root: Path) -> dict[str, object]:
     return namespace
 
 
+def _sample_location_mapping(nusc: object) -> dict[str, str]:
+    mapping: dict[str, str] = {}
+    for sample in nusc.sample:
+        scene = nusc.get("scene", sample["scene_token"])
+        log = nusc.get("log", scene["log_token"])
+        mapping[sample["token"]] = log["location"]
+    return mapping
+
+
+def _inject_locations(infos: list[dict[str, object]], location_by_token: dict[str, str]) -> None:
+    for info in infos:
+        token = info["token"]
+        if not isinstance(token, str):
+            raise RuntimeError(f"unexpected non-string sample token in info: {token!r}")
+        location = location_by_token[token]
+        info["location"] = location
+        info["map_location"] = location
+
+
+def _patch_existing_info_file(path: Path, location_by_token: dict[str, str], mmcv: object) -> int:
+    if not path.exists():
+        return 0
+    payload = mmcv.load(path)
+    infos = payload.get("infos", [])
+    _inject_locations(infos, location_by_token)
+    mmcv.dump(payload, path)
+    return len(infos)
+
+
 def main() -> None:
     args = _build_parser().parse_args()
 
@@ -119,6 +154,7 @@ def main() -> None:
     nuscenes_converter = _load_converter_namespace(bevfusion_root)
 
     nusc = NuScenes(version=args.version, dataroot=str(dataset_root), verbose=True)
+    location_by_token = _sample_location_mapping(nusc)
     available_scenes = nuscenes_converter["get_available_scenes"](nusc)
     available_scene_names = [scene["name"] for scene in available_scenes]
 
@@ -139,6 +175,30 @@ def main() -> None:
         for name in val_scenes
         if name in available_scene_names
     }
+
+    if args.mode == "location-only":
+        train_count = _patch_existing_info_file(
+            dataset_root / "nuscenes_infos_train.pkl",
+            location_by_token,
+            mmcv,
+        )
+        val_count = _patch_existing_info_file(
+            dataset_root / "nuscenes_infos_val.pkl",
+            location_by_token,
+            mmcv,
+        )
+        print(
+            {
+                "dataset_root": str(dataset_root),
+                "version": args.version,
+                "mode": args.mode,
+                "train_samples": train_count,
+                "val_samples": val_count,
+                "train_path": str(dataset_root / "nuscenes_infos_train.pkl"),
+                "val_path": str(dataset_root / "nuscenes_infos_val.pkl"),
+            }
+        )
+        return
 
     if args.mode == "eval-only":
         filtered_samples = [sample for sample in nusc.sample if sample["scene_token"] in val_tokens]
@@ -170,6 +230,9 @@ def main() -> None:
             max_sweeps=args.max_sweeps,
             max_radar_sweeps=args.max_sweeps,
         )
+
+    _inject_locations(train_infos, location_by_token)
+    _inject_locations(val_infos, location_by_token)
 
     metadata = {"version": args.version}
     mmcv.dump(

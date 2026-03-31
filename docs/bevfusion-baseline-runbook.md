@@ -59,6 +59,9 @@ path, citing `25 FPS` on Jetson Orin.
 - The archived import surface also pulls in `flash_attn` and `numba` through unused codepaths for
   the selected non-radar config. The repo-local eval wrapper prepends compatibility shims for
   those imports so the published camera+lidar baseline can load without patching upstream source.
+- The repo-local interpreter startup shim also restores archived NumPy aliases removed by current
+  NumPy releases, specifically `np.long` and `np.bool`, because both the archived detection and
+  segmentation paths still reference them.
 - The archived `DepthLSSTransform` path is internally inconsistent on this workstation: the runtime
   data path produces a six-channel depth tensor while the pretrained checkpoint and source expect a
   one-channel stem. The repo-local eval wrapper therefore:
@@ -70,6 +73,14 @@ path, citing `25 FPS` on Jetson Orin.
   points, raw voxelization, and the single-sample sparse encoder path all work, but the batched
   sparse path fails in `spconv` with `N > 0` assertions. The eval wrapper therefore forces
   `data.test.samples_per_gpu=1` and `data.samples_per_gpu=1` for the current reproduction path.
+- The archived segmentation contract has two more runtime mismatches:
+  - the archived converter omits `location` from `nuscenes_infos_{train,val}.pkl`, but
+    `LoadBEVSegmentation` requires it to instantiate `NuScenesMap`; the repo-local prep helper now
+    injects both `location` and `map_location` from raw nuScenes log metadata
+  - the archived dataset always forwards raw radar metadata when present in the info file, even for
+    pipelines that never call `LoadRadarPointsMultiSweeps`; the repo-local eval wrapper patches the
+    mounted `NuScenesDataset` so raw radar metadata is only exposed when the active pipeline
+    actually contains the radar loader
 
 ## Reproduced Detection Result
 

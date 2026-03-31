@@ -59,6 +59,8 @@ docker run --rm --gpus all --shm-size 16g \
     python -m pip install ninja && \
     python /workspace/tsqbev-poc/research/scripts/build_bevfusion_feature_decorator_ext.py \
       --bevfusion-root /workspace/bevfusion && \
+    python /workspace/tsqbev-poc/research/scripts/patch_bevfusion_nuscenes_dataset.py \
+      --bevfusion-root /workspace/bevfusion && \
     python /workspace/tsqbev-poc/research/scripts/patch_bevfusion_depth_lss.py \
       --bevfusion-root /workspace/bevfusion && \
     python /workspace/tsqbev-poc/research/scripts/patch_bevfusion_checkpoint.py \
