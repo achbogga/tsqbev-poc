@@ -440,6 +440,41 @@ def test_exploitation_candidates_prioritize_teacher_paths_when_teacher_available
     assert candidates[1].enable_teacher_distillation is True
 
 
+def test_exploitation_candidates_do_not_repeat_active_loss_mode() -> None:
+    incumbent = research.ResearchRecipe(
+        name="carryover_recipe",
+        note="incumbent",
+        hypothesis="incumbent",
+        mutation_reason="incumbent",
+        config=ModelConfig.rtx5000_nuscenes_teacher_bootstrap(),
+        stage="baseline",
+        use_teacher_provider=True,
+        loss_mode="quality_focal",
+        enable_teacher_distillation=False,
+    )
+    incumbent_record = {
+        "recipe": incumbent.name,
+        "source_mix": {"lidar": 0.48, "proposal": 0.36, "global": 0.16},
+        "checkpoint_path": "/tmp/incumbent.pt",
+        "evaluation": _fake_eval(0.08, 0.04, car_ap_4m=0.05),
+        "val": {"total": 18.0},
+    }
+    teacher_provider = research.TeacherProviderConfig(kind="cache", cache_dir="/tmp/cache")
+
+    candidates = research._build_exploitation_recipes(
+        incumbent,
+        incumbent_record,
+        teacher_provider,
+        remaining_budget=4,
+    )
+
+    candidate_names = [candidate.name for candidate in candidates]
+    assert f"{incumbent.name}_quality_focal" not in candidate_names
+    assert f"{incumbent.name}_query_boost" in candidate_names
+    assert f"{incumbent.name}_lr_down" in candidate_names
+    assert f"{incumbent.name}_focal_hardneg" in candidate_names
+
+
 def test_scale_gate_verdict_blocks_pathological_prediction_geometry() -> None:
     promoted_record = {
         "evaluation": _fake_eval(0.02, 0.001, car_ap_4m=0.01),

@@ -687,14 +687,16 @@ def _build_exploitation_recipes(
     if teacher_provider_config is not None and incumbent_recipe.config.teacher_seed_mode == "off":
         candidates.append(_make_teacher_seed_recipe(incumbent_recipe))
         candidates.append(_make_teacher_kd_recipe(incumbent_recipe, stage="exploit"))
+    if incumbent_recipe.loss_mode != "quality_focal":
+        candidates.append(_make_quality_focal_recipe(incumbent_recipe))
     candidates.extend(
         [
-            _make_quality_focal_recipe(incumbent_recipe),
             _make_query_boost_recipe(incumbent_recipe, source_mix=source_mix),
             _make_lr_down_recipe(incumbent_recipe),
         ]
     )
-    candidates.append(_make_focal_hardneg_recipe(incumbent_recipe))
+    if incumbent_recipe.loss_mode != "focal_hardneg":
+        candidates.append(_make_focal_hardneg_recipe(incumbent_recipe))
     if incumbent_recipe.config.freeze_image_backbone:
         candidates.append(_make_unfreeze_recipe(incumbent_recipe))
     deduped: list[ResearchRecipe] = []
