@@ -89,6 +89,7 @@ class ResearchRecipe:
     num_workers: int = 4
     score_threshold: float = 0.05
     top_k: int = 112
+    init_checkpoint: str | None = None
     optimizer_schedule: Literal["cosine", "constant"] = "cosine"
     grad_clip_norm: float | None = 1.0
     keep_best_checkpoint: bool = True
@@ -241,6 +242,7 @@ def _clone_recipe(
     num_workers: int | None = None,
     score_threshold: float | None = None,
     top_k: int | None = None,
+    init_checkpoint: str | None = None,
     optimizer_schedule: Literal["cosine", "constant"] | None = None,
     grad_clip_norm: float | None = None,
     keep_best_checkpoint: bool | None = None,
@@ -271,6 +273,7 @@ def _clone_recipe(
         num_workers=recipe.num_workers if num_workers is None else num_workers,
         score_threshold=recipe.score_threshold if score_threshold is None else score_threshold,
         top_k=recipe.top_k if top_k is None else top_k,
+        init_checkpoint=recipe.init_checkpoint if init_checkpoint is None else init_checkpoint,
         optimizer_schedule=(
             recipe.optimizer_schedule if optimizer_schedule is None else optimizer_schedule
         ),
@@ -345,6 +348,11 @@ def _load_previous_incumbent(artifact_root: Path) -> ResearchRecipe | None:
         num_workers=int(selected.get("num_workers", 4)),
         score_threshold=float(selected.get("score_threshold", 0.05)),
         top_k=int(selected.get("top_k", 112)),
+        init_checkpoint=(
+            str(selected["checkpoint_path"])
+            if selected.get("checkpoint_path") is not None
+            else None
+        ),
         optimizer_schedule=cast(
             Literal["cosine", "constant"],
             selected.get("optimizer_schedule", "cosine"),
@@ -367,6 +375,88 @@ def _load_previous_incumbent(artifact_root: Path) -> ResearchRecipe | None:
         ),
         top_k_candidates=tuple(int(value) for value in selected.get("top_k_candidates", [112])),
     )
+
+
+def _load_best_ratio_passing_overfit_frontier(artifact_dir: Path) -> ResearchRecipe | None:
+    best_recipe: ResearchRecipe | None = None
+    best_key: tuple[float, float, float, float] | None = None
+    gates_root = artifact_dir / "gates"
+    if not gates_root.exists():
+        return None
+    for summary_path in sorted(gates_root.glob("*/overfit_gate/summary.json")):
+        try:
+            summary = json.loads(summary_path.read_text())
+        except json.JSONDecodeError:
+            continue
+        gate_verdict = summary.get("gate_verdict")
+        if not isinstance(gate_verdict, dict) or not bool(gate_verdict.get("passed", False)):
+            continue
+        checkpoint_path = (
+            summary.get("selected_checkpoint_path")
+            or summary.get("best_checkpoint_path")
+            or summary.get("checkpoint_path")
+        )
+        if not isinstance(checkpoint_path, str):
+            continue
+        checkpoint = Path(checkpoint_path)
+        if not checkpoint.exists():
+            continue
+        try:
+            _, payload = load_model_from_checkpoint(checkpoint)
+        except Exception:
+            continue
+        config_payload = payload.get("model_config")
+        if not isinstance(config_payload, dict):
+            continue
+        try:
+            config = ModelConfig.model_validate(config_payload)
+        except Exception:
+            continue
+        ratio = _metric_float(gate_verdict.get("train_total_ratio"), float("inf"))
+        nds = _metric_float(gate_verdict.get("nds"), -1.0)
+        mean_ap = _metric_float(gate_verdict.get("mean_ap"), -1.0)
+        car_ap = _metric_float(gate_verdict.get("car_ap_4m"), -1.0)
+        key = (nds, mean_ap, car_ap, -ratio)
+        if best_key is not None and key <= best_key:
+            continue
+        recipe_name = str(summary.get("recipe") or summary_path.parents[1].name)
+        best_key = key
+        best_recipe = ResearchRecipe(
+            name=f"carryover_{recipe_name}",
+            note="promote the passed overfit frontier into the next bounded mini-val loop",
+            hypothesis=(
+                "the passed overfit frontier should now be measured on mini_val before any new "
+                "subset-only mutations"
+            ),
+            mutation_reason=(
+                "carry forward the strongest ratio-passing overfit recipe as the new mini "
+                "baseline"
+            ),
+            config=config,
+            stage="baseline",
+            parent_recipe=recipe_name,
+            use_teacher_provider=config.teacher_seed_mode != "off",
+            batch_size=2,
+            grad_accum_steps=1,
+            lr=1e-4,
+            weight_decay=0.0,
+            epochs=6,
+            max_train_steps=960,
+            num_workers=4,
+            score_threshold=0.05,
+            top_k=64,
+            init_checkpoint=str(checkpoint),
+            optimizer_schedule="constant",
+            grad_clip_norm=5.0,
+            keep_best_checkpoint=True,
+            enable_teacher_distillation=False,
+            loss_mode="quality_focal",
+            hard_negative_ratio=3,
+            hard_negative_cap=96,
+            score_threshold_candidates=(0.05, 0.15, 0.25, 0.35),
+            top_k_candidates=(16, 32, 64),
+        )
+    return best_recipe
 
 
 def _make_teacher_kd_recipe(
@@ -394,6 +484,9 @@ def _initial_recipes(
     *,
     teacher_provider_available: bool = False,
 ) -> list[ResearchRecipe]:
+    overfit_carryover = _load_best_ratio_passing_overfit_frontier(artifact_root.parent)
+    if overfit_carryover is not None:
+        return [overfit_carryover]
     carryover = _load_previous_incumbent(artifact_root)
     if carryover is not None:
         query_boost = _make_query_boost_recipe(
@@ -633,6 +726,7 @@ def _serialize_recipe(recipe: ResearchRecipe) -> dict[str, Any]:
         "num_workers": recipe.num_workers,
         "score_threshold": recipe.score_threshold,
         "top_k": recipe.top_k,
+        "init_checkpoint": recipe.init_checkpoint,
         "optimizer_schedule": recipe.optimizer_schedule,
         "grad_clip_norm": recipe.grad_clip_norm,
         "keep_best_checkpoint": recipe.keep_best_checkpoint,
@@ -650,6 +744,8 @@ def _warm_start_checkpoint_for_recipe(
     incumbent_recipe: ResearchRecipe | None,
     incumbent_record: dict[str, Any] | None,
 ) -> str | None:
+    if recipe.init_checkpoint is not None:
+        return recipe.init_checkpoint
     if incumbent_recipe is None or incumbent_record is None:
         return None
     if recipe.stage != "exploit" or recipe.parent_recipe != incumbent_recipe.name:

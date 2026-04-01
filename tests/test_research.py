@@ -245,6 +245,54 @@ def test_initial_recipes_insert_teacher_kd_when_teacher_is_available(tmp_path: P
     assert recipes[1].config.router_mode == "anchor_first"
 
 
+def test_initial_recipes_prefer_passed_overfit_frontier(monkeypatch, tmp_path: Path) -> None:
+    artifact_dir = tmp_path / "artifacts"
+    research_root = artifact_dir / "research_loop"
+    research_root.mkdir(parents=True)
+    overfit_dir = (
+        artifact_dir
+        / "gates"
+        / "recovery_v14_teacher_anchor_quality_focal"
+        / "overfit_gate"
+    )
+    overfit_dir.mkdir(parents=True)
+    checkpoint_path = overfit_dir / "checkpoint_best.pt"
+    config = ModelConfig.rtx5000_nuscenes_teacher_bootstrap().model_copy(
+        update={"freeze_image_backbone": False}
+    )
+    checkpoint_path.write_text("checkpoint")
+    monkeypatch.setattr(
+        research,
+        "load_model_from_checkpoint",
+        lambda *args, **kwargs: (object(), {"model_config": config.model_dump()}),
+    )
+    (overfit_dir / "summary.json").write_text(
+        json.dumps(
+            {
+                "recipe": "recovery_v14_teacher_anchor_quality_focal",
+                "selected_checkpoint_path": str(checkpoint_path),
+                "gate_verdict": {
+                    "passed": True,
+                    "train_total_ratio": 0.3624,
+                    "nds": 0.1553,
+                    "mean_ap": 0.1992,
+                    "car_ap_4m": 0.4958,
+                    "nonzero_classes": 7,
+                },
+            }
+        )
+    )
+
+    recipes = research._initial_recipes(research_root, teacher_provider_available=True)
+
+    assert len(recipes) == 1
+    assert recipes[0].name == "carryover_recovery_v14_teacher_anchor_quality_focal"
+    assert recipes[0].use_teacher_provider is True
+    assert recipes[0].init_checkpoint == str(checkpoint_path)
+    assert recipes[0].loss_mode == "quality_focal"
+    assert recipes[0].enable_teacher_distillation is False
+
+
 def test_warm_start_checkpoint_for_recipe_only_applies_to_compatible_exploit_recipe() -> None:
     incumbent_recipe = research.ResearchRecipe(
         name="incumbent",
