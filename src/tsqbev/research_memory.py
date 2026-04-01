@@ -623,23 +623,106 @@ class ResearchCatalog:
         }
 
     def latest_scale_blocker(self) -> dict[str, Any] | None:
-        row = self._conn.execute(
+        rows = self._conn.execute(
             """
-            SELECT event_type, source_path, payload_json
+            SELECT recipe, event_type, source_path, payload_json
             FROM research_events
             WHERE event_type IN ('scale_gate', 'overfit_gate') AND status IN ('blocked', 'failed')
-            ORDER BY source_path DESC
-            LIMIT 1
             """
-        ).fetchone()
-        if row is None:
+        ).fetchall()
+        best: dict[str, Any] | None = None
+        best_key: tuple[float, float, float, float, float] | None = None
+        for row in rows:
+            payload = json.loads(str(row[3]))
+            ratio = _payload_train_total_ratio(payload)
+            nds = _payload_nds(payload)
+            mean_ap = _payload_mean_ap(payload)
+            car_ap = _payload_car_ap_4m(payload)
+            ratio_ok = 1.0 if ratio is not None and ratio <= 0.4 else 0.0
+            car_ok = 1.0 if car_ap is not None and car_ap > 0.0 else 0.0
+            key = (
+                ratio_ok,
+                car_ok,
+                nds if nds is not None else -1.0,
+                mean_ap if mean_ap is not None else -1.0,
+                car_ap if car_ap is not None else -1.0,
+            )
+            if best_key is None or key > best_key:
+                best_key = key
+                best = {
+                    "recipe": row[0],
+                    "event_type": row[1],
+                    "source_path": row[2],
+                    "payload": payload,
+                }
+        if best is None:
             return None
-        payload = json.loads(str(row[2]))
-        return {
-            "event_type": row[0],
-            "source_path": row[1],
-            "payload": payload,
-        }
+        return best
+
+    def best_overfit_frontier(self) -> dict[str, Any] | None:
+        rows = self._conn.execute(
+            """
+            SELECT recipe, source_path, payload_json
+            FROM research_events
+            WHERE event_type = 'overfit_gate' AND nds IS NOT NULL
+            """
+        ).fetchall()
+        best: dict[str, Any] | None = None
+        best_key: tuple[float, float, float, float] | None = None
+        for row in rows:
+            payload = json.loads(str(row[2]))
+            nds = _payload_nds(payload)
+            mean_ap = _payload_mean_ap(payload)
+            car_ap = _payload_car_ap_4m(payload)
+            car_ok = 1.0 if car_ap is not None and car_ap > 0.0 else 0.0
+            key = (
+                car_ok,
+                nds if nds is not None else -1.0,
+                mean_ap if mean_ap is not None else -1.0,
+                car_ap if car_ap is not None else -1.0,
+            )
+            if best_key is None or key > best_key:
+                best_key = key
+                best = {
+                    "recipe": row[0],
+                    "source_path": row[1],
+                    "payload": payload,
+                }
+        return best
+
+    def best_ratio_passing_overfit_frontier(self) -> dict[str, Any] | None:
+        rows = self._conn.execute(
+            """
+            SELECT recipe, source_path, payload_json
+            FROM research_events
+            WHERE event_type = 'overfit_gate' AND nds IS NOT NULL
+            """
+        ).fetchall()
+        best: dict[str, Any] | None = None
+        best_key: tuple[float, float, float, float] | None = None
+        for row in rows:
+            payload = json.loads(str(row[2]))
+            ratio = _payload_train_total_ratio(payload)
+            if ratio is None or ratio > 0.4:
+                continue
+            nds = _payload_nds(payload)
+            mean_ap = _payload_mean_ap(payload)
+            car_ap = _payload_car_ap_4m(payload)
+            car_ok = 1.0 if car_ap is not None and car_ap > 0.0 else 0.0
+            key = (
+                car_ok,
+                nds if nds is not None else -1.0,
+                mean_ap if mean_ap is not None else -1.0,
+                car_ap if car_ap is not None else -1.0,
+            )
+            if best_key is None or key > best_key:
+                best_key = key
+                best = {
+                    "recipe": row[0],
+                    "source_path": row[1],
+                    "payload": payload,
+                }
+        return best
 
     def latest_upstream_baseline(self) -> dict[str, Any] | None:
         row = self._conn.execute(
@@ -1100,6 +1183,12 @@ def _parse_summary_json(path: Path, repo_root: Path) -> list[ResearchEvent]:
     elif "subset_size" in payload and "gate_verdict" in payload:
         event_type = "overfit_gate"
         dataset = "nuScenes subset"
+        recipe = _as_opt_str(payload.get("recipe"))
+        if recipe is None:
+            try:
+                recipe = path.parent.parent.name
+            except IndexError:
+                recipe = None
         evaluation = payload.get("evaluation", {})
         if isinstance(evaluation, dict):
             nds = _safe_float(evaluation.get("nd_score"))
@@ -1197,6 +1286,67 @@ def _derive_memory_facts(events: list[ResearchEvent], repo_root: Path) -> list[M
                 kind="incumbent",
                 claim=claim,
                 confidence=0.95,
+                source_refs=[event.source_path],
+                dataset=event.dataset,
+                architecture_family=event.architecture_family,
+                bottleneck=event.root_cause_verdict,
+                git_sha=event.git_sha,
+                run_id=event.run_id,
+                payload={"recipe": event.recipe},
+            )
+        )
+
+    overfit_events = [event for event in by_type.get("overfit_gate", []) if event.nds is not None]
+    overfit_events.sort(key=lambda item: (item.nds or -1.0, item.mean_ap or -1.0), reverse=True)
+    if overfit_events:
+        event = overfit_events[0]
+        ratio = _payload_train_total_ratio(event.payload)
+        car_ap = _payload_car_ap_4m(event.payload)
+        claim = (
+            f"Best local overfit frontier is `{event.recipe}` with "
+            f"NDS `{event.nds:.4f}`, mAP `{event.mean_ap:.4f}`, "
+            f"train_total_ratio `{ratio:.4f}`, and car AP@4m `{car_ap:.4f}`."
+            if event.mean_ap is not None and ratio is not None and car_ap is not None
+            else f"Best local overfit frontier is `{event.recipe}`."
+        )
+        facts.append(
+            MemoryFact(
+                fact_id=_sha1(f"overfit:{claim}"),
+                kind="overfit_frontier",
+                claim=claim,
+                confidence=0.97,
+                source_refs=[event.source_path],
+                dataset=event.dataset,
+                architecture_family=event.architecture_family,
+                bottleneck=event.root_cause_verdict,
+                git_sha=event.git_sha,
+                run_id=event.run_id,
+                payload={"recipe": event.recipe},
+            )
+        )
+
+    ratio_events = [
+        event
+        for event in overfit_events
+        if (_payload_train_total_ratio(event.payload) or 1.0) <= 0.4
+    ]
+    ratio_events.sort(key=lambda item: (item.nds or -1.0, item.mean_ap or -1.0), reverse=True)
+    if ratio_events:
+        event = ratio_events[0]
+        ratio = _payload_train_total_ratio(event.payload)
+        claim = (
+            f"Best ratio-passing overfit candidate is `{event.recipe}` with "
+            f"NDS `{event.nds:.4f}`, mAP `{event.mean_ap:.4f}`, and "
+            f"train_total_ratio `{ratio:.4f}`."
+            if event.mean_ap is not None and ratio is not None
+            else f"Best ratio-passing overfit candidate is `{event.recipe}`."
+        )
+        facts.append(
+            MemoryFact(
+                fact_id=_sha1(f"overfit-ratio:{claim}"),
+                kind="overfit_ratio_frontier",
+                claim=claim,
+                confidence=0.97,
                 source_refs=[event.source_path],
                 dataset=event.dataset,
                 architecture_family=event.architecture_family,
@@ -1557,6 +1707,8 @@ def build_research_brief(
     catalog = _open_catalog_with_retry(cfg.catalog_path, read_only=True)
     try:
         incumbent = catalog.current_incumbent()
+        overfit_frontier = catalog.best_overfit_frontier()
+        ratio_overfit_frontier = catalog.best_ratio_passing_overfit_frontier()
         scale_blocker = catalog.latest_scale_blocker()
         upstream = catalog.latest_upstream_baseline()
         repeated = catalog.repeated_rabbit_holes()
@@ -1585,6 +1737,31 @@ def build_research_brief(
             )
         else:
             current_state.append("No promoted local incumbent is indexed yet.")
+        if overfit_frontier is not None:
+            frontier_payload = overfit_frontier["payload"]
+            frontier_nds = _payload_nds(frontier_payload)
+            frontier_map = _payload_mean_ap(frontier_payload)
+            frontier_ratio = _payload_train_total_ratio(frontier_payload)
+            frontier_car = _payload_car_ap_4m(frontier_payload)
+            current_state.append(
+                "Best local overfit frontier: "
+                f"`{overfit_frontier['recipe']}` with "
+                f"NDS `{frontier_nds:.4f}`, mAP `{frontier_map:.4f}`, "
+                f"train_total_ratio `{frontier_ratio:.4f}`, car AP@4m `{frontier_car:.4f}` "
+                f"from {_repo_link(repo_root / overfit_frontier['source_path'], repo_root)}."
+            )
+        if ratio_overfit_frontier is not None:
+            ratio_payload = ratio_overfit_frontier["payload"]
+            ratio_nds = _payload_nds(ratio_payload)
+            ratio_map = _payload_mean_ap(ratio_payload)
+            ratio_ratio = _payload_train_total_ratio(ratio_payload)
+            current_state.append(
+                "Best ratio-passing overfit candidate: "
+                f"`{ratio_overfit_frontier['recipe']}` with "
+                f"NDS `{ratio_nds:.4f}`, mAP `{ratio_map:.4f}`, "
+                f"train_total_ratio `{ratio_ratio:.4f}` "
+                f"from {_repo_link(repo_root / ratio_overfit_frontier['source_path'], repo_root)}."
+            )
         if upstream is not None:
             current_state.append(
                 "Best reproduced upstream baseline: "
@@ -1606,6 +1783,21 @@ def build_research_brief(
                 "The strongest reproduced upstream ceiling is still materially ahead of the "
                 f"local incumbent by NDS `{upstream['nds'] - incumbent['nds']:.4f}`."
             )
+        if ratio_overfit_frontier is not None:
+            ratio_payload = ratio_overfit_frontier["payload"]
+            ratio_nds = _payload_nds(ratio_payload)
+            if ratio_nds is not None:
+                nds_gap = 0.10 - ratio_nds
+                if nds_gap > 0:
+                    delta_since_last.append(
+                        "The best ratio-passing overfit candidate is now only "
+                        f"`{nds_gap:.4f}` NDS shy of the overfit quality gate."
+                    )
+                else:
+                    delta_since_last.append(
+                        "The best ratio-passing overfit candidate already clears the NDS "
+                        "threshold, so any remaining gate miss is coming from another criterion."
+                    )
         if memories:
             delta_since_last.append(
                 "Distilled memory backend returned "
@@ -1651,6 +1843,16 @@ def build_research_brief(
             evidence_refs.append(
                 "Exact incumbent evidence: "
                 f"{_repo_link(repo_root / incumbent['source_path'], repo_root)}."
+            )
+        if overfit_frontier is not None:
+            evidence_refs.append(
+                "Exact overfit frontier evidence: "
+                f"{_repo_link(repo_root / overfit_frontier['source_path'], repo_root)}."
+            )
+        if ratio_overfit_frontier is not None:
+            evidence_refs.append(
+                "Exact ratio-passing overfit evidence: "
+                f"{_repo_link(repo_root / ratio_overfit_frontier['source_path'], repo_root)}."
             )
         if upstream is not None:
             evidence_refs.append(
@@ -1880,6 +2082,48 @@ def _extract_blocker_reason(payload: dict[str, Any]) -> str:
         if ratio is not None and nds is not None:
             return f"train_total_ratio `{ratio:.4f}` and NDS `{nds:.4f}` did not clear the gate"
     return "the latest gate artifact remains blocked"
+
+
+def _payload_nds(payload: dict[str, Any]) -> float | None:
+    evaluation = payload.get("evaluation")
+    if isinstance(evaluation, dict):
+        nds = _safe_float(evaluation.get("nd_score"))
+        if nds is not None:
+            return nds
+    selected_record = payload.get("selected_record")
+    if isinstance(selected_record, dict):
+        evaluation = selected_record.get("evaluation")
+        if isinstance(evaluation, dict):
+            return _safe_float(evaluation.get("nd_score"))
+    return None
+
+
+def _payload_mean_ap(payload: dict[str, Any]) -> float | None:
+    evaluation = payload.get("evaluation")
+    if isinstance(evaluation, dict):
+        mean_ap = _safe_float(evaluation.get("mean_ap"))
+        if mean_ap is not None:
+            return mean_ap
+    selected_record = payload.get("selected_record")
+    if isinstance(selected_record, dict):
+        evaluation = selected_record.get("evaluation")
+        if isinstance(evaluation, dict):
+            return _safe_float(evaluation.get("mean_ap"))
+    return None
+
+
+def _payload_train_total_ratio(payload: dict[str, Any]) -> float | None:
+    gate_verdict = payload.get("gate_verdict")
+    if isinstance(gate_verdict, dict):
+        return _safe_float(gate_verdict.get("train_total_ratio"))
+    return None
+
+
+def _payload_car_ap_4m(payload: dict[str, Any]) -> float | None:
+    gate_verdict = payload.get("gate_verdict")
+    if isinstance(gate_verdict, dict):
+        return _safe_float(gate_verdict.get("car_ap_4m"))
+    return None
 
 
 def _semantic_citation(item: dict[str, Any], repo_root: Path) -> str:

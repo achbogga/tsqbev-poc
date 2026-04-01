@@ -89,6 +89,75 @@ def _make_repo_fixture(tmp_path: Path) -> Path:
         json.dumps(summary, indent=2),
     )
 
+    overfit_v5 = {
+        "subset_size": 32,
+        "evaluation": {"nd_score": 0.1479, "mean_ap": 0.1815},
+        "train": {"final_val_total": 12.1011},
+        "gate_verdict": {
+            "passed": False,
+            "train_total_ratio": 0.3447,
+            "nds": 0.1479,
+            "mean_ap": 0.1815,
+            "car_ap_4m": 0.0,
+            "nonzero_classes": 7,
+        },
+    }
+    _write(
+        repo_root
+        / "artifacts"
+        / "gates"
+        / "recovery_v5_teacher_anchor_hypothesis"
+        / "overfit_gate"
+        / "summary.json",
+        json.dumps(overfit_v5, indent=2),
+    )
+
+    overfit_v6 = {
+        "subset_size": 32,
+        "evaluation": {"nd_score": 0.1001, "mean_ap": 0.1391},
+        "train": {"final_val_total": 11.9342},
+        "gate_verdict": {
+            "passed": False,
+            "train_total_ratio": 0.4703,
+            "nds": 0.1001,
+            "mean_ap": 0.1391,
+            "car_ap_4m": 0.5327,
+            "nonzero_classes": 7,
+        },
+    }
+    _write(
+        repo_root
+        / "artifacts"
+        / "gates"
+        / "recovery_v6_teacher_anchor_balanced"
+        / "overfit_gate"
+        / "summary.json",
+        json.dumps(overfit_v6, indent=2),
+    )
+
+    overfit_v12 = {
+        "subset_size": 32,
+        "evaluation": {"nd_score": 0.0944, "mean_ap": 0.1339},
+        "train": {"final_val_total": 13.2811},
+        "gate_verdict": {
+            "passed": False,
+            "train_total_ratio": 0.3639,
+            "nds": 0.0944,
+            "mean_ap": 0.1339,
+            "car_ap_4m": 0.3603,
+            "nonzero_classes": 6,
+        },
+    }
+    _write(
+        repo_root
+        / "artifacts"
+        / "gates"
+        / "recovery_v12_teacher_anchor_seeded_boot12_zero"
+        / "overfit_gate"
+        / "summary.json",
+        json.dumps(overfit_v12, indent=2),
+    )
+
     upstream = {
         "checkpoint_path": "pretrained/bevfusion-det.pth",
         "config_rel": (
@@ -153,8 +222,17 @@ def test_build_research_brief_uses_indexed_state(tmp_path: Path) -> None:
     brief = build_research_brief(repo_root, config=config, persist_log=True)
 
     assert any("mini_propheavy_mbv3_frozen_query_boost" in line for line in brief.current_state)
+    assert any("recovery_v6_teacher_anchor_balanced" in line for line in brief.current_state)
+    assert any(
+        "recovery_v12_teacher_anchor_seeded_boot12_zero" in line for line in brief.current_state
+    )
+    assert all("recovery_v5_teacher_anchor_hypothesis" not in line for line in brief.current_state)
     assert any("bevfusion:convfuser" in line for line in brief.current_state)
-    assert any("Scale-up blocker" in line for line in brief.open_blockers)
+    assert any(
+        "train_total_ratio `0.3639` and NDS `0.0944`" in line
+        for line in brief.open_blockers
+    )
+    assert any("0.0056" in line for line in brief.delta_since_last)
     assert (config.reports_root / "current.md").exists()
     assert any(config.report_log_root.iterdir())
     assert all("research_memory.py" not in line for line in brief.evidence_refs)
