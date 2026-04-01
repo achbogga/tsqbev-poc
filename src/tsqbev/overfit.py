@@ -142,7 +142,7 @@ def run_nuscenes_overfit_gate(
     early_stop_patience: int | None = 8,
     early_stop_min_delta: float = 0.02,
     early_stop_min_epochs: int = 16,
-    loss_mode: Literal["baseline", "focal_hardneg"] = "baseline",
+    loss_mode: Literal["baseline", "focal_hardneg", "quality_focal"] = "baseline",
     hard_negative_ratio: int = 3,
     hard_negative_cap: int = 96,
     teacher_anchor_class_weight: float = 0.5,

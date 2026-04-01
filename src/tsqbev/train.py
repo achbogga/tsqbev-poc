@@ -128,7 +128,7 @@ def _teacher_anchor_schedule_value(
 
 def _make_detection_criterion(
     *,
-    loss_mode: Literal["baseline", "focal_hardneg"],
+    loss_mode: Literal["baseline", "focal_hardneg", "quality_focal"],
     hard_negative_ratio: int,
     hard_negative_cap: int,
     teacher_anchor_class_weight: float,
@@ -320,7 +320,7 @@ def fit_nuscenes(
     early_stop_patience: int | None = None,
     early_stop_min_delta: float = 0.0,
     early_stop_min_epochs: int = 0,
-    loss_mode: Literal["baseline", "focal_hardneg"] = "baseline",
+    loss_mode: Literal["baseline", "focal_hardneg", "quality_focal"] = "baseline",
     hard_negative_ratio: int = 3,
     hard_negative_cap: int = 96,
     teacher_anchor_class_weight: float = 0.5,

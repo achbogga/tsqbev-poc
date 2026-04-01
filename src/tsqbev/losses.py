@@ -7,6 +7,10 @@ References:
   https://openaccess.thecvf.com/content/ICCV2023/papers/Liu_PETRv2_A_Unified_Framework_for_3D_Perception_from_MultiCamera_Images_ICCV_2023_paper.pdf
 - BEVDistill teacher-guided losses:
   https://arxiv.org/abs/2211.09386
+- Generalized Focal Loss / Quality Focal Loss:
+  https://arxiv.org/abs/2006.04388
+- VarifocalNet / quality-aware ranking:
+  https://arxiv.org/abs/2008.13367
 """
 
 from __future__ import annotations
@@ -52,6 +56,25 @@ def _sigmoid_focal_loss_with_logits(
     pt = probs * targets + (1.0 - probs) * (1.0 - targets)
     alpha_t = alpha * targets + (1.0 - alpha) * (1.0 - targets)
     return alpha_t * ((1.0 - pt).clamp_min(1e-6) ** gamma) * ce
+
+
+def _quality_focal_loss_with_logits(
+    logits: Tensor,
+    targets: Tensor,
+    *,
+    beta: float = 2.0,
+) -> Tensor:
+    """Elementwise quality focal loss.
+
+    Reference:
+    - Generalized Focal Loss:
+      https://arxiv.org/abs/2006.04388
+    """
+
+    probs = logits.sigmoid()
+    ce = F.binary_cross_entropy_with_logits(logits, targets, reduction="none")
+    modulation = (probs - targets).abs().clamp_min(1e-6) ** beta
+    return ce * modulation
 
 
 def _angle_difference(pred_yaw: Tensor, target_yaw: Tensor) -> Tensor:
@@ -113,6 +136,8 @@ class DetectionSetCriterion(nn.Module):
         loss_mode: str = "baseline",
         hard_negative_ratio: int = 3,
         hard_negative_cap: int = 96,
+        quality_focal_beta: float = 2.0,
+        quality_radius_m: float = 8.0,
     ) -> None:
         super().__init__()
         self.class_weight = class_weight
@@ -126,6 +151,8 @@ class DetectionSetCriterion(nn.Module):
         self.loss_mode = loss_mode
         self.hard_negative_ratio = hard_negative_ratio
         self.hard_negative_cap = hard_negative_cap
+        self.quality_focal_beta = quality_focal_beta
+        self.quality_radius_m = quality_radius_m
 
     def set_teacher_anchor_weights(
         self,
@@ -199,6 +226,12 @@ class DetectionSetCriterion(nn.Module):
     ) -> Tensor:
         if self.loss_mode == "focal_hardneg":
             loss = _sigmoid_focal_loss_with_logits(objectness_logits, target_objectness)
+        elif self.loss_mode == "quality_focal":
+            loss = _quality_focal_loss_with_logits(
+                objectness_logits,
+                target_objectness,
+                beta=self.quality_focal_beta,
+            )
         else:
             loss = F.binary_cross_entropy_with_logits(
                 objectness_logits,
@@ -206,6 +239,17 @@ class DetectionSetCriterion(nn.Module):
                 reduction="none",
             )
         return (loss * query_mask.float()).sum() / normalizer
+
+    def _match_quality(self, pred_boxes: Tensor, target_boxes: Tensor) -> Tensor:
+        """Estimate per-match quality from BEV center distance.
+
+        nuScenes detection uses center-distance thresholds, so the first ranking
+        signal should be aligned with BEV center accuracy before adding heavier
+        box-quality machinery.
+        """
+
+        bev_distance = torch.linalg.vector_norm(pred_boxes[:, :2] - target_boxes[:, :2], dim=-1)
+        return (1.0 - bev_distance / self.quality_radius_m).clamp(0.0, 1.0)
 
     def forward(
         self,
@@ -280,9 +324,16 @@ class DetectionSetCriterion(nn.Module):
             pred_index, target_index = _linear_sum_assignment(total_cost)
             if pred_index.numel() == 0:
                 continue
+            match_quality = self._match_quality(
+                object_boxes[batch_index, pred_index],
+                target_boxes[target_index],
+            )
             target_classes[batch_index, pred_index, target_labels[target_index]] = 1.0
             if target_objectness is not None:
-                target_objectness[batch_index, pred_index] = 1.0
+                if self.loss_mode == "quality_focal":
+                    target_objectness[batch_index, pred_index] = match_quality
+                else:
+                    target_objectness[batch_index, pred_index] = 1.0
             total_box = total_box + F.smooth_l1_loss(
                 object_boxes[batch_index, pred_index], target_boxes[target_index], reduction="sum"
             )

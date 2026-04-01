@@ -45,14 +45,14 @@ def test_run_bounded_research_loop_writes_autoresearch_ledgers(
         "mini_balanced_mbv3_frozen": 21.0,
         "mini_propheavy_mbv3_frozen": 22.0,
         "mini_propheavy_effb0_frozen": 23.0,
-        "mini_propheavy_effb0_frozen_focal_hardneg": 21.25,
+        "mini_propheavy_effb0_frozen_quality_focal": 21.25,
         "mini_propheavy_effb0_frozen_query_boost": 20.0,
     }
     evals = {
         "mini_balanced_mbv3_frozen": _fake_eval(0.0, 0.0),
         "mini_propheavy_mbv3_frozen": _fake_eval(0.0, 0.0),
         "mini_propheavy_effb0_frozen": _fake_eval(0.01, 0.0),
-        "mini_propheavy_effb0_frozen_focal_hardneg": _fake_eval(0.02, 0.002),
+        "mini_propheavy_effb0_frozen_quality_focal": _fake_eval(0.02, 0.002),
         "mini_propheavy_effb0_frozen_query_boost": _fake_eval(0.03, 0.01, car_ap_4m=0.02),
     }
 
@@ -384,7 +384,7 @@ def test_exploitation_candidates_prioritize_teacher_paths_when_teacher_available
     assert [candidate.name for candidate in candidates] == [
         f"{incumbent.name}_teacher_seed",
         f"{incumbent.name}_teacher_kd",
-        f"{incumbent.name}_focal_hardneg",
+        f"{incumbent.name}_quality_focal",
     ]
     assert candidates[0].enable_teacher_distillation is False
     assert candidates[0].config.router_mode == "anchor_first"

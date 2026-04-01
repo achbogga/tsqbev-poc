@@ -93,7 +93,7 @@ class ResearchRecipe:
     grad_clip_norm: float | None = 1.0
     keep_best_checkpoint: bool = True
     enable_teacher_distillation: bool = True
-    loss_mode: Literal["baseline", "focal_hardneg"] = "baseline"
+    loss_mode: Literal["baseline", "focal_hardneg", "quality_focal"] = "baseline"
     hard_negative_ratio: int = 3
     hard_negative_cap: int = 96
     score_threshold_candidates: tuple[float, ...] = (0.05,)
@@ -245,7 +245,7 @@ def _clone_recipe(
     grad_clip_norm: float | None = None,
     keep_best_checkpoint: bool | None = None,
     enable_teacher_distillation: bool | None = None,
-    loss_mode: Literal["baseline", "focal_hardneg"] | None = None,
+    loss_mode: Literal["baseline", "focal_hardneg", "quality_focal"] | None = None,
     hard_negative_ratio: int | None = None,
     hard_negative_cap: int | None = None,
     score_threshold_candidates: tuple[float, ...] | None = None,
@@ -357,7 +357,7 @@ def _load_previous_incumbent(artifact_root: Path) -> ResearchRecipe | None:
         keep_best_checkpoint=bool(selected.get("keep_best_checkpoint", True)),
         enable_teacher_distillation=bool(selected.get("enable_teacher_distillation", True)),
         loss_mode=cast(
-            Literal["baseline", "focal_hardneg"],
+            Literal["baseline", "focal_hardneg", "quality_focal"],
             selected.get("loss_mode", "baseline"),
         ),
         hard_negative_ratio=int(selected.get("hard_negative_ratio", 3)),
@@ -541,6 +541,27 @@ def _make_focal_hardneg_recipe(recipe: ResearchRecipe) -> ResearchRecipe:
     )
 
 
+def _make_quality_focal_recipe(recipe: ResearchRecipe) -> ResearchRecipe:
+    return _clone_recipe(
+        recipe,
+        name=f"{recipe.name}_quality_focal",
+        note="switch objectness supervision to quality-aware focal ranking",
+        hypothesis=(
+            "the remaining failure is ranking, not pure classification; quality-aware "
+            "objectness should suppress unmatched queries while preserving teacher-grounded "
+            "car hypotheses"
+        ),
+        mutation_reason=(
+            "replace plain objectness BCE with quality focal supervision aligned to matched "
+            "BEV center quality"
+        ),
+        stage="exploit",
+        loss_mode="quality_focal",
+        score_threshold_candidates=(0.05, 0.15, 0.25, 0.35),
+        top_k_candidates=(16, 32, 64),
+    )
+
+
 def _make_overfit_mode_recipe(recipe: ResearchRecipe) -> ResearchRecipe:
     return _clone_recipe(
         recipe,
@@ -575,11 +596,12 @@ def _build_exploitation_recipes(
         candidates.append(_make_teacher_kd_recipe(incumbent_recipe, stage="exploit"))
     candidates.extend(
         [
-            _make_focal_hardneg_recipe(incumbent_recipe),
+            _make_quality_focal_recipe(incumbent_recipe),
             _make_query_boost_recipe(incumbent_recipe, source_mix=source_mix),
             _make_lr_down_recipe(incumbent_recipe),
         ]
     )
+    candidates.append(_make_focal_hardneg_recipe(incumbent_recipe))
     if incumbent_recipe.config.freeze_image_backbone:
         candidates.append(_make_unfreeze_recipe(incumbent_recipe))
     deduped: list[ResearchRecipe] = []

@@ -416,7 +416,7 @@ def _make_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--loss-mode",
-        choices=("baseline", "focal_hardneg"),
+        choices=("baseline", "focal_hardneg", "quality_focal"),
         default="baseline",
     )
     parser.add_argument("--hard-negative-ratio", type=int, default=3)

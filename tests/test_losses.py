@@ -49,6 +49,55 @@ def test_detection_set_criterion_prefers_exact_match(small_config, synthetic_bat
     assert losses["object_cls"] < 5e-2
 
 
+def test_quality_focal_objectness_penalizes_poorly_localized_matches(
+    small_config, synthetic_batch
+) -> None:
+    criterion = DetectionSetCriterion(loss_mode="quality_focal")
+    target_boxes = synthetic_batch.od_targets.boxes_3d[:, :1].clone()
+    target_labels = synthetic_batch.od_targets.labels[:, :1].clone()
+    batch_indices = torch.arange(synthetic_batch.batch_size)
+
+    logits = torch.full(
+        (
+            synthetic_batch.batch_size,
+            small_config.max_object_queries,
+            small_config.num_object_classes,
+        ),
+        -20.0,
+    )
+    logits[batch_indices, 0, target_labels[:, 0]] = 8.0
+    objectness = torch.full((synthetic_batch.batch_size, small_config.max_object_queries), -8.0)
+    objectness[:, 0] = 8.0
+
+    exact_boxes = torch.full(
+        (synthetic_batch.batch_size, small_config.max_object_queries, 9),
+        100.0,
+    )
+    exact_boxes[:, 0] = target_boxes[:, 0]
+    shifted_boxes = exact_boxes.clone()
+    shifted_boxes[:, 0, 0] = shifted_boxes[:, 0, 0] + 6.0
+
+    batch = SceneBatch(
+        images=synthetic_batch.images,
+        lidar_points=synthetic_batch.lidar_points,
+        lidar_mask=synthetic_batch.lidar_mask,
+        intrinsics=synthetic_batch.intrinsics,
+        extrinsics=synthetic_batch.extrinsics,
+        ego_pose=synthetic_batch.ego_pose,
+        time_delta_s=synthetic_batch.time_delta_s,
+        od_targets=ObjectTargets(
+            boxes_3d=target_boxes,
+            labels=target_labels,
+            valid_mask=torch.ones_like(target_labels, dtype=torch.bool),
+        ),
+    )
+
+    exact_losses = criterion(logits, exact_boxes, batch, objectness_logits=objectness)
+    shifted_losses = criterion(logits, shifted_boxes, batch, objectness_logits=objectness)
+
+    assert shifted_losses["objectness"] > exact_losses["objectness"]
+
+
 def test_lane_set_criterion_prefers_exact_match(small_config, synthetic_batch) -> None:
     criterion = LaneSetCriterion()
     target_polylines = synthetic_batch.lane_targets.polylines[:, :2].clone()
