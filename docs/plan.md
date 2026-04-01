@@ -153,7 +153,7 @@ integration cost, uncertainty, and evidence gain before more time or compute is 
   `0.10 NDS`.
 - The next active diagnostic is the repaired overfit recovery loop on the same fixed 32-sample
   subset, not another unconstrained `mini_val` sweep.
-- OpenLane support still needs version alignment against the OpenLane-V2 getting-started instructions before any lane baseline can be treated as final.
+- OpenLane support still uses the `OpenLane V1` layout natively; the official `OpenLane-V2` sample is now downloaded locally for reset-path inspection, but `OpenLane V1` remains the immediate lane-baseline target because it matches the current dataset adapter and evaluator contracts.
 - The bounded mini-dataset research loop is now authorized via `program.md`.
 
 ## Milestones Achieved

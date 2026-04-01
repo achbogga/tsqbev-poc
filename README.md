@@ -207,6 +207,7 @@ The full source map is in [docs/reference-matrix.md](docs/reference-matrix.md).
 - [Upstream baselines](docs/upstream-baselines.md)
 - [Reference matrix](docs/reference-matrix.md)
 - [Public baseline workflow](docs/training-baselines.md)
+- [Lane dataset status and download tooling](docs/lane-datasets.md)
 - [Implementation plan](docs/plan.md)
 - [PI steering file](docs/steering.md)
 - [Current research brief](docs/reports/current.md)

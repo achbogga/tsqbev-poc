@@ -6,6 +6,7 @@ Grounding for the acquisition requirements:
 
 - `nuScenes` download and devkit structure: <https://github.com/nutonomy/nuscenes-devkit>
 - `OpenLane V1` dataset structure and evaluation kit: <https://github.com/OpenDriveLab/OpenLane>
+- lane dataset status and local OpenLane-V2 downloader: [lane-datasets.md](lane-datasets.md)
 
 ## Required Public Data
 
@@ -56,6 +57,21 @@ The code expects the official folder structure documented by OpenLane:
 ```
 
 OpenLane V1 is distributed via the project’s official form and is built on top of Waymo data, so the upstream Waymo terms also apply.
+
+For `OpenLane-V2`, the repo now includes an official Google-Drive downloader helper for the public
+sample and selected metadata archives:
+
+```bash
+uv run tsqbev list-openlanev2-archives
+
+uv run tsqbev download-openlanev2 \
+  --archive-key sample \
+  --output-dir /home/achbogga/projects/research/openlanev2 \
+  --extract-openlanev2
+```
+
+The current TSQBEV lane trainer still expects `OpenLane V1`; see [lane-datasets.md](lane-datasets.md)
+for the current split between the native `OpenLane V1` path and the future `OpenLane-V2` reset path.
 
 ## Environment
 

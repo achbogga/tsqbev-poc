@@ -33,6 +33,11 @@ from tsqbev.export import export_core_to_onnx
 from tsqbev.gap_analysis import analyze_reset_gap
 from tsqbev.latency import LatencyPredictor, features_from_config
 from tsqbev.model import TSQBEVModel
+from tsqbev.openlane_download import (
+    download_openlanev2_archive,
+    openlanev2_archives,
+    resolve_archive_keys,
+)
 from tsqbev.openpcdet_env import check_openpcdet_environment
 from tsqbev.overfit import run_nuscenes_overfit_gate
 from tsqbev.research import run_bounded_research_loop
@@ -189,6 +194,28 @@ def bevfusion_runbook_report(
     )
 
 
+def list_openlanev2_archives_report() -> None:
+    print(openlanev2_archives())
+
+
+def download_openlanev2_report(
+    archive_keys: list[str] | None,
+    output_dir: Path,
+    extract: bool,
+    overwrite: bool,
+) -> None:
+    results = [
+        download_openlanev2_archive(
+            archive_key,
+            output_dir=output_dir,
+            extract=extract,
+            overwrite=overwrite,
+        )
+        for archive_key in resolve_archive_keys(archive_keys)
+    ]
+    print(results)
+
+
 def memory_health_report() -> None:
     print(check_research_memory_health())
 
@@ -299,6 +326,8 @@ def _make_parser() -> argparse.ArgumentParser:
             "upstream-baselines",
             "check-bevfusion-env",
             "bevfusion-runbook",
+            "list-openlanev2-archives",
+            "download-openlanev2",
             "memory-up",
             "memory-health",
             "memory-down",
@@ -440,6 +469,17 @@ def _make_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--query", type=str, default=None)
     parser.add_argument("--limit", type=int, default=8)
+    parser.add_argument("--archive-key", type=str, nargs="*", default=None)
+    parser.add_argument(
+        "--extract-openlanev2",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+    )
+    parser.add_argument(
+        "--overwrite-download",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+    )
     return parser
 
 
@@ -502,6 +542,17 @@ def main() -> None:
             image_tag=args.docker_image_tag,
             gpu_count=args.num_gpus,
             report_format=args.report_format,
+        )
+        return
+    if args.command == "list-openlanev2-archives":
+        list_openlanev2_archives_report()
+        return
+    if args.command == "download-openlanev2":
+        download_openlanev2_report(
+            archive_keys=args.archive_key,
+            output_dir=args.output_dir,
+            extract=args.extract_openlanev2,
+            overwrite=args.overwrite_download,
         )
         return
     if args.command == "memory-up":
