@@ -185,64 +185,78 @@ def test_run_bounded_research_loop_writes_autoresearch_ledgers(
 
 
 def test_initial_recipes_can_carry_forward_previous_incumbent(tmp_path: Path) -> None:
-    artifact_root = tmp_path / "research_loop"
-    artifact_root.mkdir(parents=True)
-    summary_path = artifact_root / "summary.json"
-    summary_path.write_text(
-        json.dumps(
-            {
-                "selected_record": {
-                    "recipe": "mini_propheavy_effb0_frozen",
-                    "config": ModelConfig.rtx5000_nuscenes_baseline().model_dump(),
-                    "batch_size": 2,
-                    "grad_accum_steps": 2,
-                    "lr": 2e-4,
-                    "epochs": 6,
-                    "num_workers": 4,
-                    "score_threshold": 0.05,
-                    "top_k": 300,
+    research_root = tmp_path / "repo"
+    research_root.mkdir(parents=True)
+    original_repo_root = research.REPO_ROOT
+    research.REPO_ROOT = research_root
+    try:
+        artifact_root = tmp_path / "research_loop"
+        artifact_root.mkdir(parents=True)
+        summary_path = artifact_root / "summary.json"
+        summary_path.write_text(
+            json.dumps(
+                {
+                    "selected_record": {
+                        "recipe": "mini_propheavy_effb0_frozen",
+                        "config": ModelConfig.rtx5000_nuscenes_baseline().model_dump(),
+                        "batch_size": 2,
+                        "grad_accum_steps": 2,
+                        "lr": 2e-4,
+                        "epochs": 6,
+                        "num_workers": 4,
+                        "score_threshold": 0.05,
+                        "top_k": 300,
+                    }
                 }
-            }
+            )
         )
-    )
 
-    recipes = research._initial_recipes(artifact_root)
+        recipes = research._initial_recipes(artifact_root)
 
-    assert recipes[0].name == "carryover_mini_propheavy_effb0_frozen"
-    assert recipes[0].stage == "baseline"
-    assert recipes[0].parent_recipe == "mini_propheavy_effb0_frozen"
-    assert recipes[0].use_teacher_provider is False
+        assert recipes[0].name == "carryover_mini_propheavy_effb0_frozen"
+        assert recipes[0].stage == "baseline"
+        assert recipes[0].parent_recipe == "mini_propheavy_effb0_frozen"
+        assert recipes[0].use_teacher_provider is False
+    finally:
+        research.REPO_ROOT = original_repo_root
 
 
 def test_initial_recipes_insert_teacher_kd_when_teacher_is_available(tmp_path: Path) -> None:
-    artifact_root = tmp_path / "research_loop"
-    artifact_root.mkdir(parents=True)
-    summary_path = artifact_root / "summary.json"
-    summary_path.write_text(
-        json.dumps(
-            {
-                "selected_record": {
-                    "recipe": "mini_propheavy_effb0_frozen",
-                    "config": ModelConfig.rtx5000_nuscenes_baseline().model_dump(),
-                    "batch_size": 2,
-                    "grad_accum_steps": 2,
-                    "lr": 2e-4,
-                    "epochs": 6,
-                    "num_workers": 4,
-                    "score_threshold": 0.05,
-                    "top_k": 300,
+    research_root = tmp_path / "repo"
+    research_root.mkdir(parents=True)
+    original_repo_root = research.REPO_ROOT
+    research.REPO_ROOT = research_root
+    try:
+        artifact_root = tmp_path / "research_loop"
+        artifact_root.mkdir(parents=True)
+        summary_path = artifact_root / "summary.json"
+        summary_path.write_text(
+            json.dumps(
+                {
+                    "selected_record": {
+                        "recipe": "mini_propheavy_effb0_frozen",
+                        "config": ModelConfig.rtx5000_nuscenes_baseline().model_dump(),
+                        "batch_size": 2,
+                        "grad_accum_steps": 2,
+                        "lr": 2e-4,
+                        "epochs": 6,
+                        "num_workers": 4,
+                        "score_threshold": 0.05,
+                        "top_k": 300,
+                    }
                 }
-            }
+            )
         )
-    )
 
-    recipes = research._initial_recipes(artifact_root, teacher_provider_available=True)
+        recipes = research._initial_recipes(artifact_root, teacher_provider_available=True)
 
-    assert recipes[0].name == "carryover_mini_propheavy_effb0_frozen"
-    assert recipes[1].name == "carryover_mini_propheavy_effb0_frozen_teacher_seed"
-    assert recipes[1].use_teacher_provider is True
-    assert recipes[1].enable_teacher_distillation is False
-    assert recipes[1].config.router_mode == "anchor_first"
+        assert recipes[0].name == "carryover_mini_propheavy_effb0_frozen"
+        assert recipes[1].name == "carryover_mini_propheavy_effb0_frozen_teacher_seed"
+        assert recipes[1].use_teacher_provider is True
+        assert recipes[1].enable_teacher_distillation is False
+        assert recipes[1].config.router_mode == "anchor_first"
+    finally:
+        research.REPO_ROOT = original_repo_root
 
 
 def test_initial_recipes_prefer_passed_overfit_frontier(monkeypatch, tmp_path: Path) -> None:
@@ -291,6 +305,56 @@ def test_initial_recipes_prefer_passed_overfit_frontier(monkeypatch, tmp_path: P
     assert recipes[0].init_checkpoint == str(checkpoint_path)
     assert recipes[0].loss_mode == "quality_focal"
     assert recipes[0].enable_teacher_distillation is False
+
+
+def test_initial_recipes_find_passed_overfit_frontier_in_canonical_repo_root(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    repo_root = tmp_path / "repo"
+    artifact_dir = repo_root / "artifacts"
+    research_root = artifact_dir / "research_v15" / "research_loop"
+    research_root.mkdir(parents=True)
+    overfit_dir = (
+        artifact_dir
+        / "gates"
+        / "recovery_v14_teacher_anchor_quality_focal"
+        / "overfit_gate"
+    )
+    overfit_dir.mkdir(parents=True)
+    checkpoint_path = overfit_dir / "checkpoint_best.pt"
+    checkpoint_path.write_text("checkpoint")
+    config = ModelConfig.rtx5000_nuscenes_teacher_bootstrap().model_copy(
+        update={"freeze_image_backbone": False}
+    )
+    monkeypatch.setattr(research, "REPO_ROOT", repo_root)
+    monkeypatch.setattr(
+        research,
+        "load_model_from_checkpoint",
+        lambda *args, **kwargs: (object(), {"model_config": config.model_dump()}),
+    )
+    (overfit_dir / "summary.json").write_text(
+        json.dumps(
+            {
+                "recipe": "recovery_v14_teacher_anchor_quality_focal",
+                "selected_checkpoint_path": str(checkpoint_path),
+                "gate_verdict": {
+                    "passed": True,
+                    "train_total_ratio": 0.3624,
+                    "nds": 0.1553,
+                    "mean_ap": 0.1992,
+                    "car_ap_4m": 0.4958,
+                    "nonzero_classes": 7,
+                },
+            }
+        )
+    )
+
+    recipes = research._initial_recipes(research_root, teacher_provider_available=True)
+
+    assert len(recipes) == 1
+    assert recipes[0].name == "carryover_recovery_v14_teacher_anchor_quality_focal"
+    assert recipes[0].init_checkpoint == str(checkpoint_path)
 
 
 def test_warm_start_checkpoint_for_recipe_only_applies_to_compatible_exploit_recipe() -> None:

@@ -380,82 +380,89 @@ def _load_previous_incumbent(artifact_root: Path) -> ResearchRecipe | None:
 def _load_best_ratio_passing_overfit_frontier(artifact_dir: Path) -> ResearchRecipe | None:
     best_recipe: ResearchRecipe | None = None
     best_key: tuple[float, float, float, float] | None = None
-    gates_root = artifact_dir / "gates"
-    if not gates_root.exists():
+    gate_roots: list[Path] = []
+    local_gates_root = artifact_dir / "gates"
+    if local_gates_root.exists():
+        gate_roots.append(local_gates_root)
+    canonical_gates_root = REPO_ROOT / "artifacts" / "gates"
+    if canonical_gates_root.exists() and canonical_gates_root not in gate_roots:
+        gate_roots.append(canonical_gates_root)
+    if not gate_roots:
         return None
-    for summary_path in sorted(gates_root.glob("*/overfit_gate/summary.json")):
-        try:
-            summary = json.loads(summary_path.read_text())
-        except json.JSONDecodeError:
-            continue
-        gate_verdict = summary.get("gate_verdict")
-        if not isinstance(gate_verdict, dict) or not bool(gate_verdict.get("passed", False)):
-            continue
-        checkpoint_path = (
-            summary.get("selected_checkpoint_path")
-            or summary.get("best_checkpoint_path")
-            or summary.get("checkpoint_path")
-        )
-        if not isinstance(checkpoint_path, str):
-            continue
-        checkpoint = Path(checkpoint_path)
-        if not checkpoint.exists():
-            continue
-        try:
-            _, payload = load_model_from_checkpoint(checkpoint)
-        except Exception:
-            continue
-        config_payload = payload.get("model_config")
-        if not isinstance(config_payload, dict):
-            continue
-        try:
-            config = ModelConfig.model_validate(config_payload)
-        except Exception:
-            continue
-        ratio = _metric_float(gate_verdict.get("train_total_ratio"), float("inf"))
-        nds = _metric_float(gate_verdict.get("nds"), -1.0)
-        mean_ap = _metric_float(gate_verdict.get("mean_ap"), -1.0)
-        car_ap = _metric_float(gate_verdict.get("car_ap_4m"), -1.0)
-        key = (nds, mean_ap, car_ap, -ratio)
-        if best_key is not None and key <= best_key:
-            continue
-        recipe_name = str(summary.get("recipe") or summary_path.parents[1].name)
-        best_key = key
-        best_recipe = ResearchRecipe(
-            name=f"carryover_{recipe_name}",
-            note="promote the passed overfit frontier into the next bounded mini-val loop",
-            hypothesis=(
-                "the passed overfit frontier should now be measured on mini_val before any new "
-                "subset-only mutations"
-            ),
-            mutation_reason=(
-                "carry forward the strongest ratio-passing overfit recipe as the new mini "
-                "baseline"
-            ),
-            config=config,
-            stage="baseline",
-            parent_recipe=recipe_name,
-            use_teacher_provider=config.teacher_seed_mode != "off",
-            batch_size=2,
-            grad_accum_steps=1,
-            lr=1e-4,
-            weight_decay=0.0,
-            epochs=6,
-            max_train_steps=960,
-            num_workers=4,
-            score_threshold=0.05,
-            top_k=64,
-            init_checkpoint=str(checkpoint),
-            optimizer_schedule="constant",
-            grad_clip_norm=5.0,
-            keep_best_checkpoint=True,
-            enable_teacher_distillation=False,
-            loss_mode="quality_focal",
-            hard_negative_ratio=3,
-            hard_negative_cap=96,
-            score_threshold_candidates=(0.05, 0.15, 0.25, 0.35),
-            top_k_candidates=(16, 32, 64),
-        )
+    for gates_root in gate_roots:
+        for summary_path in sorted(gates_root.glob("*/overfit_gate/summary.json")):
+            try:
+                summary = json.loads(summary_path.read_text())
+            except json.JSONDecodeError:
+                continue
+            gate_verdict = summary.get("gate_verdict")
+            if not isinstance(gate_verdict, dict) or not bool(gate_verdict.get("passed", False)):
+                continue
+            checkpoint_path = (
+                summary.get("selected_checkpoint_path")
+                or summary.get("best_checkpoint_path")
+                or summary.get("checkpoint_path")
+            )
+            if not isinstance(checkpoint_path, str):
+                continue
+            checkpoint = Path(checkpoint_path)
+            if not checkpoint.exists():
+                continue
+            try:
+                _, payload = load_model_from_checkpoint(checkpoint)
+            except Exception:
+                continue
+            config_payload = payload.get("model_config")
+            if not isinstance(config_payload, dict):
+                continue
+            try:
+                config = ModelConfig.model_validate(config_payload)
+            except Exception:
+                continue
+            ratio = _metric_float(gate_verdict.get("train_total_ratio"), float("inf"))
+            nds = _metric_float(gate_verdict.get("nds"), -1.0)
+            mean_ap = _metric_float(gate_verdict.get("mean_ap"), -1.0)
+            car_ap = _metric_float(gate_verdict.get("car_ap_4m"), -1.0)
+            key = (nds, mean_ap, car_ap, -ratio)
+            if best_key is not None and key <= best_key:
+                continue
+            recipe_name = str(summary.get("recipe") or summary_path.parents[1].name)
+            best_key = key
+            best_recipe = ResearchRecipe(
+                name=f"carryover_{recipe_name}",
+                note="promote the passed overfit frontier into the next bounded mini-val loop",
+                hypothesis=(
+                    "the passed overfit frontier should now be measured on mini_val before any "
+                    "new subset-only mutations"
+                ),
+                mutation_reason=(
+                    "carry forward the strongest ratio-passing overfit recipe as the new mini "
+                    "baseline"
+                ),
+                config=config,
+                stage="baseline",
+                parent_recipe=recipe_name,
+                use_teacher_provider=config.teacher_seed_mode != "off",
+                batch_size=2,
+                grad_accum_steps=1,
+                lr=1e-4,
+                weight_decay=0.0,
+                epochs=6,
+                max_train_steps=960,
+                num_workers=4,
+                score_threshold=0.05,
+                top_k=64,
+                init_checkpoint=str(checkpoint),
+                optimizer_schedule="constant",
+                grad_clip_norm=5.0,
+                keep_best_checkpoint=True,
+                enable_teacher_distillation=False,
+                loss_mode="quality_focal",
+                hard_negative_ratio=3,
+                hard_negative_cap=96,
+                score_threshold_candidates=(0.05, 0.15, 0.25, 0.35),
+                top_k_candidates=(16, 32, 64),
+            )
     return best_recipe
 
 
