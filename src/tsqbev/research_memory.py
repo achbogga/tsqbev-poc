@@ -1805,7 +1805,35 @@ def build_research_brief(
             )
 
         open_blockers: list[str] = []
-        if scale_blocker is not None:
+        ratio_overfit_payload = (
+            ratio_overfit_frontier["payload"] if ratio_overfit_frontier is not None else None
+        )
+        ratio_overfit_passed = False
+        if isinstance(ratio_overfit_payload, dict):
+            gate_verdict = ratio_overfit_payload.get("gate_verdict")
+            if isinstance(gate_verdict, dict):
+                ratio_overfit_passed = bool(gate_verdict.get("passed", False))
+        incumbent_nds = incumbent["nds"] if incumbent is not None else None
+        frontier_nds = (
+            _payload_nds(ratio_overfit_payload) if isinstance(ratio_overfit_payload, dict) else None
+        )
+        should_override_stale_blocker = (
+            ratio_overfit_passed
+            and frontier_nds is not None
+            and (
+                incumbent_nds is None
+                or frontier_nds > incumbent_nds + 0.02
+            )
+        )
+        if should_override_stale_blocker and ratio_overfit_frontier is not None:
+            open_blockers.append(
+                "Scale-up blocker: the 32-sample overfit gate is now passed, but the promoted "
+                "mini-val incumbent has not been refreshed against that frontier yet; rerun a "
+                "bounded `mini_train -> mini_val` experiment from "
+                f"`{ratio_overfit_frontier['recipe']}` before spending more compute "
+                f"({_repo_link(repo_root / ratio_overfit_frontier['source_path'], repo_root)})."
+            )
+        elif scale_blocker is not None:
             payload = scale_blocker["payload"]
             reason = _extract_blocker_reason(payload)
             open_blockers.append(
@@ -1821,7 +1849,16 @@ def build_research_brief(
             open_blockers.append("No structured blockers are indexed yet.")
 
         recommended_next_steps: list[str] = []
-        if scale_blocker is not None:
+        if should_override_stale_blocker and ratio_overfit_frontier is not None:
+            recommended_next_steps.extend(
+                [
+                    "Promote the passed overfit frontier into a bounded `mini_train -> mini_val` "
+                    "run before any more subset-only ablations.",
+                    "Keep the quality-aware teacher-anchor recipe fixed and use the next run to "
+                    "measure mini-val generalization and repeatability.",
+                ]
+            )
+        elif scale_blocker is not None:
             payload = scale_blocker["payload"]
             next_steps = payload.get("recommended_next_steps")
             if isinstance(next_steps, list):
@@ -1859,7 +1896,12 @@ def build_research_brief(
                 "Exact upstream evidence: "
                 f"{_repo_link(repo_root / upstream['source_path'], repo_root)}."
             )
-        if scale_blocker is not None:
+        if should_override_stale_blocker and ratio_overfit_frontier is not None:
+            evidence_refs.append(
+                "Current blocker evidence: "
+                f"{_repo_link(repo_root / ratio_overfit_frontier['source_path'], repo_root)}."
+            )
+        elif scale_blocker is not None:
             evidence_refs.append(
                 "Exact blocker evidence: "
                 f"{_repo_link(repo_root / scale_blocker['source_path'], repo_root)}."

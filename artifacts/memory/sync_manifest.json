@@ -1,16 +1,16 @@
 {
-  "generated_at_utc": "2026-04-01T19:20:39.872658+00:00",
-  "repo_sha": "5a7ef6f",
+  "generated_at_utc": "2026-04-01T23:03:34.419322+00:00",
+  "repo_sha": "62c87fd",
   "repo_root": "/home/achbogga/projects/tsqbev-poc",
   "catalog_path": "/home/achbogga/projects/tsqbev-poc/.local/research-memory/catalog.duckdb",
-  "event_count": 232,
-  "evidence_count": 3891,
+  "event_count": 261,
+  "evidence_count": 4454,
   "fact_count": 5,
   "qdrant": {
     "enabled": true,
     "mode": "server",
     "reason": null,
-    "indexed_chunks": 3891,
+    "indexed_chunks": 4454,
     "embedder_provider": "hash"
   },
   "mem0": {

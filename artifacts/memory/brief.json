@@ -1,32 +1,31 @@
 {
-  "generated_at_utc": "2026-04-01T19:20:56.964166+00:00",
+  "generated_at_utc": "2026-04-01T23:03:16.046734+00:00",
   "current_state": [
     "Local incumbent: `mini_propheavy_mbv3_frozen_query_boost` with NDS `0.0158`, mAP `0.0001`, val total `20.1352` from [artifacts/research_v3/research_loop/results.jsonl](artifacts/research_v3/research_loop/results.jsonl).",
-    "Best local overfit frontier: `recovery_v6_teacher_anchor_balanced` with NDS `0.1001`, mAP `0.1391`, train_total_ratio `0.4703`, car AP@4m `0.5327` from [artifacts/gates/recovery_v6_teacher_anchor_balanced/overfit_gate/summary.json](artifacts/gates/recovery_v6_teacher_anchor_balanced/overfit_gate/summary.json).",
-    "Best ratio-passing overfit candidate: `recovery_v12_teacher_anchor_seeded_boot12_zero` with NDS `0.0944`, mAP `0.1339`, train_total_ratio `0.3639` from [artifacts/gates/recovery_v12_teacher_anchor_seeded_boot12_zero/overfit_gate/summary.json](artifacts/gates/recovery_v12_teacher_anchor_seeded_boot12_zero/overfit_gate/summary.json).",
+    "Best local overfit frontier: `recovery_v14_teacher_anchor_quality_focal` with NDS `0.1553`, mAP `0.1992`, train_total_ratio `0.3624`, car AP@4m `0.4958` from [artifacts/gates/recovery_v14_teacher_anchor_quality_focal/overfit_gate/summary.json](artifacts/gates/recovery_v14_teacher_anchor_quality_focal/overfit_gate/summary.json).",
+    "Best ratio-passing overfit candidate: `recovery_v14_teacher_anchor_quality_focal` with NDS `0.1553`, mAP `0.1992`, train_total_ratio `0.3624` from [artifacts/gates/recovery_v14_teacher_anchor_quality_focal/overfit_gate/summary.json](artifacts/gates/recovery_v14_teacher_anchor_quality_focal/overfit_gate/summary.json).",
     "Best reproduced upstream baseline: `bevfusion:convfuser` with NDS `0.7072` and mAP `0.6730` from [artifacts/bevfusion_repro/bevfusion_bbox_summary.json](artifacts/bevfusion_repro/bevfusion_bbox_summary.json).",
     "Active steering file present at [docs/steering.md](docs/steering.md)."
   ],
   "delta_since_last": [
     "Research memory is now rebuildable from canonical repo artifacts via DuckDB exact catalog, Qdrant evidence index, and optional Mem0 sync.",
     "The strongest reproduced upstream ceiling is still materially ahead of the local incumbent by NDS `0.6914`.",
-    "The best ratio-passing overfit candidate is now only `0.0056` NDS shy of the overfit quality gate.",
+    "The best ratio-passing overfit candidate already clears the NDS threshold, so any remaining gate miss is coming from another criterion.",
     "Distilled memory backend returned `4` relevant memory items for the current brief."
   ],
   "open_blockers": [
-    "Scale-up blocker: the latest gate artifact remains blocked ([artifacts/gates/recovery_v12_teacher_anchor_seeded_boot12_zero/overfit_gate/summary.json](artifacts/gates/recovery_v12_teacher_anchor_seeded_boot12_zero/overfit_gate/summary.json))."
+    "Scale-up blocker: the 32-sample overfit gate is now passed, but the promoted mini-val incumbent has not been refreshed against that frontier yet; rerun a bounded `mini_train -> mini_val` experiment from `recovery_v14_teacher_anchor_quality_focal` before spending more compute ([artifacts/gates/recovery_v14_teacher_anchor_quality_focal/overfit_gate/summary.json](artifacts/gates/recovery_v14_teacher_anchor_quality_focal/overfit_gate/summary.json))."
   ],
   "recommended_next_steps": [
-    "Read the latest scale blocker and incumbent summaries before launching the next bounded loop.",
-    "Backfill memory after every completed run so the next brief has exact and semantic context.",
-    "Prefer the dense-BEV reset line over legacy sparse-query work unless new local evidence reverses that choice."
+    "Promote the passed overfit frontier into a bounded `mini_train -> mini_val` run before any more subset-only ablations.",
+    "Keep the quality-aware teacher-anchor recipe fixed and use the next run to measure mini-val generalization and repeatability."
   ],
   "evidence_refs": [
     "Exact incumbent evidence: [artifacts/research_v3/research_loop/results.jsonl](artifacts/research_v3/research_loop/results.jsonl).",
-    "Exact overfit frontier evidence: [artifacts/gates/recovery_v6_teacher_anchor_balanced/overfit_gate/summary.json](artifacts/gates/recovery_v6_teacher_anchor_balanced/overfit_gate/summary.json).",
-    "Exact ratio-passing overfit evidence: [artifacts/gates/recovery_v12_teacher_anchor_seeded_boot12_zero/overfit_gate/summary.json](artifacts/gates/recovery_v12_teacher_anchor_seeded_boot12_zero/overfit_gate/summary.json).",
+    "Exact overfit frontier evidence: [artifacts/gates/recovery_v14_teacher_anchor_quality_focal/overfit_gate/summary.json](artifacts/gates/recovery_v14_teacher_anchor_quality_focal/overfit_gate/summary.json).",
+    "Exact ratio-passing overfit evidence: [artifacts/gates/recovery_v14_teacher_anchor_quality_focal/overfit_gate/summary.json](artifacts/gates/recovery_v14_teacher_anchor_quality_focal/overfit_gate/summary.json).",
     "Exact upstream evidence: [artifacts/bevfusion_repro/bevfusion_bbox_summary.json](artifacts/bevfusion_repro/bevfusion_bbox_summary.json).",
-    "Exact blocker evidence: [artifacts/gates/recovery_v12_teacher_anchor_seeded_boot12_zero/overfit_gate/summary.json](artifacts/gates/recovery_v12_teacher_anchor_seeded_boot12_zero/overfit_gate/summary.json).",
+    "Current blocker evidence: [artifacts/gates/recovery_v14_teacher_anchor_quality_focal/overfit_gate/summary.json](artifacts/gates/recovery_v14_teacher_anchor_quality_focal/overfit_gate/summary.json).",
     "Lexical evidence: `artifacts/research_teacher_v1/research_loop/results.jsonl [9]` via [artifacts/research_teacher_v1/research_loop/results.jsonl](artifacts/research_teacher_v1/research_loop/results.jsonl).",
     "Lexical evidence: `artifacts/research_v2/research_loop/results.jsonl [6]` via [artifacts/research_v2/research_loop/results.jsonl](artifacts/research_v2/research_loop/results.jsonl).",
     "Lexical evidence: `artifacts/research_v3/research_loop/results.jsonl [9]` via [artifacts/research_v3/research_loop/results.jsonl](artifacts/research_v3/research_loop/results.jsonl)."

@@ -158,6 +158,29 @@ def _make_repo_fixture(tmp_path: Path) -> Path:
         json.dumps(overfit_v12, indent=2),
     )
 
+    overfit_v14 = {
+        "subset_size": 32,
+        "evaluation": {"nd_score": 0.1553, "mean_ap": 0.1992},
+        "train": {"final_val_total": 13.6891},
+        "gate_verdict": {
+            "passed": True,
+            "train_total_ratio": 0.3624,
+            "nds": 0.1553,
+            "mean_ap": 0.1992,
+            "car_ap_4m": 0.4958,
+            "nonzero_classes": 7,
+        },
+    }
+    _write(
+        repo_root
+        / "artifacts"
+        / "gates"
+        / "recovery_v14_teacher_anchor_quality_focal"
+        / "overfit_gate"
+        / "summary.json",
+        json.dumps(overfit_v14, indent=2),
+    )
+
     upstream = {
         "checkpoint_path": "pretrained/bevfusion-det.pth",
         "config_rel": (
@@ -222,20 +245,33 @@ def test_build_research_brief_uses_indexed_state(tmp_path: Path) -> None:
     brief = build_research_brief(repo_root, config=config, persist_log=True)
 
     assert any("mini_propheavy_mbv3_frozen_query_boost" in line for line in brief.current_state)
-    assert any("recovery_v6_teacher_anchor_balanced" in line for line in brief.current_state)
     assert any(
-        "recovery_v12_teacher_anchor_seeded_boot12_zero" in line for line in brief.current_state
+        "recovery_v14_teacher_anchor_quality_focal" in line for line in brief.current_state
+    )
+    assert all(
+        "recovery_v12_teacher_anchor_seeded_boot12_zero" not in line
+        for line in brief.current_state
     )
     assert all("recovery_v5_teacher_anchor_hypothesis" not in line for line in brief.current_state)
     assert any("bevfusion:convfuser" in line for line in brief.current_state)
     assert any(
-        "train_total_ratio `0.3639` and NDS `0.0944`" in line
+        "mini_train -> mini_val" in line and "recovery_v14_teacher_anchor_quality_focal" in line
         for line in brief.open_blockers
     )
-    assert any("0.0056" in line for line in brief.delta_since_last)
+    assert any(
+        "already clears the NDS threshold" in line for line in brief.delta_since_last
+    )
+    assert any(
+        "quality-aware teacher-anchor recipe" in line for line in brief.recommended_next_steps
+    )
     assert (config.reports_root / "current.md").exists()
     assert any(config.report_log_root.iterdir())
     assert all("research_memory.py" not in line for line in brief.evidence_refs)
+    assert all(
+        "recovery_v12_teacher_anchor_seeded_boot12_zero" not in line
+        for line in brief.evidence_refs
+        if line.startswith("Current blocker evidence") or line.startswith("Exact blocker evidence")
+    )
 
 
 def test_query_research_memory_returns_exact_facts(tmp_path: Path) -> None:
