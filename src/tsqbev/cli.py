@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import argparse
 from pathlib import Path
+from typing import Literal
 
 from rich import print
 
@@ -35,6 +36,13 @@ from tsqbev.model import TSQBEVModel
 from tsqbev.openpcdet_env import check_openpcdet_environment
 from tsqbev.overfit import run_nuscenes_overfit_gate
 from tsqbev.research import run_bounded_research_loop
+from tsqbev.research_memory import (
+    build_research_brief,
+    check_research_memory_health,
+    manage_research_memory_services,
+    query_research_memory,
+    sync_research_memory,
+)
 from tsqbev.reset_stack import recommended_reset_plan, render_reset_plan_markdown, upstream_registry
 from tsqbev.runtime import benchmark_forward, run_eval_step, run_train_step
 from tsqbev.synthetic import make_synthetic_batch
@@ -181,6 +189,34 @@ def bevfusion_runbook_report(
     )
 
 
+def memory_health_report() -> None:
+    print(check_research_memory_health())
+
+
+def memory_backfill_report() -> None:
+    print(sync_research_memory())
+
+
+def memory_query_report(query: str, limit: int) -> None:
+    print(query_research_memory(query, limit=limit))
+
+
+def research_brief_report() -> None:
+    print(build_research_brief().to_dict())
+
+
+def research_sync_report() -> None:
+    print(sync_research_memory())
+
+
+def research_report() -> None:
+    print(build_research_brief(persist_log=True).to_dict())
+
+
+def memory_service_report(action: Literal["up", "down"]) -> None:
+    print(manage_research_memory_services(action))
+
+
 def _model_for_export(default_config: ModelConfig, checkpoint: Path | None) -> TSQBEVModel:
     if checkpoint is None:
         return TSQBEVModel(default_config)
@@ -263,6 +299,14 @@ def _make_parser() -> argparse.ArgumentParser:
             "upstream-baselines",
             "check-bevfusion-env",
             "bevfusion-runbook",
+            "memory-up",
+            "memory-health",
+            "memory-down",
+            "memory-backfill",
+            "memory-query",
+            "research-brief",
+            "research-sync",
+            "research-report",
         ),
     )
     parser.add_argument("--dataset-root", type=Path, default=None)
@@ -394,6 +438,8 @@ def _make_parser() -> argparse.ArgumentParser:
         type=Path,
         default=Path("/home/achbogga/projects/OpenPCDet_official"),
     )
+    parser.add_argument("--query", type=str, default=None)
+    parser.add_argument("--limit", type=int, default=8)
     return parser
 
 
@@ -457,6 +503,32 @@ def main() -> None:
             gpu_count=args.num_gpus,
             report_format=args.report_format,
         )
+        return
+    if args.command == "memory-up":
+        memory_service_report("up")
+        return
+    if args.command == "memory-health":
+        memory_health_report()
+        return
+    if args.command == "memory-down":
+        memory_service_report("down")
+        return
+    if args.command == "memory-backfill":
+        memory_backfill_report()
+        return
+    if args.command == "memory-query":
+        if args.query is None:
+            raise ValueError("--query is required for memory-query")
+        memory_query_report(args.query, args.limit)
+        return
+    if args.command == "research-brief":
+        research_brief_report()
+        return
+    if args.command == "research-sync":
+        research_sync_report()
+        return
+    if args.command == "research-report":
+        research_report()
         return
     if args.command == "check-data":
         if args.dataset_root is None:

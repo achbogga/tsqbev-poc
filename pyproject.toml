@@ -11,10 +11,12 @@ requires-python = ">=3.11"
 license = { text = "Apache-2.0" }
 authors = [{ name = "Achbogga" }]
 dependencies = [
+    "duckdb>=1.2.2,<2.0.0",
     "einops>=0.8.0,<0.9.0",
     "numpy>=1.26.0,<2.0.0",
     "pillow>=11.1.0,<12.0.0",
     "pydantic>=2.10.0,<3.0.0",
+    "qdrant-client>=1.14.1,<2.0.0; python_full_version < '3.13'",
     "rich>=13.9.0,<14.0.0",
     "torch>=2.6.0,<2.8.0",
     "torchvision>=0.21.0,<0.23.0",
@@ -35,7 +37,9 @@ deploy = [
     "tensorrt-cu12>=10.16.0.72,<11.0.0",
 ]
 data = [
+    "mem0ai>=1.0.0,<2.0.0",
     "nuscenes-devkit>=1.2.0,<2.0.0",
+    "ollama>=0.5.1,<1.0.0",
     "ortools>=9.12.0,<10.0.0",
     "pyquaternion>=0.9.9,<1.0.0",
     "scipy>=1.15.0,<2.0.0",
@@ -70,6 +74,10 @@ exclude = ["tests/"]
 
 [[tool.mypy.overrides]]
 module = [
+    "fastembed",
+    "fastembed.*",
+    "mem0",
+    "ollama",
     "nuscenes.*",
     "scipy.*",
     "tensorrt",

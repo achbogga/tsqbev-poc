@@ -32,6 +32,7 @@ from tsqbev.eval_nuscenes import (
     prediction_geometry_diagnostics,
 )
 from tsqbev.research_guard import ensure_research_loop_enabled
+from tsqbev.research_memory import safe_build_research_brief, safe_sync_research_memory
 from tsqbev.runtime import benchmark_forward, move_batch, resolve_device
 from tsqbev.teacher_backends import TeacherProviderConfig, build_teacher_provider
 from tsqbev.teacher_dataset import TeacherAugmentedDataset
@@ -1303,6 +1304,8 @@ def run_bounded_research_loop(
     artifact_root = Path(artifact_dir) / "research_loop"
     artifact_root.mkdir(parents=True, exist_ok=True)
     max_experiments = max(1, max_experiments)
+    pre_run_brief = safe_build_research_brief(REPO_ROOT)
+    (artifact_root / "pre_run_brief.json").write_text(json.dumps(pre_run_brief, indent=2))
 
     records: list[dict[str, Any]] = []
     incumbent_record: dict[str, Any] | None = None
@@ -1657,6 +1660,12 @@ def run_bounded_research_loop(
         ),
         "recipes": [_serialize_recipe(recipe) for recipe in candidate_queue[:max_experiments]],
         "ranked_recipe_names": [str(record.get("recipe")) for record in ranked],
+        "pre_run_brief_path": str(artifact_root / "pre_run_brief.json"),
     }
+    (artifact_root / "summary.json").write_text(json.dumps(summary, indent=2, default=str))
+    memory_sync = safe_sync_research_memory(REPO_ROOT)
+    post_run_brief = safe_build_research_brief(REPO_ROOT, persist_log=True)
+    summary["memory_sync"] = memory_sync
+    summary["post_run_brief"] = post_run_brief
     (artifact_root / "summary.json").write_text(json.dumps(summary, indent=2, default=str))
     return summary

@@ -9,6 +9,7 @@ from tsqbev.synthetic import make_synthetic_batch
 @pytest.fixture(autouse=True)
 def disable_wandb_tracking(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("TSQBEV_WANDB", "0")
+    monkeypatch.setenv("TSQBEV_MEMORY_ENABLED", "0")
 
 
 @pytest.fixture()

@@ -3,6 +3,7 @@ __pycache__/
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
+.local/
 .coverage
 coverage.xml
 *.onnx
@@ -12,6 +13,9 @@ docs/paper/build/
 artifacts/*
 !artifacts/benchmarks/
 !artifacts/benchmarks/*.json
+!artifacts/memory/
+artifacts/memory/state/
+!artifacts/memory/*.json
 !artifacts/trt/
 !artifacts/trt/benchmark.json
 !artifacts/.gitkeep

@@ -51,6 +51,12 @@ The loop must stop and reassess when the active branch becomes a rabbit hole, in
 bounded failures without new evidence or a clear mismatch between the measured bottleneck and the
 current intervention.
 
+The loop must also operate from durable local memory:
+
+- build a pre-run research brief from the exact catalog and evidence index
+- sync new run artifacts back into the local memory stack
+- publish a PI-facing report after each completed invocation
+
 ## Active Scope
 
 - dataset: `nuScenes v1.0-mini`
@@ -114,6 +120,9 @@ Every run must record:
 - per-run source-mix diagnostics from the selected sparse query bank
 - per-run prediction-geometry diagnostics from the exported `mini_val` result JSON
 - per-run root-cause verdict
+- `artifacts/memory/sync_manifest.json`
+- `artifacts/memory/brief.json`
+- `docs/reports/current.md`
 
 ## Decision Semantics
 

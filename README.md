@@ -8,6 +8,7 @@ BEV fusion stack built from public upstreams and tuned for deployment validation
 ![Scale Up](https://img.shields.io/badge/scale_up-blocked-d73a49)
 ![Teacher Cache](https://img.shields.io/badge/teacher_cache-verified-1f883d)
 ![W%26B](https://img.shields.io/badge/W%26B-online-FFBE00)
+![Research Memory](https://img.shields.io/badge/research_memory-local--first-1f883d)
 ![Best mini_val NDS](https://img.shields.io/badge/best_mini__val_NDS-0.0158-f2cc60)
 ![BEVFusion Detection](https://img.shields.io/badge/BEVFusion_det_nuScenes-0.7072_NDS-1f883d)
 
@@ -32,6 +33,7 @@ When tracking is enabled, runs are mirrored to Weights & Biases under the entity
 | Legacy teacher lift | 🟡 Strong on overfit, not scale-ready | corrected 32-sample balanced teacher-anchor overfit reached `NDS = 0.1001`, `mAP = 0.1391`, `car AP@4m = 0.5327`, and `7` nonzero classes; paired `mini_val` lift is still unproven |
 | Scale-up readiness | 🔴 Blocked | the main remaining blocker is optimization: the repaired overfit run still missed the `train_total_ratio <= 0.40` gate at `0.4703` |
 | Tracking | 🟢 Online | W&B smoke run synced under `achbogga-track` |
+| Research memory | 🟢 Local-first | exact research catalog, semantic evidence index, PI brief generation, and service-backed Mem0 sync are now built into the repo |
 
 The current state is straightforward: the public repo is healthy, tested, deploy-checked, and tracked. The legacy student model is still not strong enough to justify scaling compute by 10x, but the reset stack is no longer hypothetical: the official BEVFusion detection baseline has now been reproduced locally, and segmentation is next.
 
@@ -93,6 +95,7 @@ More detail, including the legacy sparse-query comparison line, is in
   `CenterPoint` / `PointPillars`-style teachers
 - Deployment validation: ONNX export and TensorRT engine build for the exportable core
 - Experiment tracking: optional W&B logging for baselines, gates, and research-loop recipes
+- Research memory: exact + semantic local retrieval with PI-facing reports and rebuildable state
 - Legacy sparse-query measurements: retained only as comparison evidence while the reset stack is scaffolded
 
 ## Legacy Sparse-Query Measurements
@@ -199,11 +202,14 @@ The full source map is in [docs/reference-matrix.md](docs/reference-matrix.md).
 - [Teacher bootstrap](docs/teacher-bootstrap.md)
 - [OpenPCDet CenterPoint teacher runbook](docs/openpcdet-centerpoint-teacher.md)
 - [Dense-BEV reset stack](docs/stack-reset.md)
+- [Research memory](docs/research-memory.md)
 - [BEVFusion baseline runbook](docs/bevfusion-baseline-runbook.md)
 - [Upstream baselines](docs/upstream-baselines.md)
 - [Reference matrix](docs/reference-matrix.md)
 - [Public baseline workflow](docs/training-baselines.md)
 - [Implementation plan](docs/plan.md)
+- [PI steering file](docs/steering.md)
+- [Current research brief](docs/reports/current.md)
 - [Short paper PDF](docs/paper/tsqbev_short_paper.pdf)
 - [Short paper LaTeX](docs/paper/tsqbev_short_paper.tex)
 
@@ -236,6 +242,14 @@ For real public-dataset baselines:
 ```bash
 uv sync --extra dev --extra data
 uv run tsqbev check-data --dataset-root /path/to/dataset/root
+```
+
+For the local research-memory stack:
+
+```bash
+uv run tsqbev memory-health
+uv run tsqbev memory-backfill
+uv run tsqbev research-report
 ```
 
 The full workflow for `nuScenes` and `OpenLane` is documented in [docs/training-baselines.md](docs/training-baselines.md). Full `v1.0-trainval` accuracy is not published yet; the repo currently reports measured `v1.0-mini` results only.

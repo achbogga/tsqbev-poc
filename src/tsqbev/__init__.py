@@ -14,6 +14,7 @@ from tsqbev.bevfusion_env import (
 from tsqbev.config import ModelConfig
 from tsqbev.gap_analysis import analyze_reset_gap
 from tsqbev.model import TSQBEVCore, TSQBEVModel
+from tsqbev.research_memory import build_research_brief, sync_research_memory
 from tsqbev.reset_stack import recommended_reset_plan
 
 __all__ = [
@@ -21,7 +22,9 @@ __all__ = [
     "TSQBEVCore",
     "TSQBEVModel",
     "analyze_reset_gap",
+    "build_research_brief",
     "check_bevfusion_environment",
     "render_bevfusion_runbook_markdown",
     "recommended_reset_plan",
+    "sync_research_memory",
 ]

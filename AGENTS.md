@@ -12,6 +12,8 @@ repeated in chat.
 - do not stop at a single result; continue to the next highest-ROI step unless a boundary is hit
 - if a public upstream dense-BEV stack is materially better grounded than the current custom
   path, pivot to that stack rather than deepening the custom path
+- read the local research brief before planning new bounded work
+- write back distilled findings and PI-facing reports after each completed invocation
 
 ## Target Stack Bias
 
@@ -122,6 +124,7 @@ The bounded research loop must:
 - preserve failed runs
 - compare teacher-off and teacher-on paths honestly
 - use web/literature review to refresh the design space when local progress stalls
+- treat the local research-memory stack as required context, not optional decoration
 
 ## Repo Update Rule
 
@@ -131,3 +134,4 @@ When a standing research rule changes, update:
 - `program.md`
 - the relevant `specs/*.md`
 - any user-facing docs whose interpretation would otherwise drift
+- the local research brief/report templates when the workflow changes

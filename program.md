@@ -29,6 +29,8 @@ These instructions are durable repo policy, not one-off chat guidance.
 - fix small blockers immediately when they are clearly slowing the loop
 - do not stop after one run if the next step is clear and bounded
 - stop and reassess when the direction becomes a rabbit hole
+- hydrate the local research-memory brief before planning the next bounded move
+- publish PI-readable reports and machine-readable sync artifacts after each invocation
 
 ## Token-Burn Discipline
 
@@ -62,6 +64,7 @@ Before any invocation:
 3. treat the repo as evidence-first and append-only
 4. preserve all prior experiment artifacts
 5. if W&B is available, mirror the run there under the stable entity `achbogga-track`
+6. refresh the local research-memory state and pre-run brief before the next invocation
 
 ## In-Scope Surface
 
@@ -163,6 +166,9 @@ Every invocation must write:
 - per-run calibration summary when multiple thresholds or `top_k` values are tried
 - per-run source-mix diagnostics
 - per-run root-cause verdict
+- `artifacts/memory/sync_manifest.json`
+- `artifacts/memory/brief.json`
+- `docs/reports/current.md`
 
 If W&B is available, each invocation must also mirror the same metrics and metadata there under the
 project derived for that architecture family. Hyperparameter and performance tuning stays grouped in

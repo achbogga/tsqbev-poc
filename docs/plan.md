@@ -98,6 +98,8 @@ integration cost, uncertainty, and evidence gain before more time or compute is 
   preserves the stable non-collapsed multimodal routing regime while improving official metrics.
 - The repo now explicitly blocks 10x compute scale-up until the gates in `specs/005-scale-gate-contract.md` are cleared.
 - W&B tracking is wired into the experiment entrypoints and stays advisory only; tracking failures do not change training or selection outcomes.
+- The repo now has a local-first research-memory stack with a rebuildable exact catalog, evidence
+  index, service-backed Mem0 sync, and PI-facing reports.
 - Optional external LiDAR teacher scaffolding is now present through typed cache/provider contracts and a dataset wrapper, with `CenterPoint-PointPillar` as the first target backend.
 - The repo now accepts standard nuScenes detection JSON from an external teacher and converts it
   into repo-local teacher-cache records.
