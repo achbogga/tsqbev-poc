@@ -940,6 +940,7 @@ def _canonical_command(
     artifact_dir: Path,
     device: str | None,
     max_experiments: int,
+    teacher_provider_config: TeacherProviderConfig | None = None,
 ) -> str:
     command = [
         "uv",
@@ -955,6 +956,12 @@ def _canonical_command(
     ]
     if device is not None:
         command.extend(["--device", device])
+    if teacher_provider_config is not None:
+        command.extend(["--teacher-kind", teacher_provider_config.kind])
+        if teacher_provider_config.cache_dir is not None:
+            command.extend(["--teacher-cache-dir", teacher_provider_config.cache_dir])
+        if teacher_provider_config.checkpoint_path is not None:
+            command.extend(["--teacher-checkpoint", teacher_provider_config.checkpoint_path])
     return " ".join(command)
 
 
@@ -996,6 +1003,7 @@ def _write_run_manifest(
             artifact_dir=artifact_root,
             device=device,
             max_experiments=max_experiments,
+            teacher_provider_config=teacher_provider_config,
         ),
         "recipe": _serialize_recipe(recipe),
         "environment": _environment_manifest(device),

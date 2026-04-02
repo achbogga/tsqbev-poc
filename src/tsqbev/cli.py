@@ -284,10 +284,13 @@ def _resolve_nuscenes_eval_split(version: str, split: str | None) -> str:
 
 
 def _resolve_teacher_provider_config(args: argparse.Namespace) -> TeacherProviderConfig | None:
-    if args.teacher_kind is None:
+    teacher_kind = args.teacher_kind
+    if teacher_kind is None and args.teacher_cache_dir is not None:
+        teacher_kind = "cache"
+    if teacher_kind is None:
         return None
     return TeacherProviderConfig(
-        kind=args.teacher_kind,
+        kind=teacher_kind,
         cache_dir=str(args.teacher_cache_dir) if args.teacher_cache_dir is not None else None,
         checkpoint_path=(
             str(args.teacher_checkpoint) if args.teacher_checkpoint is not None else None
