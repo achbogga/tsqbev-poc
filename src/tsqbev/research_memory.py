@@ -3,6 +3,8 @@
 References:
 - Mem0 open-source memory layer:
   https://github.com/mem0ai/mem0
+- Cohere Rerank overview:
+  https://docs.cohere.com/docs/rerank-overview
 - Mem0 local Ollama + Qdrant configuration:
   https://docs.mem0.ai/cookbooks/companions/local-companion-ollama
 - Qdrant local mode and hybrid retrieval overview:
@@ -95,6 +97,13 @@ except ImportError:  # pragma: no cover
     _TextCrossEncoder = None
 TextCrossEncoder = _TextCrossEncoder
 
+CohereClientV2: Any = None
+try:  # pragma: no cover - optional runtime dependency.
+    from cohere import ClientV2 as _CohereClientV2
+except ImportError:  # pragma: no cover
+    _CohereClientV2 = None
+CohereClientV2 = _CohereClientV2
+
 
 class ResearchMemoryConfig(BaseModel):
     """Typed runtime configuration for the local research-memory stack."""
@@ -121,7 +130,11 @@ class ResearchMemoryConfig(BaseModel):
     embedder_provider: Literal["auto", "fastembed", "hash"] = "auto"
     embedder_model: str = "sentence-transformers/all-MiniLM-L6-v2"
     reranker_enabled: bool = False
+    reranker_provider: Literal["auto", "fastembed", "cohere"] = "auto"
     reranker_model: str = "BAAI/bge-reranker-base"
+    cohere_reranker_model: str = "rerank-v4.0-pro"
+    cohere_api_key: str | None = None
+    cohere_base_url: str | None = None
     chunk_chars: int = 1200
     chunk_overlap_chars: int = 160
     evidence_top_k: int = 8
@@ -174,7 +187,15 @@ class ResearchMemoryConfig(BaseModel):
                 "sentence-transformers/all-MiniLM-L6-v2",
             ),
             reranker_enabled=_env_bool("TSQBEV_MEMORY_RERANKER_ENABLED", False),
+            reranker_provider=os.getenv(
+                "TSQBEV_MEMORY_RERANKER_PROVIDER", "auto"
+            ),  # type: ignore[arg-type]
             reranker_model=os.getenv("TSQBEV_MEMORY_RERANKER_MODEL", "BAAI/bge-reranker-base"),
+            cohere_reranker_model=os.getenv(
+                "TSQBEV_COHERE_RERANKER_MODEL", "rerank-v4.0-pro"
+            ),
+            cohere_api_key=os.getenv("TSQBEV_COHERE_API_KEY") or os.getenv("COHERE_API_KEY"),
+            cohere_base_url=os.getenv("TSQBEV_COHERE_BASE_URL"),
             chunk_chars=int(os.getenv("TSQBEV_MEMORY_CHUNK_CHARS", "1200")),
             chunk_overlap_chars=int(os.getenv("TSQBEV_MEMORY_CHUNK_OVERLAP", "160")),
             evidence_top_k=int(os.getenv("TSQBEV_MEMORY_TOP_K", "8")),
@@ -355,8 +376,11 @@ def _qdrant_point_id(value: str) -> str:
 
 class _Embedder:
     def __init__(self, config: ResearchMemoryConfig) -> None:
+        self.config = config
         self.provider = "hash"
         self.dimension = 256
+        self.reranker_provider = "none"
+        self.reranker_reason: str | None = None
         self._fastembed_model: Any | None = None
         if config.embedder_provider in {"auto", "fastembed"} and TextEmbedding is not None:
             try:
@@ -367,15 +391,41 @@ class _Embedder:
             except Exception:
                 self._fastembed_model = None
         self._reranker: Any | None = None
-        if config.reranker_enabled and TextCrossEncoder is not None:
-            try:
-                self._reranker = TextCrossEncoder(model_name=config.reranker_model)
-            except Exception:
-                self._reranker = None
+        self._cohere_client: Any | None = None
+        if config.reranker_enabled:
+            if config.reranker_provider in {"auto", "cohere"}:
+                if CohereClientV2 is None:
+                    self.reranker_reason = "cohere sdk is not installed"
+                elif not config.cohere_api_key:
+                    self.reranker_reason = "COHERE_API_KEY is not configured"
+                else:
+                    try:
+                        kwargs: dict[str, Any] = {"api_key": config.cohere_api_key}
+                        if config.cohere_base_url is not None:
+                            kwargs["base_url"] = config.cohere_base_url
+                        self._cohere_client = CohereClientV2(**kwargs)
+                        self.reranker_provider = "cohere"
+                    except Exception as exc:
+                        self.reranker_reason = repr(exc)
+                        self._cohere_client = None
+            if (
+                self._cohere_client is None
+                and config.reranker_provider in {"auto", "fastembed"}
+                and TextCrossEncoder is not None
+            ):
+                try:
+                    self._reranker = TextCrossEncoder(model_name=config.reranker_model)
+                    self.reranker_provider = "fastembed"
+                    self.reranker_reason = None
+                except Exception as exc:
+                    self._reranker = None
+                    self.reranker_reason = repr(exc)
+            elif self._cohere_client is None and self.reranker_provider == "none":
+                self.reranker_reason = self.reranker_reason or "no reranker backend available"
 
     @property
     def reranker_enabled(self) -> bool:
-        return self._reranker is not None
+        return self._cohere_client is not None or self._reranker is not None
 
     def embed_texts(self, texts: list[str]) -> list[list[float]]:
         if self._fastembed_model is not None:
@@ -389,17 +439,34 @@ class _Embedder:
         *,
         text_key: str = "text",
     ) -> list[dict[str, Any]]:
-        if self._reranker is None or not candidates:
+        if not candidates:
             return candidates
         texts = [str(candidate[text_key]) for candidate in candidates]
-        try:
-            results = list(self._reranker.rerank(query, texts))
-        except Exception:
+        results: list[Any]
+        if self._cohere_client is not None:
+            try:
+                response = self._cohere_client.rerank(
+                    model=self.config.cohere_reranker_model,
+                    query=query,
+                    documents=texts,
+                    top_n=len(texts),
+                )
+                results = list(getattr(response, "results", []))
+            except Exception:
+                return candidates
+        elif self._reranker is not None:
+            try:
+                results = list(self._reranker.rerank(query, texts))
+            except Exception:
+                return candidates
+        else:
             return candidates
         scores_by_index: dict[int, float] = {}
         for _index, result in enumerate(results):
             if isinstance(result, tuple) and len(result) >= 2:
                 scores_by_index[int(result[0])] = float(result[1])
+            elif hasattr(result, "relevance_score") and hasattr(result, "index"):
+                scores_by_index[int(result.index)] = float(result.relevance_score)
             elif hasattr(result, "score") and hasattr(result, "index"):
                 scores_by_index[int(result.index)] = float(result.score)
         reranked = []
@@ -409,6 +476,20 @@ class _Embedder:
             reranked.append(payload)
         reranked.sort(key=lambda item: float(item.get("rerank_score", 0.0)), reverse=True)
         return reranked
+
+
+def _semantic_rank_key(item: dict[str, Any]) -> tuple[float, float, float]:
+    source_path = str(item.get("source_path", ""))
+    priority = _evidence_priority(source_path)
+    primary_score = _safe_float(item.get("rerank_score"))
+    if primary_score is None:
+        primary_score = _safe_float(item.get("semantic_score")) or 0.0
+    semantic_score = _safe_float(item.get("semantic_score")) or 0.0
+    return (
+        primary_score * priority,
+        semantic_score * priority,
+        priority,
+    )
 
 
 class ResearchCatalog:
@@ -924,15 +1005,7 @@ class QdrantEvidenceIndex:
             for payload in reranked
             if not _exclude_from_brief_evidence(str(payload.get("source_path", "")))
         ]
-        filtered.sort(
-            key=lambda item: (
-                float(item.get("semantic_score", 0.0)) * _evidence_priority(
-                    str(item.get("source_path", ""))
-                ),
-                _evidence_priority(str(item.get("source_path", ""))),
-            ),
-            reverse=True,
-        )
+        filtered.sort(key=_semantic_rank_key, reverse=True)
         return _limit_distinct_sources(filtered, limit)
 
 
@@ -2060,6 +2133,14 @@ def check_research_memory_health(
             "url": cfg.qdrant_url,
             "path": str(cfg.qdrant_path),
             "embedder_provider": qdrant.embedder_provider,
+        },
+        "reranker": {
+            "enabled": qdrant._embedder.reranker_enabled,
+            "provider": qdrant._embedder.reranker_provider,
+            "reason": qdrant._embedder.reranker_reason,
+            "configured_provider": cfg.reranker_provider,
+            "configured_model": cfg.reranker_model,
+            "configured_cohere_model": cfg.cohere_reranker_model,
         },
         "mem0": {
             "enabled": mem0_backend.enabled,

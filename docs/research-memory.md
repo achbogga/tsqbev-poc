@@ -14,6 +14,14 @@ durable evidence instead of ephemeral chat context.
 This repo intentionally keeps the canonical truth in the filesystem. The memory databases are
 rebuildable from repo artifacts and docs.
 
+Optional hosted reranking is supported for stronger semantic evidence ordering:
+
+- local default: FastEmbed cross-encoder reranker
+- optional hosted provider: Cohere Rerank
+
+Important: Cohere Rerank is not an open self-hosted reranker. It is a hosted API. Keep it optional
+so the repo remains local-first and rebuildable without external services.
+
 ## Why This Shape
 
 - `DuckDB` is the exact source for runs, gates, blockers, and incumbents.
@@ -34,6 +42,17 @@ uv run tsqbev research-supervisor \
   --dataset-root /home/achbogga/projects/research/nuscenes \
   --artifact-dir artifacts/autoresearch \
   --teacher-cache-dir artifacts/teacher_cache/centerpoint_pointpillar_mini
+```
+
+Optional stronger hosted reranking:
+
+```bash
+export COHERE_API_KEY=...
+export TSQBEV_MEMORY_RERANKER_ENABLED=1
+export TSQBEV_MEMORY_RERANKER_PROVIDER=cohere
+export TSQBEV_COHERE_RERANKER_MODEL=rerank-v4.0-pro
+uv run tsqbev memory-health
+uv run tsqbev research-brief
 ```
 
 Optional helper services:

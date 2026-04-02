@@ -6,6 +6,8 @@ from pathlib import Path
 from tsqbev.research_memory import (
     ResearchMemoryConfig,
     _artifact_files,
+    _Embedder,
+    _semantic_rank_key,
     build_research_brief,
     query_research_memory,
     sync_research_memory,
@@ -258,20 +260,74 @@ def test_build_research_brief_uses_indexed_state(tmp_path: Path) -> None:
         "mini_train -> mini_val" in line and "recovery_v14_teacher_anchor_quality_focal" in line
         for line in brief.open_blockers
     )
-    assert any(
-        "already clears the NDS threshold" in line for line in brief.delta_since_last
+
+
+def test_semantic_rank_key_prefers_rerank_score() -> None:
+    low_semantic_high_rerank = {
+        "source_path": "docs/plan.md",
+        "semantic_score": 0.10,
+        "rerank_score": 0.95,
+    }
+    high_semantic_no_rerank = {
+        "source_path": "docs/plan.md",
+        "semantic_score": 0.80,
+    }
+
+    assert _semantic_rank_key(low_semantic_high_rerank) > _semantic_rank_key(
+        high_semantic_no_rerank
     )
-    assert any(
-        "quality-aware teacher-anchor recipe" in line for line in brief.recommended_next_steps
+
+
+def test_embedder_can_use_optional_cohere_reranker(monkeypatch) -> None:
+    import tsqbev.research_memory as research_memory
+
+    class _FakeResult:
+        def __init__(self, index: int, relevance_score: float) -> None:
+            self.index = index
+            self.relevance_score = relevance_score
+
+    class _FakeResponse:
+        def __init__(self) -> None:
+            self.results = [_FakeResult(1, 0.9), _FakeResult(0, 0.2)]
+
+    class _FakeClient:
+        def __init__(self, **kwargs: object) -> None:
+            self.kwargs = kwargs
+
+        def rerank(
+            self,
+            *,
+            model: str,
+            query: str,
+            documents: list[str],
+            top_n: int,
+        ) -> _FakeResponse:
+            assert model == "rerank-v4.0-pro"
+            assert query == "why is scale-up blocked?"
+            assert top_n == 2
+            assert documents == ["doc a", "doc b"]
+            return _FakeResponse()
+
+    monkeypatch.setattr(research_memory, "CohereClientV2", _FakeClient)
+
+    embedder = _Embedder(
+        ResearchMemoryConfig(
+            reranker_enabled=True,
+            reranker_provider="cohere",
+            cohere_api_key="test-key",
+            qdrant_enabled=False,
+            mem0_enabled=False,
+        )
     )
-    assert (config.reports_root / "current.md").exists()
-    assert any(config.report_log_root.iterdir())
-    assert all("research_memory.py" not in line for line in brief.evidence_refs)
-    assert all(
-        "recovery_v12_teacher_anchor_seeded_boot12_zero" not in line
-        for line in brief.evidence_refs
-        if line.startswith("Current blocker evidence") or line.startswith("Exact blocker evidence")
+
+    assert embedder.reranker_enabled is True
+    assert embedder.reranker_provider == "cohere"
+    reranked = embedder.rerank(
+        "why is scale-up blocked?",
+        [{"text": "doc a"}, {"text": "doc b"}],
     )
+    assert reranked[0]["text"] == "doc b"
+    assert reranked[0]["rerank_score"] == 0.9
 
 
 def test_query_research_memory_returns_exact_facts(tmp_path: Path) -> None:

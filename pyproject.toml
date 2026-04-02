@@ -37,6 +37,7 @@ deploy = [
     "tensorrt-cu12>=10.16.0.72,<11.0.0",
 ]
 data = [
+    "cohere>=5.18.0,<6.0.0",
     "mem0ai>=1.0.0,<2.0.0",
     "nuscenes-devkit>=1.2.0,<2.0.0",
     "ollama>=0.5.1,<1.0.0",
@@ -76,6 +77,7 @@ exclude = ["tests/"]
 module = [
     "fastembed",
     "fastembed.*",
+    "cohere",
     "mem0",
     "ollama",
     "nuscenes.*",
