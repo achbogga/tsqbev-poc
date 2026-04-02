@@ -943,18 +943,26 @@ class QdrantEvidenceIndex:
     def ensure_collection(self, collection_name: str) -> None:
         if not self.enabled or self._client is None:
             return
-        existing = {item.name for item in self._client.get_collections().collections}
-        if collection_name in existing:
-            return
-        self._client.create_collection(
-            collection_name=collection_name,
-            vectors_config=VectorParams(size=self._embedder.dimension, distance=Distance.COSINE),
-        )
+        try:
+            existing = {item.name for item in self._client.get_collections().collections}
+            if collection_name in existing:
+                return
+            self._client.create_collection(
+                collection_name=collection_name,
+                vectors_config=VectorParams(
+                    size=self._embedder.dimension, distance=Distance.COSINE
+                ),
+            )
+        except Exception as exc:
+            self.reason = repr(exc)
+            self.enabled = False
 
     def upsert_chunks(self, chunks: list[EvidenceChunk]) -> int:
         if not self.enabled or self._client is None or not chunks:
             return 0
         self.ensure_collection(self.config.qdrant_evidence_collection)
+        if not self.enabled or self._client is None:
+            return 0
         embeddings = self._embedder.embed_texts([chunk.text for chunk in chunks])
         points = [
             PointStruct(
@@ -971,29 +979,44 @@ class QdrantEvidenceIndex:
             )
             for chunk, embedding in zip(chunks, embeddings, strict=True)
         ]
-        self._client.upsert(collection_name=self.config.qdrant_evidence_collection, points=points)
-        return len(points)
+        try:
+            self._client.upsert(
+                collection_name=self.config.qdrant_evidence_collection,
+                points=points,
+            )
+            return len(points)
+        except Exception as exc:
+            self.reason = repr(exc)
+            self.enabled = False
+            return 0
 
     def search(self, query: str, *, limit: int) -> list[dict[str, Any]]:
         if not self.enabled or self._client is None:
             return []
         self.ensure_collection(self.config.qdrant_evidence_collection)
+        if not self.enabled or self._client is None:
+            return []
         query_vector = self._embedder.embed_texts([query])[0]
-        if hasattr(self._client, "query_points"):
-            response = self._client.query_points(
-                collection_name=self.config.qdrant_evidence_collection,
-                query=query_vector,
-                limit=limit,
-                with_payload=True,
-            )
-            results = list(getattr(response, "points", []))
-        else:
-            results = self._client.search(
-                collection_name=self.config.qdrant_evidence_collection,
-                query_vector=query_vector,
-                limit=limit,
-                with_payload=True,
-            )
+        try:
+            if hasattr(self._client, "query_points"):
+                response = self._client.query_points(
+                    collection_name=self.config.qdrant_evidence_collection,
+                    query=query_vector,
+                    limit=limit,
+                    with_payload=True,
+                )
+                results = list(getattr(response, "points", []))
+            else:
+                results = self._client.search(
+                    collection_name=self.config.qdrant_evidence_collection,
+                    query_vector=query_vector,
+                    limit=limit,
+                    with_payload=True,
+                )
+        except Exception as exc:
+            self.reason = repr(exc)
+            self.enabled = False
+            return []
         payloads = []
         for result in results:
             payload = dict(result.payload or {})

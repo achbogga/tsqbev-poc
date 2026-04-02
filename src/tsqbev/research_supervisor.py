@@ -125,26 +125,46 @@ def _publish_paths_for_invocation(invocation_root: Path, repo_root: Path = REPO_
         for log_path in sorted(log_root.glob("*.md")):
             paths.append(log_path.relative_to(repo_root))
 
-    loop_root = invocation_root / "research_loop"
-    for loop_relative in (
-        "pre_run_brief.json",
-        "summary.json",
-        "results.tsv",
-        "results.jsonl",
-    ):
-        candidate = loop_root / loop_relative
-        if candidate.exists():
-            paths.append(candidate.relative_to(repo_root))
-
     deduped: list[Path] = []
     seen: set[str] = set()
     for path in paths:
         key = str(path)
+        if key.startswith("artifacts/autoresearch/"):
+            continue
         if key in seen:
             continue
         seen.add(key)
         deduped.append(path)
     return deduped
+
+
+def _write_first_principles_checkpoint(
+    invocation_root: Path,
+    brief: dict[str, Any],
+) -> Path:
+    invocation_root.mkdir(parents=True, exist_ok=True)
+    current_state = brief.get("current_state")
+    blockers = brief.get("open_blockers")
+    next_steps = brief.get("recommended_next_steps")
+    evidence = brief.get("evidence_refs")
+    payload = {
+        "generated_at_utc": datetime.now(tz=UTC).isoformat(),
+        "first_principles_questions": [
+            "What is the current strongest local evidence, not the incumbent label?",
+            "What bottleneck is actually active right now?",
+            "What upstream or teacher evidence says the current student path is wrong "
+            "or incomplete?",
+            "What is the smallest bounded next move that directly targets the active bottleneck?",
+            "What stopping condition would prove this branch is no longer the best ROI path?",
+        ],
+        "current_state": current_state if isinstance(current_state, list) else [],
+        "open_blockers": blockers if isinstance(blockers, list) else [],
+        "recommended_next_steps": next_steps if isinstance(next_steps, list) else [],
+        "evidence_refs": evidence if isinstance(evidence, list) else [],
+    }
+    path = invocation_root / "first_principles_checkpoint.json"
+    path.write_text(json.dumps(payload, indent=2))
+    return path
 
 
 def _git_publish_generated(
@@ -384,11 +404,16 @@ def run_research_supervisor(
         )
         last_invocation_dir = invocation_root
         safe_sync_research_memory(REPO_ROOT)
-        safe_build_research_brief(REPO_ROOT, persist_log=False)
+        pre_run_brief = safe_build_research_brief(REPO_ROOT, persist_log=False)
+        checkpoint_path = _write_first_principles_checkpoint(invocation_root, pre_run_brief)
 
         started_at = datetime.now(tz=UTC).isoformat()
         invocation_status = "completed"
-        notes: list[str] = [f"started invocation `{invocation_root.name}` at `{started_at}`"]
+        notes: list[str] = [
+            f"started invocation `{invocation_root.name}` at `{started_at}`",
+            "wrote first-principles checkpoint to "
+            f"`{checkpoint_path.relative_to(REPO_ROOT)}` before launch",
+        ]
         try:
             summary = run_bounded_research_loop(
                 dataroot=dataset_root,
@@ -436,6 +461,7 @@ def run_research_supervisor(
             "status": invocation_status,
             "invocation": attempted_invocations,
             "invocation_root": str(invocation_root),
+            "first_principles_checkpoint": str(checkpoint_path),
             "selected_recipe": last_selected_recipe,
             "nds": last_nds,
             "mean_ap": last_map,

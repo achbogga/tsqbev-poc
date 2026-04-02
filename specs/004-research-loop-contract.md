@@ -63,6 +63,7 @@ current intervention.
 The loop must also operate from durable local memory:
 
 - build a pre-run research brief from the exact catalog and evidence index
+- write a pre-run first-principles checkpoint before launching the invocation
 - sync new run artifacts back into the local memory stack
 - publish a PI-facing report after each completed invocation
 
@@ -71,7 +72,7 @@ The loop must also operate from durable local memory:
 - dataset: `nuScenes v1.0-mini`
 - train split: `mini_train`
 - validation split: `mini_val`
-- experiment count per invocation: at most `5`
+- experiment count per invocation: at most `7`
 - fixed comparable train budget per recipe: `max_train_steps = 960`
 - loop shape:
   - baseline or carry-over incumbent recheck
@@ -79,6 +80,8 @@ The loop must also operate from durable local memory:
   - paired teacher-off versus teacher-on comparison when a teacher cache is available
   - bounded exploration
   - bounded exploitation derived from the current incumbent
+  - when warranted by the current bottleneck, one explicit augmentation branch and one explicit
+    KD/ranking branch may be added without opening the loop further
 
 ## Allowed Recipe Changes
 
@@ -96,6 +99,8 @@ The loop must also operate from durable local memory:
 - detection loss mode and hard-negative budget
 - best-checkpoint selection policy
 - bounded score-threshold / top-k calibration
+- label-safe augmentation mode
+- teacher-region objectness / ranking supervision derived from cached teacher boxes and scores
 
 ## Required Per-Run Metadata
 
@@ -132,6 +137,7 @@ Every run must record:
 - `artifacts/memory/sync_manifest.json`
 - `artifacts/memory/brief.json`
 - `docs/reports/current.md`
+- supervisor-side `first_principles_checkpoint.json` for each continuous invocation
 
 ## Decision Semantics
 
@@ -153,6 +159,9 @@ The loop may not keep a recipe purely because it has a lower surrogate loss if i
 
 The loop may not promote a recipe whose exported predictions are still geometrically implausible,
 even if `NDS`, `mAP`, or validation loss improve.
+
+The loop may not introduce geometry-changing augmentations unless the affected dataset loader also
+updates the corresponding camera intrinsics and supervision transforms correctly.
 
 If a run keeps a best checkpoint that materially outperforms its last checkpoint, the selected
 checkpoint and selected-epoch metrics are the ones that count for promotion.

@@ -36,7 +36,7 @@ def test_publish_paths_for_invocation_include_reports_and_loop_outputs(tmp_path:
     assert Path("artifacts/memory/brief.json") in publish_paths
     assert Path("artifacts/memory/sync_manifest.json") in publish_paths
     assert Path("docs/reports/log/20260402-000000.md") in publish_paths
-    assert Path("artifacts/autoresearch/invocation_001/research_loop/summary.json") in publish_paths
+    assert all(not str(path).startswith("artifacts/autoresearch/") for path in publish_paths)
 
 
 def test_run_research_supervisor_waits_then_runs_and_writes_outputs(
@@ -135,3 +135,27 @@ def test_run_research_supervisor_waits_then_runs_and_writes_outputs(
     rows = [json.loads(line) for line in ledger_path.read_text().splitlines()]
     assert len(rows) == 1
     assert rows[0]["selected_recipe"] == "carryover_recipe"
+    checkpoint_path = Path(rows[0]["first_principles_checkpoint"])
+    assert checkpoint_path.exists()
+    checkpoint = json.loads(checkpoint_path.read_text())
+    assert "first_principles_questions" in checkpoint
+
+
+def test_publish_paths_skip_ignored_autoresearch_artifacts(tmp_path: Path) -> None:
+    repo_root = tmp_path / "repo"
+    invocation_root = repo_root / "artifacts" / "autoresearch" / "invocation_001"
+    (repo_root / "docs" / "reports").mkdir(parents=True)
+    (repo_root / "artifacts" / "memory").mkdir(parents=True)
+    (invocation_root / "research_loop").mkdir(parents=True)
+
+    (repo_root / "docs" / "reports" / "current.md").write_text("current")
+    (repo_root / "docs" / "reports" / "autoresearch.md").write_text("supervisor")
+    (repo_root / "artifacts" / "memory" / "brief.json").write_text("{}")
+    (repo_root / "artifacts" / "memory" / "sync_manifest.json").write_text("{}")
+    (invocation_root / "research_loop" / "summary.json").write_text("{}")
+
+    paths = research_supervisor._publish_paths_for_invocation(invocation_root, repo_root=repo_root)
+
+    assert Path("docs/reports/autoresearch.md") in paths
+    assert Path("artifacts/memory/brief.json") in paths
+    assert all(not str(path).startswith("artifacts/autoresearch/") for path in paths)

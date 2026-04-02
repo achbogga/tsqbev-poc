@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 
 from tsqbev.research_memory import (
+    QdrantEvidenceIndex,
     ResearchMemoryConfig,
     _artifact_files,
     _Embedder,
@@ -328,6 +329,50 @@ def test_embedder_can_use_optional_cohere_reranker(monkeypatch) -> None:
     )
     assert reranked[0]["text"] == "doc b"
     assert reranked[0]["rerank_score"] == 0.9
+
+
+def test_qdrant_index_degrades_cleanly_on_upsert_failure(monkeypatch) -> None:
+    import tsqbev.research_memory as research_memory
+
+    class _FakeCollections:
+        collections: list[object] = []
+
+    class _FakeClient:
+        def get_collections(self) -> _FakeCollections:
+            return _FakeCollections()
+
+        def create_collection(self, **kwargs: object) -> None:
+            return None
+
+        def upsert(self, **kwargs: object) -> None:
+            raise RuntimeError("boom")
+
+    monkeypatch.setattr(research_memory, "_http_ok", lambda _url: True)
+    monkeypatch.setattr(research_memory, "QdrantClient", lambda **kwargs: _FakeClient())
+
+    index = QdrantEvidenceIndex(
+        ResearchMemoryConfig(qdrant_enabled=True, qdrant_mode="server", mem0_enabled=False)
+    )
+    assert index.enabled is True
+
+    from tsqbev.research_memory import EvidenceChunk
+
+    count = index.upsert_chunks(
+        [
+            EvidenceChunk(
+                chunk_id="chunk-1",
+                source_path="docs/plan.md",
+                kind="doc",
+                title="Plan",
+                text="scale blocker evidence",
+                citation="docs/plan.md",
+                payload={},
+            )
+        ]
+    )
+    assert count == 0
+    assert index.enabled is False
+    assert index.reason is not None
 
 
 def test_query_research_memory_returns_exact_facts(tmp_path: Path) -> None:
