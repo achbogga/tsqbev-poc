@@ -20,7 +20,14 @@ These instructions are durable repo policy, not one-off chat guidance.
 - browse primary papers, official repos, and official weights for unstable SOTA areas such as KD,
   pretrained backbones, query design, multimodal fusion, and deployment tradeoffs
 - treat KD as a broad menu, not a single method: logits, feature, `1x1` alignment, relational,
-  online, mutual, self-distillation, and teacher-anchor transfer are all in scope
+  dense output targets such as heatmaps / BEV maps / segmentation maps, online, mutual,
+  self-distillation, and teacher-anchor transfer are all in scope
+- for the current repo, prioritize KD targets by ROI:
+  1. ranking-critical teacher outputs
+  2. lightweight feature alignment
+  3. dense maps such as heatmaps or BEV segmentation targets
+  4. relational KD
+  5. online, mutual, or self-distillation
 - if a public dense-BEV upstream stack is better supported than the current custom path, pivot to
   it rather than deepening the custom sparse-query line
 - treat BEVFusion, OpenPCDet, BEVDet / BEVDepth, MapTRv2, EfficientViT, DINOv2 / DINOv3, and

@@ -20,8 +20,17 @@ The loop must be run with first-principles skepticism:
   sparse-query line, treat that reset as the main search direction
 
 The loop must treat KD as a menu of candidate mechanisms, not a single checkbox. Candidate
-directions include logits, feature, lightweight `1x1` alignment, relational, online, mutual,
-self-distillation, and teacher-anchor transfer.
+directions include logits, feature, lightweight `1x1` alignment, dense teacher outputs such as
+heatmaps or BEV maps, relational, online, mutual, self-distillation, and teacher-anchor transfer.
+
+For the current TSQBEV student, the bounded loop should prefer KD interventions in this order
+unless local evidence strongly contradicts it:
+
+1. ranking-critical outputs such as quality-aware class scores, heatmaps, or objectness targets
+2. lightweight teacher feature alignment through BEV or multiscale image features
+3. dense teacher maps such as segmentation / occupancy style supervision
+4. relational KD
+5. online, mutual, or self-distillation
 
 ## ROI And Token-Burn Rule
 

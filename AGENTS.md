@@ -61,13 +61,26 @@ directions include:
 
 - logits distillation
 - feature distillation, including lightweight alignment such as `1x1` projection layers
+- dense output distillation, including teacher heatmaps, quality maps, objectness maps, and BEV
+  segmentation / occupancy style targets when available
 - box/query distillation
 - relational distillation
+- response / ranking distillation where the teacher score itself is the supervised target
 - online or mutual distillation
 - self-distillation
 - teacher-anchor or teacher-proposal transfer
 
 The active KD choice must be justified by ROI, not by completeness.
+
+For this repo, default KD ROI priority is:
+
+1. teacher outputs that directly affect ranking and calibration
+2. teacher BEV or multiscale features through lightweight alignment
+3. teacher dense maps such as heatmaps or segmentation targets
+4. relational / pairwise structure
+5. online, mutual, or self-distillation
+
+Do not jump to higher-cost KD forms until the lower-cost targets have been tested honestly.
 
 ## ROI Rule
 
