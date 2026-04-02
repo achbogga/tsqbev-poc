@@ -30,6 +30,10 @@ uv run tsqbev memory-backfill
 uv run tsqbev memory-query --query "why is scale-up blocked?"
 uv run tsqbev research-brief
 uv run tsqbev research-report
+uv run tsqbev research-supervisor \
+  --dataset-root /home/achbogga/projects/research/nuscenes \
+  --artifact-dir artifacts/autoresearch \
+  --teacher-cache-dir artifacts/teacher_cache/centerpoint_pointpillar_mini
 ```
 
 Optional helper services:
@@ -65,6 +69,7 @@ If those services are unavailable, the repo still works:
 - machine-readable sync state: [artifacts/memory/sync_manifest.json](../artifacts/memory/sync_manifest.json)
 - machine-readable brief: [artifacts/memory/brief.json](../artifacts/memory/brief.json)
 - PI-facing current report: [docs/reports/current.md](reports/current.md)
+- continuous supervisor report: [docs/reports/autoresearch.md](reports/autoresearch.md)
 - steering file consumed before runs: [docs/steering.md](steering.md)
 
 ## References

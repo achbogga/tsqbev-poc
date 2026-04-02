@@ -49,6 +49,7 @@ from tsqbev.research_memory import (
     query_research_memory,
     sync_research_memory,
 )
+from tsqbev.research_supervisor import run_research_supervisor
 from tsqbev.reset_stack import recommended_reset_plan, render_reset_plan_markdown, upstream_registry
 from tsqbev.runtime import benchmark_forward, run_eval_step, run_train_step
 from tsqbev.synthetic import make_synthetic_batch
@@ -341,6 +342,7 @@ def _make_parser() -> argparse.ArgumentParser:
             "export-openlane",
             "eval-openlane",
             "research-loop",
+            "research-supervisor",
             "reset-stack",
             "reset-gap-report",
             "upstream-registry",
@@ -468,6 +470,16 @@ def _make_parser() -> argparse.ArgumentParser:
     parser.add_argument("--max-val-samples", type=int, default=None)
     parser.add_argument("--device", type=str, default=None)
     parser.add_argument("--max-experiments", type=int, default=5)
+    parser.add_argument("--max-invocations", type=int, default=None)
+    parser.add_argument("--sleep-seconds", type=int, default=30)
+    parser.add_argument("--wait-poll-seconds", type=int, default=20)
+    parser.add_argument(
+        "--git-publish",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+    )
+    parser.add_argument("--git-remote", type=str, default="origin")
+    parser.add_argument("--git-branch", type=str, default=None)
     parser.add_argument("--score-threshold", type=float, default=0.25)
     parser.add_argument("--score-threshold-candidates", type=float, nargs="*", default=None)
     parser.add_argument("--top-k", type=int, default=300)
@@ -916,6 +928,26 @@ def main() -> None:
                 device=args.device,
                 max_experiments=args.max_experiments,
                 teacher_provider_config=teacher_provider_config,
+            )
+        )
+        return
+    if args.command == "research-supervisor":
+        if args.dataset_root is None:
+            raise ValueError("--dataset-root is required for research-supervisor")
+        teacher_provider_config = _resolve_teacher_provider_config(args)
+        print(
+            run_research_supervisor(
+                dataroot=args.dataset_root,
+                artifact_dir=args.artifact_dir,
+                device=args.device,
+                max_experiments=args.max_experiments,
+                teacher_provider_config=teacher_provider_config,
+                max_invocations=args.max_invocations,
+                sleep_seconds=args.sleep_seconds,
+                wait_poll_seconds=args.wait_poll_seconds,
+                git_publish=args.git_publish,
+                git_remote=args.git_remote,
+                git_branch=args.git_branch,
             )
         )
         return

@@ -134,6 +134,20 @@ The active local loop shape is:
 3. bounded exploitation around the best measured incumbent
 4. promote exactly one record per invocation
 
+## Continuous Supervisor
+
+The bounded loop is not enough by itself. A Karpathy-style lab workflow in this repo now means:
+
+1. one bounded invocation runs at a time on the active GPU
+2. a supervisor waits for any external run to finish instead of contending blindly
+3. after each invocation, the repo must sync memory, rebuild the PI brief, append the ledger,
+   and publish the generated report artifacts
+4. the next invocation should start automatically unless a stop file is present or the repo is
+   explicitly disabled
+
+The intended entrypoint is `tsqbev research-supervisor`, not manual one-off screens, whenever the
+goal is continuous unattended progress.
+
 ## Dataset And Budget
 
 - dataset scope: `nuScenes v1.0-mini` only
