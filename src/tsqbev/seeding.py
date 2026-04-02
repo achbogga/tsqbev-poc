@@ -139,6 +139,7 @@ class TriSourceQueryRouter(nn.Module):
     SOURCE_LIDAR = 0
     SOURCE_PROPOSAL = 1
     SOURCE_GLOBAL = 2
+    _GEOMETRY_SAFE_SOURCE_IDS = (SOURCE_PROPOSAL, SOURCE_GLOBAL)
 
     def __init__(self, config: ModelConfig) -> None:
         super().__init__()
@@ -203,6 +204,31 @@ class TriSourceQueryRouter(nn.Module):
             for source_index in order[:remainder]:
                 counts[int(source_index)] += 1
         return [int(value) for value in counts.tolist()]
+
+    def _anchor_first_reserve_counts(self) -> dict[int, int]:
+        """Return minimum non-LiDAR slots to preserve in anchor-first mode.
+
+        Repo note:
+        Teacher-anchor routing improved overfit and mini-val quality, but a pure
+        LiDAR-first fill collapsed the routed bank to source_mix=1.0 LiDAR on the
+        strongest bounded mini run. Keeping a small proposal/global floor preserves
+        multimodal evidence without giving up the anchor-first inductive bias.
+        """
+
+        proposal_keep = min(self.config.anchor_first_min_proposal, self.config.q_2d)
+        global_keep = min(self.config.anchor_first_min_global, self.config.q_global)
+        reserved_total = proposal_keep + global_keep
+        if reserved_total > self.config.max_object_queries:
+            scale = float(self.config.max_object_queries) / float(reserved_total)
+            proposal_keep = int(proposal_keep * scale)
+            global_keep = min(
+                global_keep,
+                self.config.max_object_queries - proposal_keep,
+            )
+        return {
+            self.SOURCE_PROPOSAL: proposal_keep,
+            self.SOURCE_GLOBAL: global_keep,
+        }
 
     def forward(
         self,
@@ -298,6 +324,22 @@ class TriSourceQueryRouter(nn.Module):
         top_indices_rows: list[Tensor] = []
 
         if self.config.router_mode == "anchor_first":
+            source_offsets = {
+                self.SOURCE_LIDAR: 0,
+                self.SOURCE_PROPOSAL: lidar_queries.shape[1],
+                self.SOURCE_GLOBAL: lidar_queries.shape[1] + proposal_queries.shape[1],
+            }
+            source_lengths = {
+                self.SOURCE_LIDAR: lidar_queries.shape[1],
+                self.SOURCE_PROPOSAL: proposal_queries.shape[1],
+                self.SOURCE_GLOBAL: global_queries.shape[1],
+            }
+            source_valid_groups = {
+                self.SOURCE_LIDAR: lidar_valid,
+                self.SOURCE_PROPOSAL: proposal_valid,
+                self.SOURCE_GLOBAL: global_valid,
+            }
+            source_reserves = self._anchor_first_reserve_counts()
             for batch_index in range(all_queries.shape[0]):
                 selected: list[int] = []
                 selected_mask = torch.zeros(
@@ -305,16 +347,43 @@ class TriSourceQueryRouter(nn.Module):
                     device=all_queries.device,
                     dtype=torch.bool,
                 )
+                reserved_slots = sum(source_reserves.values())
+                lidar_budget = max(0, keep_count - reserved_slots)
                 lidar_valid_indices = torch.nonzero(
                     lidar_valid[batch_index],
                     as_tuple=False,
                 ).squeeze(-1)
-                if lidar_valid_indices.numel() > 0:
+                if lidar_valid_indices.numel() > 0 and lidar_budget > 0:
                     lidar_order = torch.argsort(
                         keep_scores[batch_index, lidar_valid_indices],
                         descending=True,
                     )
-                    chosen = lidar_valid_indices[lidar_order[:keep_count]]
+                    chosen = lidar_valid_indices[lidar_order[:lidar_budget]]
+                    selected.extend(int(index) for index in chosen.tolist())
+                    selected_mask[chosen] = True
+
+                for source_id in self._GEOMETRY_SAFE_SOURCE_IDS:
+                    reserve = source_reserves.get(source_id, 0)
+                    if reserve <= 0 or len(selected) >= keep_count:
+                        continue
+                    offset = source_offsets[source_id]
+                    valid_indices = torch.nonzero(
+                        source_valid_groups[source_id][batch_index],
+                        as_tuple=False,
+                    ).squeeze(-1)
+                    if valid_indices.numel() == 0:
+                        continue
+                    source_scores = keep_scores[
+                        batch_index,
+                        offset + valid_indices[: source_lengths[source_id]],
+                    ]
+                    source_order = torch.argsort(source_scores, descending=True)
+                    keep_for_source = min(
+                        reserve,
+                        int(valid_indices.numel()),
+                        keep_count - len(selected),
+                    )
+                    chosen = valid_indices[source_order[:keep_for_source]] + offset
                     selected.extend(int(index) for index in chosen.tolist())
                     selected_mask[chosen] = True
 
@@ -350,7 +419,7 @@ class TriSourceQueryRouter(nn.Module):
                 top_indices_rows.append(selected_tensor[selected_order[:keep_count]])
         else:
             source_keep_counts = self._source_keep_counts()
-            source_offsets = [
+            source_offset_list = [
                 0,
                 lidar_queries.shape[1],
                 lidar_queries.shape[1] + proposal_queries.shape[1],
@@ -363,7 +432,7 @@ class TriSourceQueryRouter(nn.Module):
                     dtype=torch.bool,
                 )
                 grouped_sources = zip(
-                    source_offsets,
+                    source_offset_list,
                     score_groups,
                     valid_groups,
                     source_keep_counts,

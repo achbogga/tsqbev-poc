@@ -52,6 +52,8 @@ class ModelConfig(BaseModel):
     dropout_lidar_probability: float = 0.2
     teacher_seed_mode: Literal["off", "replace_lidar", "replace_lidar_refs"] = "off"
     teacher_seed_selection_mode: Literal["score_topk", "class_balanced_round_robin"] = "score_topk"
+    anchor_first_min_proposal: int = 0
+    anchor_first_min_global: int = 0
     pillar: PillarConfig = Field(default_factory=PillarConfig)
 
     @model_validator(mode="after")
@@ -69,6 +71,14 @@ class ModelConfig(BaseModel):
             raise ValueError("feature_levels must be 1 or 2 for the minimal POC")
         if self.image_backbone == "tiny" and self.pretrained_image_backbone:
             raise ValueError("the tiny fallback backbone does not have pretrained weights")
+        if self.anchor_first_min_proposal < 0 or self.anchor_first_min_global < 0:
+            raise ValueError("anchor_first source reserves must be non-negative")
+        if self.anchor_first_min_proposal > self.q_2d:
+            raise ValueError("anchor_first proposal reserve cannot exceed q_2d")
+        if self.anchor_first_min_global > self.q_global:
+            raise ValueError("anchor_first global reserve cannot exceed q_global")
+        if self.anchor_first_min_proposal + self.anchor_first_min_global > self.max_object_queries:
+            raise ValueError("anchor_first source reserves cannot exceed max_object_queries")
         return self
 
     @classmethod

@@ -191,6 +191,8 @@ def _updated_config(
     proposals_per_view: int | None = None,
     teacher_seed_mode: str | None = None,
     teacher_seed_selection_mode: str | None = None,
+    anchor_first_min_proposal: int | None = None,
+    anchor_first_min_global: int | None = None,
 ) -> ModelConfig:
     updates: dict[str, object] = {}
     pillar_updates: dict[str, object] = {}
@@ -217,6 +219,10 @@ def _updated_config(
         updates["teacher_seed_mode"] = teacher_seed_mode
     if teacher_seed_selection_mode is not None:
         updates["teacher_seed_selection_mode"] = teacher_seed_selection_mode
+    if anchor_first_min_proposal is not None:
+        updates["anchor_first_min_proposal"] = anchor_first_min_proposal
+    if anchor_first_min_global is not None:
+        updates["anchor_first_min_global"] = anchor_first_min_global
     if pillar_updates:
         updates["pillar"] = config.pillar.model_copy(update=pillar_updates)
     return config.model_copy(update=updates)
@@ -572,9 +578,63 @@ def _make_query_boost_recipe(
         mutation_reason="add one bounded sparse-budget increment around the incumbent source mix",
         config=config,
         stage=stage,
-        loss_mode="focal_hardneg",
+        loss_mode=recipe.loss_mode,
         score_threshold_candidates=(0.05, 0.15, 0.25),
-        top_k_candidates=(32, 64, 112),
+        top_k_candidates=(16, 32, 64, 112),
+    )
+
+
+def _make_anchor_mix_recipe(
+    recipe: ResearchRecipe,
+    *,
+    stage: Literal["baseline", "explore", "exploit"] = "exploit",
+) -> ResearchRecipe:
+    reserve_proposal = min(16, recipe.config.q_2d)
+    reserve_global = min(8, recipe.config.q_global)
+    config = _updated_config(
+        recipe.config,
+        anchor_first_min_proposal=reserve_proposal,
+        anchor_first_min_global=reserve_global,
+    )
+    return _clone_recipe(
+        recipe,
+        name=f"{recipe.name}_anchor_mix",
+        note="preserve a small non-LiDAR budget inside anchor-first routing",
+        hypothesis=(
+            "teacher anchors should stay primary, but reserving proposal/global slots should "
+            "improve multimodal stability and suppress overconfident LiDAR-only ranking"
+        ),
+        mutation_reason=(
+            "reserve a bounded proposal/global floor inside anchor-first routing to stop "
+            "source-mix collapse"
+        ),
+        config=config,
+        stage=stage,
+        loss_mode=recipe.loss_mode,
+        score_threshold_candidates=(0.05, 0.15, 0.25),
+        top_k_candidates=(16, 32, 64),
+    )
+
+
+def _make_teacher_off_control_recipe(
+    recipe: ResearchRecipe,
+    *,
+    stage: Literal["baseline", "explore", "exploit"] = "exploit",
+) -> ResearchRecipe:
+    config = _updated_config(recipe.config, teacher_seed_mode="off")
+    return _clone_recipe(
+        recipe,
+        name=f"{recipe.name}_teacher_off_control",
+        note="paired teacher-off control on the incumbent optimization regime",
+        hypothesis=(
+            "a true teacher-on versus teacher-off pair is required to measure whether the "
+            "current gains come from teacher anchors or only from optimization drift"
+        ),
+        mutation_reason="disable teacher seeding while keeping the rest of the regime fixed",
+        config=config,
+        stage=stage,
+        use_teacher_provider=False,
+        enable_teacher_distillation=False,
     )
 
 
@@ -694,8 +754,12 @@ def _build_exploitation_recipes(
     if teacher_provider_config is not None and incumbent_recipe.config.teacher_seed_mode == "off":
         candidates.append(_make_teacher_seed_recipe(incumbent_recipe))
         candidates.append(_make_teacher_kd_recipe(incumbent_recipe, stage="exploit"))
+    if incumbent_recipe.config.teacher_seed_mode != "off":
+        candidates.append(_make_teacher_off_control_recipe(incumbent_recipe))
     if incumbent_recipe.loss_mode != "quality_focal":
         candidates.append(_make_quality_focal_recipe(incumbent_recipe))
+    if float(source_mix.get("lidar", 0.0)) >= 0.8 or float(source_mix.get("proposal", 0.0)) < 0.2:
+        candidates.append(_make_anchor_mix_recipe(incumbent_recipe))
     candidates.extend(
         [
             _make_query_boost_recipe(incumbent_recipe, source_mix=source_mix),

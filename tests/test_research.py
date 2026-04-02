@@ -539,6 +539,61 @@ def test_exploitation_candidates_do_not_repeat_active_loss_mode() -> None:
     assert f"{incumbent.name}_focal_hardneg" in candidate_names
 
 
+def test_query_boost_recipe_preserves_active_loss_mode() -> None:
+    incumbent = research.ResearchRecipe(
+        name="carryover_recipe",
+        note="incumbent",
+        hypothesis="incumbent",
+        mutation_reason="incumbent",
+        config=ModelConfig.rtx5000_nuscenes_teacher_bootstrap(),
+        stage="baseline",
+        use_teacher_provider=True,
+        loss_mode="quality_focal",
+        enable_teacher_distillation=False,
+    )
+
+    boosted = research._make_query_boost_recipe(
+        incumbent,
+        source_mix={"lidar": 1.0, "proposal": 0.0, "global": 0.0},
+    )
+
+    assert boosted.loss_mode == "quality_focal"
+
+
+def test_exploitation_candidates_add_teacher_off_control_and_anchor_mix_for_lidar_collapse(
+) -> None:
+    incumbent = research.ResearchRecipe(
+        name="carryover_recipe",
+        note="incumbent",
+        hypothesis="incumbent",
+        mutation_reason="incumbent",
+        config=ModelConfig.rtx5000_nuscenes_teacher_bootstrap(),
+        stage="baseline",
+        use_teacher_provider=True,
+        loss_mode="quality_focal",
+        enable_teacher_distillation=False,
+    )
+    incumbent_record = {
+        "recipe": incumbent.name,
+        "source_mix": {"lidar": 1.0, "proposal": 0.0, "global": 0.0},
+        "checkpoint_path": "/tmp/incumbent.pt",
+        "evaluation": _fake_eval(0.14, 0.18, car_ap_4m=0.60),
+        "val": {"total": 10.0},
+    }
+    teacher_provider = research.TeacherProviderConfig(kind="cache", cache_dir="/tmp/cache")
+
+    candidates = research._build_exploitation_recipes(
+        incumbent,
+        incumbent_record,
+        teacher_provider,
+        remaining_budget=6,
+    )
+
+    candidate_names = [candidate.name for candidate in candidates]
+    assert f"{incumbent.name}_teacher_off_control" in candidate_names
+    assert f"{incumbent.name}_anchor_mix" in candidate_names
+
+
 def test_scale_gate_verdict_blocks_pathological_prediction_geometry() -> None:
     promoted_record = {
         "evaluation": _fake_eval(0.02, 0.001, car_ap_4m=0.01),

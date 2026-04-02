@@ -150,3 +150,45 @@ def test_anchor_first_router_preserves_teacher_prior_metadata(
     assert torch.all(seed_bank.prior_valid_mask)
     assert seed_bank.prior_labels is not None
     assert seed_bank.prior_scores is not None
+
+
+def test_anchor_first_router_can_reserve_non_lidar_slots(
+    small_config: ModelConfig,
+) -> None:
+    config = small_config.model_copy(
+        update={
+            "router_mode": "anchor_first",
+            "anchor_first_min_proposal": 4,
+            "anchor_first_min_global": 2,
+        }
+    )
+    router = TriSourceQueryRouter(config)
+    batch = 1
+    lidar_queries = torch.randn(batch, config.q_lidar, config.model_dim)
+    lidar_refs = torch.randn(batch, config.q_lidar, 3)
+    lidar_scores = torch.linspace(0.2, 1.0, config.q_lidar).unsqueeze(0)
+    proposal_queries = torch.randn(batch, config.q_2d, config.model_dim)
+    proposal_refs = torch.randn(batch, config.q_2d, 3)
+    proposal_scores = torch.ones(batch, config.q_2d)
+    global_queries = torch.randn(batch, config.q_global, config.model_dim)
+    global_refs = torch.randn(batch, config.q_global, 3)
+    global_scores = torch.ones(batch, config.q_global)
+
+    seed_bank = router(
+        lidar_queries,
+        lidar_refs,
+        lidar_scores,
+        None,
+        None,
+        None,
+        proposal_queries,
+        proposal_refs,
+        proposal_scores,
+        global_queries,
+        global_refs,
+        global_scores,
+    )
+
+    source_ids = seed_bank.source_ids[0]
+    assert int((source_ids == TriSourceQueryRouter.SOURCE_PROPOSAL).sum().item()) >= 4
+    assert int((source_ids == TriSourceQueryRouter.SOURCE_GLOBAL).sum().item()) >= 2

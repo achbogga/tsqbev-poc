@@ -50,6 +50,24 @@ def _car_ap_4m(evaluation: dict[str, object]) -> float:
         return 0.0
 
 
+def _geometry_gate_pass(geometry: dict[str, object] | None) -> bool:
+    if geometry is None:
+        return False
+    try:
+        boxes_mean = geometry.get("boxes_per_sample_mean", float("inf"))
+        boxes_p95 = geometry.get("boxes_per_sample_p95", float("inf"))
+        norm_p99 = geometry.get("ego_translation_norm_p99", float("inf"))
+        norm_max = geometry.get("ego_translation_norm_max", float("inf"))
+        return (
+            float(cast(float | int | str, boxes_mean)) <= 40.0
+            and float(cast(float | int | str, boxes_p95)) <= 60.0
+            and float(cast(float | int | str, norm_p99)) <= 120.0
+            and float(cast(float | int | str, norm_max)) <= 150.0
+        )
+    except (TypeError, ValueError):
+        return False
+
+
 def _is_better_calibration(
     candidate: dict[str, object],
     current_best: dict[str, object] | None,
@@ -60,7 +78,16 @@ def _is_better_calibration(
     current_eval = current_best["evaluation"]
     assert isinstance(candidate_eval, dict)
     assert isinstance(current_eval, dict)
+    candidate_geometry = candidate.get("prediction_geometry")
+    current_geometry = current_best.get("prediction_geometry")
+    candidate_geometry_pass = _geometry_gate_pass(
+        candidate_geometry if isinstance(candidate_geometry, dict) else None
+    )
+    current_geometry_pass = _geometry_gate_pass(
+        current_geometry if isinstance(current_geometry, dict) else None
+    )
     candidate_key = (
+        candidate_geometry_pass,
         float(candidate_eval.get("nd_score", float("-inf"))),
         float(candidate_eval.get("mean_ap", float("-inf"))),
         _car_ap_4m(candidate_eval),
@@ -68,6 +95,7 @@ def _is_better_calibration(
         -float(cast(int, candidate["top_k"])),
     )
     current_key = (
+        current_geometry_pass,
         float(current_eval.get("nd_score", float("-inf"))),
         float(current_eval.get("mean_ap", float("-inf"))),
         _car_ap_4m(current_eval),
@@ -467,6 +495,11 @@ def export_and_evaluate_nuscenes_grid(
                 "prediction_path": str(prediction_path),
                 "evaluation": evaluation,
                 "car_ap_4m": _car_ap_4m(evaluation),
+                "prediction_geometry": prediction_geometry_diagnostics(
+                    prediction_path,
+                    dataroot=dataroot,
+                    version=version,
+                ),
             }
             candidates.append(candidate)
             if _is_better_calibration(candidate, best_candidate):
