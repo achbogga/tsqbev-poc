@@ -659,6 +659,26 @@ class ResearchCatalog:
             return None
         return best
 
+    def scale_blocker_for_recipe(self, recipe: str) -> dict[str, Any] | None:
+        row = self._conn.execute(
+            """
+            SELECT recipe, event_type, source_path, payload_json
+            FROM research_events
+            WHERE event_type = 'scale_gate' AND status = 'blocked' AND recipe = ?
+            ORDER BY nds DESC, mean_ap DESC, val_total ASC
+            LIMIT 1
+            """,
+            (recipe,),
+        ).fetchone()
+        if row is None:
+            return None
+        return {
+            "recipe": row[0],
+            "event_type": row[1],
+            "source_path": row[2],
+            "payload": json.loads(str(row[3])),
+        }
+
     def best_overfit_frontier(self) -> dict[str, Any] | None:
         rows = self._conn.execute(
             """
@@ -1709,7 +1729,11 @@ def build_research_brief(
         incumbent = catalog.current_incumbent()
         overfit_frontier = catalog.best_overfit_frontier()
         ratio_overfit_frontier = catalog.best_ratio_passing_overfit_frontier()
-        scale_blocker = catalog.latest_scale_blocker()
+        scale_blocker = None
+        if incumbent is not None:
+            scale_blocker = catalog.scale_blocker_for_recipe(str(incumbent["recipe"]))
+        if scale_blocker is None:
+            scale_blocker = catalog.latest_scale_blocker()
         upstream = catalog.latest_upstream_baseline()
         repeated = catalog.repeated_rabbit_holes()
         lexical = catalog.lexical_evidence(

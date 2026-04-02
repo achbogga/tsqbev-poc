@@ -293,6 +293,102 @@ def test_query_research_memory_returns_exact_facts(tmp_path: Path) -> None:
     assert any("Scale-up is still blocked" in item["claim"] for item in result["exact_facts"])
 
 
+def test_build_research_brief_prefers_scale_blocker_for_current_incumbent(tmp_path: Path) -> None:
+    repo_root = _make_repo_fixture(tmp_path)
+    _write(
+        repo_root / "artifacts" / "research_v16" / "research_loop" / "results.jsonl",
+        json.dumps(
+            {
+                "run_id": 2,
+                "recipe": "carryover_recovery_v14_teacher_anchor_quality_focal_query_boost",
+                "stage": "exploit",
+                "status": "completed",
+                "final_decision": "promote",
+                "git_sha": "feedbee",
+                "config": {
+                    "image_backbone": "mobilenet_v3_large",
+                    "teacher_seed_mode": "replace_lidar",
+                },
+                "evaluation": {
+                    "nd_score": 0.1491,
+                    "mean_ap": 0.1848,
+                    "label_aps": {"car": {"4.0": 0.6079}},
+                    "tp_errors": {"trans_err": 0.6705},
+                },
+                "val": {"total": 9.9361},
+                "benchmark": {"mean_ms": 18.39},
+            }
+        )
+        + "\n",
+    )
+    _write(
+        repo_root / "artifacts" / "research_v16" / "research_loop" / "summary.json",
+        json.dumps(
+            {
+                "status": "completed",
+                "reference_workflow": "karpathy/autoresearch",
+                "selected_recipe": (
+                    "carryover_recovery_v14_teacher_anchor_quality_focal_query_boost"
+                ),
+                "selected_record": {
+                    "recipe": "carryover_recovery_v14_teacher_anchor_quality_focal_query_boost",
+                    "config": {
+                        "image_backbone": "mobilenet_v3_large",
+                        "teacher_seed_mode": "replace_lidar",
+                    },
+                    "evaluation": {
+                        "nd_score": 0.1491,
+                        "mean_ap": 0.1848,
+                        "label_aps": {"car": {"4.0": 0.6079}},
+                        "tp_errors": {"trans_err": 0.6705},
+                    },
+                    "val": {"total": 9.9361},
+                    "benchmark": {"mean_ms": 18.39},
+                },
+                "scale_gate_verdict": {
+                    "authorized": False,
+                    "reason": "at least one scale gate remains unmet; do not spend 10x compute yet",
+                    "gates": {
+                        "geometry_sanity": {"passed": False},
+                        "source_mix_stability": {"passed": False},
+                    },
+                },
+                "recommended_next_steps": [
+                    "run a paired teacher-on versus teacher-off mini invocation",
+                    "reduce exported boxes per sample",
+                ],
+            },
+            indent=2,
+        ),
+    )
+
+    config = ResearchMemoryConfig(
+        memory_root=tmp_path / ".local" / "memory",
+        artifact_root=repo_root / "artifacts" / "memory",
+        reports_root=repo_root / "docs" / "reports",
+        report_log_root=repo_root / "docs" / "reports" / "log",
+        steering_path=repo_root / "docs" / "steering.md",
+        qdrant_enabled=False,
+        mem0_enabled=False,
+    )
+    sync_research_memory(repo_root, config=config)
+
+    brief = build_research_brief(repo_root, config=config, persist_log=False)
+
+    assert any(
+        "carryover_recovery_v14_teacher_anchor_quality_focal_query_boost" in line
+        for line in brief.current_state
+    )
+    assert any(
+        "artifacts/research_v16/research_loop/summary.json" in line
+        for line in brief.open_blockers
+    )
+    assert all(
+        "recovery_v12_teacher_anchor_seeded_boot12_zero" not in line
+        for line in brief.open_blockers
+    )
+
+
 def test_artifact_files_exclude_generated_memory_outputs(tmp_path: Path) -> None:
     repo_root = _make_repo_fixture(tmp_path)
 
