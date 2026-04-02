@@ -52,6 +52,9 @@ class ModelConfig(BaseModel):
     dropout_lidar_probability: float = 0.2
     teacher_seed_mode: Literal["off", "replace_lidar", "replace_lidar_refs"] = "off"
     teacher_seed_selection_mode: Literal["score_topk", "class_balanced_round_robin"] = "score_topk"
+    ranking_mode: Literal["class_times_objectness", "quality_class_only"] = (
+        "class_times_objectness"
+    )
     anchor_first_min_proposal: int = 0
     anchor_first_min_global: int = 0
     pillar: PillarConfig = Field(default_factory=PillarConfig)
@@ -139,6 +142,7 @@ class ModelConfig(BaseModel):
                 "teacher_seed_mode": "replace_lidar",
                 "teacher_seed_selection_mode": "class_balanced_round_robin",
                 "router_mode": "anchor_first",
+                "ranking_mode": "quality_class_only",
             }
         )
 

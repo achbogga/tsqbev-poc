@@ -208,6 +208,12 @@ class DetectionSetCriterion(nn.Module):
     ) -> Tensor:
         if self.loss_mode == "focal_hardneg":
             loss = _sigmoid_focal_loss_with_logits(object_logits, target_classes)
+        elif self.loss_mode == "quality_focal":
+            loss = _quality_focal_loss_with_logits(
+                object_logits,
+                target_classes,
+                beta=self.quality_focal_beta,
+            )
         else:
             loss = F.binary_cross_entropy_with_logits(
                 object_logits,
@@ -280,6 +286,12 @@ class DetectionSetCriterion(nn.Module):
             if objectness_logits is not None
             else None
         )
+        matched_queries = torch.zeros(
+            batch_size,
+            queries,
+            dtype=torch.bool,
+            device=object_logits.device,
+        )
         query_selection = torch.ones(
             batch_size,
             queries,
@@ -328,25 +340,28 @@ class DetectionSetCriterion(nn.Module):
                 object_boxes[batch_index, pred_index],
                 target_boxes[target_index],
             )
-            target_classes[batch_index, pred_index, target_labels[target_index]] = 1.0
+            if self.loss_mode == "quality_focal":
+                target_classes[batch_index, pred_index, target_labels[target_index]] = match_quality
+            else:
+                target_classes[batch_index, pred_index, target_labels[target_index]] = 1.0
             if target_objectness is not None:
                 if self.loss_mode == "quality_focal":
                     target_objectness[batch_index, pred_index] = match_quality
                 else:
                     target_objectness[batch_index, pred_index] = 1.0
+            matched_queries[batch_index, pred_index] = True
             total_box = total_box + F.smooth_l1_loss(
                 object_boxes[batch_index, pred_index], target_boxes[target_index], reduction="sum"
             )
             total_gt += int(target_index.numel())
         if target_objectness is not None:
             for batch_index in range(batch_size):
-                matched_mask = target_objectness[batch_index] > 0.5
                 query_selection[batch_index] = self._select_query_mask(
                     object_logits[batch_index],
                     objectness_logits[batch_index].float()
                     if objectness_logits is not None
                     else None,
-                    matched_mask,
+                    matched_queries[batch_index],
                 )
         elif self.loss_mode == "focal_hardneg":
             for batch_index in range(batch_size):
@@ -371,8 +386,8 @@ class DetectionSetCriterion(nn.Module):
                 float(normalizer),
             )
         reference_loss = zero
-        if reference_points is not None and target_objectness is not None:
-            unmatched = (target_objectness < 0.5).float()
+        if reference_points is not None:
+            unmatched = (~matched_queries).float()
             if float(unmatched.sum()) > 0.0:
                 reference_loss = (
                     (

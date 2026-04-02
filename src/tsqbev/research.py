@@ -191,6 +191,7 @@ def _updated_config(
     proposals_per_view: int | None = None,
     teacher_seed_mode: str | None = None,
     teacher_seed_selection_mode: str | None = None,
+    ranking_mode: str | None = None,
     anchor_first_min_proposal: int | None = None,
     anchor_first_min_global: int | None = None,
 ) -> ModelConfig:
@@ -219,6 +220,8 @@ def _updated_config(
         updates["teacher_seed_mode"] = teacher_seed_mode
     if teacher_seed_selection_mode is not None:
         updates["teacher_seed_selection_mode"] = teacher_seed_selection_mode
+    if ranking_mode is not None:
+        updates["ranking_mode"] = ranking_mode
     if anchor_first_min_proposal is not None:
         updates["anchor_first_min_proposal"] = anchor_first_min_proposal
     if anchor_first_min_global is not None:
@@ -722,6 +725,28 @@ def _make_quality_focal_recipe(recipe: ResearchRecipe) -> ResearchRecipe:
     )
 
 
+def _make_quality_rank_recipe(recipe: ResearchRecipe) -> ResearchRecipe:
+    config = _updated_config(recipe.config, ranking_mode="quality_class_only")
+    return _clone_recipe(
+        recipe,
+        name=f"{recipe.name}_quality_rank",
+        note="rank detections with the quality-aware class score directly",
+        hypothesis=(
+            "quality-aware supervision should drive the exported ranking score directly; "
+            "post-hoc class*objectness products are likely suppressing good matched queries"
+        ),
+        mutation_reason=(
+            "align export ranking with the quality-aware class target instead of multiplying "
+            "separate class and objectness heads"
+        ),
+        config=config,
+        stage="exploit",
+        loss_mode="quality_focal",
+        score_threshold_candidates=(0.05, 0.15, 0.25, 0.35),
+        top_k_candidates=(16, 32, 64),
+    )
+
+
 def _make_overfit_mode_recipe(recipe: ResearchRecipe) -> ResearchRecipe:
     return _clone_recipe(
         recipe,
@@ -758,6 +783,8 @@ def _build_exploitation_recipes(
         candidates.append(_make_teacher_off_control_recipe(incumbent_recipe))
     if incumbent_recipe.loss_mode != "quality_focal":
         candidates.append(_make_quality_focal_recipe(incumbent_recipe))
+    elif incumbent_recipe.config.ranking_mode != "quality_class_only":
+        candidates.append(_make_quality_rank_recipe(incumbent_recipe))
     if float(source_mix.get("lidar", 0.0)) >= 0.8 or float(source_mix.get("proposal", 0.0)) < 0.2:
         candidates.append(_make_anchor_mix_recipe(incumbent_recipe))
     candidates.extend(

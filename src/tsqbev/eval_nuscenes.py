@@ -106,11 +106,16 @@ def _is_better_calibration(
 
 
 def _rank_detection_queries(
-    class_logits: torch.Tensor, objectness_logits: torch.Tensor | None
+    class_logits: torch.Tensor,
+    objectness_logits: torch.Tensor | None,
+    *,
+    ranking_mode: str = "class_times_objectness",
 ) -> tuple[torch.Tensor, torch.Tensor]:
     """Return objectness-aware per-query scores and class ids."""
 
     class_scores, class_ids = class_logits.sigmoid().max(dim=-1)
+    if ranking_mode == "quality_class_only":
+        return class_scores, class_ids
     if objectness_logits is None:
         objectness_scores = torch.ones_like(class_scores)
     else:
@@ -254,6 +259,7 @@ def export_nuscenes_predictions(
     )
 
     model = model.to(resolved_device).eval()
+    ranking_mode = getattr(model.config, "ranking_mode", "class_times_objectness")
     results: dict[str, list[dict[str, object]]] = {}
 
     for batch, metadata_list in loader:
@@ -275,6 +281,7 @@ def export_nuscenes_predictions(
         combined_scores, class_ids = _rank_detection_queries(
             logits[0],
             objectness_logits[0] if isinstance(objectness_logits, torch.Tensor) else None,
+            ranking_mode=ranking_mode,
         )
         order = torch.argsort(combined_scores, descending=True)
         sample_results: list[dict[str, object]] = []

@@ -27,6 +27,29 @@ def test_objectness_aware_ranking_prefers_high_objectness_queries() -> None:
     assert combined_scores[1] > combined_scores[2] > combined_scores[0]
 
 
+def test_quality_class_ranking_ignores_objectness_product() -> None:
+    class_logits = torch.tensor(
+        [
+            [8.0, -8.0],
+            [0.0, 0.0],
+            [4.0, -4.0],
+        ]
+    )
+    objectness_logits = torch.tensor([-8.0, 8.0, 0.0])
+
+    combined_scores, class_ids = _rank_detection_queries(
+        class_logits,
+        objectness_logits,
+        ranking_mode="quality_class_only",
+    )
+    order = torch.argsort(combined_scores, descending=True)
+
+    assert int(class_ids[0]) == 0
+    assert int(order[0]) == 0
+    assert int(order[1]) == 2
+    assert int(order[-1]) == 1
+
+
 def test_car_ap_4m_accepts_numeric_distance_keys() -> None:
     evaluation = {"label_aps": {"car": {4.0: 0.42}}}
     assert _car_ap_4m(evaluation) == 0.42
