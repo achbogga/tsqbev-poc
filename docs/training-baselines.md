@@ -58,6 +58,13 @@ The code expects the official folder structure documented by OpenLane:
 
 OpenLane V1 is distributed via the project’s official form and is built on top of Waymo data, so the upstream Waymo terms also apply.
 
+If the approved OpenLane V1 mirror is present only as raw archives, normalize it before training:
+
+```bash
+uv run tsqbev prepare-openlanev1 \
+  --dataset-root /mnt/storage/research/openlanev1_openxlab/OpenDriveLab___OpenLane
+```
+
 For `OpenLane-V2`, the repo now includes an official Google-Drive downloader helper for the public
 sample and selected metadata archives:
 

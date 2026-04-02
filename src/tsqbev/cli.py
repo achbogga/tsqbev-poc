@@ -38,6 +38,7 @@ from tsqbev.openlane_download import (
     openlanev2_archives,
     resolve_archive_keys,
 )
+from tsqbev.openlane_prepare import prepare_openlane_v1_from_raw
 from tsqbev.openpcdet_env import check_openpcdet_environment
 from tsqbev.overfit import run_nuscenes_overfit_gate
 from tsqbev.research import run_bounded_research_loop
@@ -216,6 +217,24 @@ def download_openlanev2_report(
     print(results)
 
 
+def prepare_openlanev1_report(
+    dataset_root: Path,
+    include_lane3d_1000: bool,
+    include_scene: bool,
+    include_cipo: bool,
+    force_reextract: bool,
+) -> None:
+    print(
+        prepare_openlane_v1_from_raw(
+            dataset_root,
+            include_lane3d_1000=include_lane3d_1000,
+            include_scene=include_scene,
+            include_cipo=include_cipo,
+            force_reextract=force_reextract,
+        )
+    )
+
+
 def memory_health_report() -> None:
     print(check_research_memory_health())
 
@@ -331,6 +350,7 @@ def _make_parser() -> argparse.ArgumentParser:
             "bevfusion-runbook",
             "list-openlanev2-archives",
             "download-openlanev2",
+            "prepare-openlanev1",
             "memory-up",
             "memory-health",
             "memory-down",
@@ -483,6 +503,26 @@ def _make_parser() -> argparse.ArgumentParser:
         action=argparse.BooleanOptionalAction,
         default=False,
     )
+    parser.add_argument(
+        "--include-lane3d-1000",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+    )
+    parser.add_argument(
+        "--include-scene",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+    )
+    parser.add_argument(
+        "--include-cipo",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+    )
+    parser.add_argument(
+        "--force-reextract",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+    )
     return parser
 
 
@@ -556,6 +596,18 @@ def main() -> None:
             output_dir=args.output_dir,
             extract=args.extract_openlanev2,
             overwrite=args.overwrite_download,
+        )
+        return
+    if args.command == "prepare-openlanev1":
+        dataset_root = args.dataset_root
+        if dataset_root is None:
+            dataset_root = Path("/mnt/storage/research/openlanev1_openxlab/OpenDriveLab___OpenLane")
+        prepare_openlanev1_report(
+            dataset_root=dataset_root,
+            include_lane3d_1000=args.include_lane3d_1000,
+            include_scene=args.include_scene,
+            include_cipo=args.include_cipo,
+            force_reextract=args.force_reextract,
         )
         return
     if args.command == "memory-up":

@@ -37,6 +37,18 @@ The smallest useful local baseline is:
 - `lane3d_300/training`
 - `lane3d_300/validation`
 
+If the official mirror was downloaded as raw archives only, normalize it into the trainer-ready
+layout with:
+
+```bash
+uv run tsqbev prepare-openlanev1 \
+  --dataset-root /mnt/storage/research/openlanev1_openxlab/OpenDriveLab___OpenLane
+```
+
+This reads the official raw archives under `raw/`, extracts `lane3d_300.tar`, and merges the
+`images_training_*.tar` / `images_validation_*.tar` shards into the canonical `images/training`
+and `images/validation` tree used by the current `OpenLaneDataset`.
+
 That is enough to run:
 
 ```bash
