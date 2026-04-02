@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from dataclasses import replace
 
+import torch
 from PIL import Image
 
 from tsqbev.datasets import OpenLaneDataset, SceneExample, collate_scene_examples
@@ -83,6 +84,47 @@ def test_openlane_dataset_reads_public_layout(tmp_path) -> None:
     assert example.scene.lane_targets is not None
     assert example.scene.lane_targets.polylines.shape == (1, 1, 8, 3)
     assert example.metadata["file_path"] == image_rel
+
+
+def test_openlane_dataset_training_augmentation_changes_pixels(tmp_path) -> None:
+    image_rel = "training/segment-001/frame-001.jpg"
+    image_path = tmp_path / "images" / image_rel
+    image_path.parent.mkdir(parents=True, exist_ok=True)
+    Image.new("RGB", (320, 160), color=(96, 128, 160)).save(image_path)
+
+    annotation_path = tmp_path / "lane3d_300" / "training" / "segment-001" / "frame-001.json"
+    annotation_path.parent.mkdir(parents=True, exist_ok=True)
+    annotation_path.write_text(
+        json.dumps(
+            {
+                "intrinsic": [[100.0, 0.0, 160.0], [0.0, 100.0, 80.0], [0.0, 0.0, 1.0]],
+                "extrinsic": [
+                    [1.0, 0.0, 0.0, 0.0],
+                    [0.0, 1.0, 0.0, 0.0],
+                    [0.0, 0.0, 1.0, 1.5],
+                    [0.0, 0.0, 0.0, 1.0],
+                ],
+                "file_path": image_rel,
+                "lane_lines": [],
+            }
+        )
+    )
+
+    base_dataset = OpenLaneDataset(tmp_path, split="training", subset="lane3d_300")
+    augmented_dataset = OpenLaneDataset(
+        tmp_path,
+        split="training",
+        subset="lane3d_300",
+        augmentation_mode="strong",
+    )
+
+    torch.manual_seed(0)
+    base_example = base_dataset[0]
+    torch.manual_seed(0)
+    augmented_example = augmented_dataset[0]
+
+    assert base_example.scene.images.shape == augmented_example.scene.images.shape
+    assert not torch.allclose(base_example.scene.images, augmented_example.scene.images)
 
 
 def test_collate_scene_examples_pads_and_batches_openlane(tmp_path) -> None:

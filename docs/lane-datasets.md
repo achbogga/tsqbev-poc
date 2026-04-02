@@ -96,6 +96,8 @@ Supported archive keys currently include:
 As of the latest sync:
 
 - official `OpenLane` repo checkout exists at `/home/achbogga/projects/OpenLane`
+- the trainer-ready `OpenLane V1` root now exists and passes the current repo layout check under:
+  `/mnt/storage/research/openlanev1_openxlab/OpenDriveLab___OpenLane`
 - official `OpenLane-V2` repo checkout exists at `/home/achbogga/projects/OpenLane-V2`
 - official `OpenLane-V2` sample archive was downloaded and extracted under:
   `/home/achbogga/projects/research/openlanev2/data/OpenLane-V2`
@@ -116,7 +118,7 @@ The larger `subset_a_info` archive is currently blocked on the public Google Dri
 ## Research Interpretation
 
 For immediate TSQBEV lane baselines, `OpenLane V1` remains the highest-ROI dataset because the repo
-already reads and batches it directly.
+already reads, batches, and now materially prepares it directly.
 
 For the dense-BEV reset path, `OpenLane-V2` is still valuable, but it is a separate integration
 project rather than a drop-in replacement for the current `OpenLaneDataset`.

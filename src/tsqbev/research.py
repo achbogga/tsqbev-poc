@@ -93,10 +93,13 @@ class ResearchRecipe:
     optimizer_schedule: Literal["cosine", "constant"] = "cosine"
     grad_clip_norm: float | None = 1.0
     keep_best_checkpoint: bool = True
+    augmentation_mode: Literal["off", "moderate", "strong"] = "off"
     enable_teacher_distillation: bool = True
     loss_mode: Literal["baseline", "focal_hardneg", "quality_focal"] = "baseline"
     hard_negative_ratio: int = 3
     hard_negative_cap: int = 96
+    teacher_region_objectness_weight: float = 0.0
+    teacher_region_radius_m: float = 4.0
     score_threshold_candidates: tuple[float, ...] = (0.05,)
     top_k_candidates: tuple[int, ...] = (112,)
 
@@ -255,10 +258,13 @@ def _clone_recipe(
     optimizer_schedule: Literal["cosine", "constant"] | None = None,
     grad_clip_norm: float | None = None,
     keep_best_checkpoint: bool | None = None,
+    augmentation_mode: Literal["off", "moderate", "strong"] | None = None,
     enable_teacher_distillation: bool | None = None,
     loss_mode: Literal["baseline", "focal_hardneg", "quality_focal"] | None = None,
     hard_negative_ratio: int | None = None,
     hard_negative_cap: int | None = None,
+    teacher_region_objectness_weight: float | None = None,
+    teacher_region_radius_m: float | None = None,
     score_threshold_candidates: tuple[float, ...] | None = None,
     top_k_candidates: tuple[int, ...] | None = None,
 ) -> ResearchRecipe:
@@ -290,6 +296,9 @@ def _clone_recipe(
         keep_best_checkpoint=(
             recipe.keep_best_checkpoint if keep_best_checkpoint is None else keep_best_checkpoint
         ),
+        augmentation_mode=(
+            recipe.augmentation_mode if augmentation_mode is None else augmentation_mode
+        ),
         enable_teacher_distillation=(
             recipe.enable_teacher_distillation
             if enable_teacher_distillation is None
@@ -301,6 +310,16 @@ def _clone_recipe(
         ),
         hard_negative_cap=(
             recipe.hard_negative_cap if hard_negative_cap is None else hard_negative_cap
+        ),
+        teacher_region_objectness_weight=(
+            recipe.teacher_region_objectness_weight
+            if teacher_region_objectness_weight is None
+            else teacher_region_objectness_weight
+        ),
+        teacher_region_radius_m=(
+            recipe.teacher_region_radius_m
+            if teacher_region_radius_m is None
+            else teacher_region_radius_m
         ),
         score_threshold_candidates=(
             recipe.score_threshold_candidates
@@ -372,6 +391,10 @@ def _load_previous_incumbent(artifact_root: Path) -> ResearchRecipe | None:
             else None
         ),
         keep_best_checkpoint=bool(selected.get("keep_best_checkpoint", True)),
+        augmentation_mode=cast(
+            Literal["off", "moderate", "strong"],
+            selected.get("augmentation_mode", "off"),
+        ),
         enable_teacher_distillation=bool(selected.get("enable_teacher_distillation", True)),
         loss_mode=cast(
             Literal["baseline", "focal_hardneg", "quality_focal"],
@@ -379,6 +402,10 @@ def _load_previous_incumbent(artifact_root: Path) -> ResearchRecipe | None:
         ),
         hard_negative_ratio=int(selected.get("hard_negative_ratio", 3)),
         hard_negative_cap=int(selected.get("hard_negative_cap", 96)),
+        teacher_region_objectness_weight=float(
+            selected.get("teacher_region_objectness_weight", 0.0)
+        ),
+        teacher_region_radius_m=float(selected.get("teacher_region_radius_m", 4.0)),
         score_threshold_candidates=tuple(
             float(value) for value in selected.get("score_threshold_candidates", [0.05])
         ),
@@ -465,10 +492,13 @@ def _load_best_ratio_passing_overfit_frontier(artifact_dir: Path) -> ResearchRec
                 optimizer_schedule="constant",
                 grad_clip_norm=5.0,
                 keep_best_checkpoint=True,
+                augmentation_mode="off",
                 enable_teacher_distillation=False,
                 loss_mode="quality_focal",
                 hard_negative_ratio=3,
                 hard_negative_cap=96,
+                teacher_region_objectness_weight=0.0,
+                teacher_region_radius_m=4.0,
                 score_threshold_candidates=(0.05, 0.15, 0.25, 0.35),
                 top_k_candidates=(16, 32, 64),
             )
@@ -747,6 +777,74 @@ def _make_quality_rank_recipe(recipe: ResearchRecipe) -> ResearchRecipe:
     )
 
 
+def _make_teacher_region_recipe(recipe: ResearchRecipe) -> ResearchRecipe:
+    return _clone_recipe(
+        recipe,
+        name=f"{recipe.name}_teacher_region",
+        note="add teacher-region objectness supervision around cached teacher boxes",
+        hypothesis=(
+            "the student still overproduces queries because objectness is weakly tied to "
+            "teacher-supported regions; a soft region prior should improve ranking without "
+            "requiring denser teacher maps"
+        ),
+        mutation_reason=(
+            "add a low-weight teacher-region objectness loss derived from cached teacher boxes "
+            "and scores"
+        ),
+        stage="exploit",
+        loss_mode="quality_focal",
+        teacher_region_objectness_weight=max(recipe.teacher_region_objectness_weight, 0.15),
+        teacher_region_radius_m=6.0,
+        score_threshold_candidates=(0.05, 0.15, 0.25, 0.35),
+        top_k_candidates=(16, 32, 48, 64),
+    )
+
+
+def _make_augmented_recipe(recipe: ResearchRecipe) -> ResearchRecipe:
+    next_mode: Literal["off", "moderate", "strong"]
+    if recipe.augmentation_mode == "off":
+        next_mode = "moderate"
+    elif recipe.augmentation_mode == "moderate":
+        next_mode = "strong"
+    else:
+        next_mode = "strong"
+    return _clone_recipe(
+        recipe,
+        name=f"{recipe.name}_{next_mode}_aug",
+        note="apply label-safe camera/LiDAR augmentation in the current regime",
+        hypothesis=(
+            "the current mini loop may be overfitting to seed geometry and weak camera cues; "
+            "moderate photometric and LiDAR noise should improve mini-val robustness"
+        ),
+        mutation_reason=(
+            "turn on label-safe multiview photometric distortion plus LiDAR dropout/jitter "
+            "without changing box or lane geometry"
+        ),
+        stage="exploit",
+        augmentation_mode=next_mode,
+        score_threshold_candidates=(0.05, 0.15, 0.25, 0.35),
+        top_k_candidates=(16, 32, 48, 64),
+    )
+
+
+def _make_teacher_region_aug_recipe(recipe: ResearchRecipe) -> ResearchRecipe:
+    return _clone_recipe(
+        _make_teacher_region_recipe(recipe),
+        name=f"{recipe.name}_teacher_region_aug",
+        note="combine teacher-region objectness with label-safe camera/LiDAR augmentation",
+        hypothesis=(
+            "the fastest next lift is likely teacher-guided ranking plus modest robustness "
+            "augmentation rather than another architecture mutation"
+        ),
+        mutation_reason=(
+            "combine the highest-ROI ranking-side KD change with bounded label-safe "
+            "augmentation in one paired exploit"
+        ),
+        stage="exploit",
+        augmentation_mode="moderate",
+    )
+
+
 def _make_overfit_mode_recipe(recipe: ResearchRecipe) -> ResearchRecipe:
     return _clone_recipe(
         recipe,
@@ -797,6 +895,14 @@ def _build_exploitation_recipes(
         candidates.append(_make_focal_hardneg_recipe(incumbent_recipe))
     if incumbent_recipe.config.freeze_image_backbone:
         candidates.append(_make_unfreeze_recipe(incumbent_recipe))
+    if (
+        incumbent_recipe.use_teacher_provider
+        and incumbent_recipe.teacher_region_objectness_weight <= 0.0
+    ):
+        candidates.append(_make_teacher_region_recipe(incumbent_recipe))
+        candidates.append(_make_teacher_region_aug_recipe(incumbent_recipe))
+    if incumbent_recipe.augmentation_mode != "moderate":
+        candidates.append(_make_augmented_recipe(incumbent_recipe))
     deduped: list[ResearchRecipe] = []
     seen_names: set[str] = set()
     for candidate in candidates:
@@ -830,10 +936,13 @@ def _serialize_recipe(recipe: ResearchRecipe) -> dict[str, Any]:
         "optimizer_schedule": recipe.optimizer_schedule,
         "grad_clip_norm": recipe.grad_clip_norm,
         "keep_best_checkpoint": recipe.keep_best_checkpoint,
+        "augmentation_mode": recipe.augmentation_mode,
         "enable_teacher_distillation": recipe.enable_teacher_distillation,
         "loss_mode": recipe.loss_mode,
         "hard_negative_ratio": recipe.hard_negative_ratio,
         "hard_negative_cap": recipe.hard_negative_cap,
+        "teacher_region_objectness_weight": recipe.teacher_region_objectness_weight,
+        "teacher_region_radius_m": recipe.teacher_region_radius_m,
         "score_threshold_candidates": list(recipe.score_threshold_candidates),
         "top_k_candidates": list(recipe.top_k_candidates),
     }
@@ -1589,6 +1698,9 @@ def run_bounded_research_loop(
                     "grad_accum_steps": recipe.grad_accum_steps,
                     "batch_size": recipe.batch_size,
                     "num_workers": recipe.num_workers,
+                    "augmentation_mode": recipe.augmentation_mode,
+                    "teacher_region_objectness_weight": recipe.teacher_region_objectness_weight,
+                    "teacher_region_radius_m": recipe.teacher_region_radius_m,
                 },
             },
         )
@@ -1653,10 +1765,13 @@ def run_bounded_research_loop(
                 optimizer_schedule=recipe.optimizer_schedule,
                 grad_clip_norm=recipe.grad_clip_norm,
                 keep_best_checkpoint=recipe.keep_best_checkpoint,
+                augmentation_mode=recipe.augmentation_mode,
                 enable_teacher_distillation=recipe.enable_teacher_distillation,
                 loss_mode=recipe.loss_mode,
                 hard_negative_ratio=recipe.hard_negative_ratio,
                 hard_negative_cap=recipe.hard_negative_cap,
+                teacher_region_objectness_weight=recipe.teacher_region_objectness_weight,
+                teacher_region_radius_m=recipe.teacher_region_radius_m,
                 tracker=tracker,
             )
             durations_s["train"] = time.perf_counter() - start_time

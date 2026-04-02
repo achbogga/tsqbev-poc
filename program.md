@@ -28,6 +28,10 @@ These instructions are durable repo policy, not one-off chat guidance.
   3. dense maps such as heatmaps or BEV segmentation targets
   4. relational KD
   5. online, mutual, or self-distillation
+- keep the lane track methodical:
+  - establish a real OpenLane baseline and evaluation artifact first
+  - do not mix lane into the active detection loop until detection is no longer bottlenecked by
+    ranking and source-mix collapse
 - if a public dense-BEV upstream stack is better supported than the current custom path, pivot to
   it rather than deepening the custom sparse-query line
 - treat BEVFusion, OpenPCDet, BEVDet / BEVDepth, MapTRv2, EfficientViT, DINOv2 / DINOv3, and
@@ -38,6 +42,8 @@ These instructions are durable repo policy, not one-off chat guidance.
 - stop and reassess when the direction becomes a rabbit hole
 - hydrate the local research-memory brief before planning the next bounded move
 - publish PI-readable reports and machine-readable sync artifacts after each invocation
+- treat lane work as an explicit secondary bootstrap track: prove the isolated OpenLane lane path,
+  export, and evaluation first, then consider mixing it into the main detection loop
 
 ## Token-Burn Discipline
 
@@ -132,11 +138,13 @@ The active local loop shape is:
 
 - dataset scope: `nuScenes v1.0-mini` only
 - split scope: `mini_train` / `mini_val`
-- max recipes per invocation: `5`
+- max recipes per invocation: `7`
 - fixed comparable train budget per recipe: `max_train_steps = 960`
 - recipe budget shape:
   - `1-3` baseline/exploration recipes
-  - up to `2` exploitation recipes derived from the current incumbent
+  - up to `4` exploitation recipes derived from the current incumbent
+  - when new ROI-critical interventions land together, at most one augmentation branch and one
+    KD/ranking branch may be added in the same invocation
 
 ## Acceptance Logic
 

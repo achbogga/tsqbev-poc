@@ -18,6 +18,19 @@ It is a focused open-source POC for public datasets and deployable research arti
 The current codebase is now being migrated from the legacy sparse-query line toward a dense BEV
 fusion reset stack built from public upstreams.
 
+## Immediate Agenda
+
+The active short-horizon agenda is tracked in [agenda-2026-04-02.md](./agenda-2026-04-02.md).
+
+The current bounded next steps are:
+
+- detection: teacher-region objectness plus label-safe camera/LiDAR augmentation on the incumbent
+  mini loop
+- lane: isolated OpenLane V1 bootstrap, export, and evaluation sanity before any joint
+  detection+lane claims
+- architecture: keep the dense-BEV reset as the control arm, but do not let it stall the active
+  bounded student loop
+
 ## Reset Target Stack
 
 The new primary target is a dense-BEV fusion stack with public upstream support:
@@ -126,6 +139,14 @@ integration cost, uncertainty, and evidence gain before more time or compute is 
   incumbent-first execution, bounded exploration then exploitation, append-only `results.jsonl` and
   `results.tsv`, per-run `manifest.json`, a fixed comparable `max_train_steps=960` budget per
   recipe, explicit `promote/discard/crash` semantics, and a machine-readable `scale_gate_verdict`.
+- OpenLane V1 is now prepared into the trainer-ready layout under
+  `/mnt/storage/research/openlanev1_openxlab/OpenDriveLab___OpenLane`.
+- The current mini detection frontier split is now explicit:
+  - `v16` is still the best quality result
+  - `v20` proved quality-aware ranking can cut export count to `32` boxes/sample but still trails
+    `v16` on `NDS/mAP`
+  - the next bounded branch is teacher-region objectness plus label-safe augmentation, not another
+    unconstrained architecture mutation
 - The repo now also contains a dedicated `nuScenes` overfit-gate runner that trains and evaluates
   on the exact same fixed token subset through the official metric stack.
 - The repaired overfit-gate artifact still failed, with `train_total_ratio = 0.5310`,
@@ -154,6 +175,9 @@ integration cost, uncertainty, and evidence gain before more time or compute is 
 - The next active diagnostic is the repaired overfit recovery loop on the same fixed 32-sample
   subset, not another unconstrained `mini_val` sweep.
 - OpenLane support still uses the `OpenLane V1` layout natively; the official `OpenLane-V2` sample is now downloaded locally for reset-path inspection, but `OpenLane V1` remains the immediate lane-baseline target because it matches the current dataset adapter and evaluator contracts.
+- OpenLane V1 is now trainer-ready locally under
+  `/mnt/storage/research/openlanev1_openxlab/OpenDriveLab___OpenLane`, so the lane branch can be
+  brought online as an isolated bounded track instead of staying theoretical.
 - The bounded mini-dataset research loop is now authorized via `program.md`.
 
 ## Milestones Achieved
@@ -205,6 +229,10 @@ integration cost, uncertainty, and evidence gain before more time or compute is 
 - The GPU runtime is available and verified on the RTX 5000.
 - Public-data work should stay measured and reproducible.
 - Local tuning should use `v1.0-mini` first and only promote after recorded evidence.
+- The active forward agenda is documented in
+  [docs/agenda-2026-04-02.md](./agenda-2026-04-02.md): bounded ranking-side KD and
+  label-safe augmentation first, then a lane warm-start sidecar, then only later joint lane +
+  detection work.
 
 ## Legacy System Goal
 

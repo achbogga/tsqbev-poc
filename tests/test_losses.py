@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import torch
 
-from tsqbev.contracts import LaneTargets, ObjectTargets, SceneBatch
+from tsqbev.contracts import LaneTargets, ObjectTargets, SceneBatch, TeacherTargets
 from tsqbev.losses import DetectionSetCriterion, LaneSetCriterion, MultitaskCriterion
 from tsqbev.model import TSQBEVModel
 
@@ -159,6 +159,68 @@ def test_quality_focal_keeps_low_quality_matches_out_of_unmatched_penalty(
 
     assert shifted_losses["object_ref"] < 1e-6
     assert exact_losses["object_ref"] < 1e-6
+
+
+def test_teacher_region_objectness_supervises_queries_near_teacher_boxes(
+    small_config, synthetic_batch
+) -> None:
+    criterion = DetectionSetCriterion(
+        loss_mode="quality_focal",
+        teacher_region_objectness_weight=1.0,
+        teacher_region_radius_m=4.0,
+    )
+    target_boxes = synthetic_batch.od_targets.boxes_3d[:, :1].clone()
+    target_labels = synthetic_batch.od_targets.labels[:, :1].clone()
+    batch_indices = torch.arange(synthetic_batch.batch_size)
+
+    logits = torch.full(
+        (
+            synthetic_batch.batch_size,
+            small_config.max_object_queries,
+            small_config.num_object_classes,
+        ),
+        -12.0,
+    )
+    logits[batch_indices, 0, target_labels[:, 0]] = 8.0
+    objectness = torch.full((synthetic_batch.batch_size, small_config.max_object_queries), -8.0)
+    reference_points = torch.full(
+        (synthetic_batch.batch_size, small_config.max_object_queries, 3),
+        100.0,
+    )
+    reference_points[:, 0] = target_boxes[:, 0, :3]
+    reference_points[:, 1, :3] = target_boxes[:, 0, :3] + torch.tensor([20.0, 0.0, 0.0])
+    predicted_boxes = torch.zeros(synthetic_batch.batch_size, small_config.max_object_queries, 9)
+
+    batch = SceneBatch(
+        images=synthetic_batch.images,
+        lidar_points=synthetic_batch.lidar_points,
+        lidar_mask=synthetic_batch.lidar_mask,
+        intrinsics=synthetic_batch.intrinsics,
+        extrinsics=synthetic_batch.extrinsics,
+        ego_pose=synthetic_batch.ego_pose,
+        time_delta_s=synthetic_batch.time_delta_s,
+        od_targets=ObjectTargets(
+            boxes_3d=target_boxes,
+            labels=target_labels,
+            valid_mask=torch.ones_like(target_labels, dtype=torch.bool),
+        ),
+        teacher_targets=TeacherTargets(
+            object_boxes=target_boxes.clone(),
+            object_labels=target_labels.clone(),
+            object_scores=torch.ones_like(target_labels, dtype=torch.float32),
+            valid_mask=torch.ones_like(target_labels, dtype=torch.bool),
+        ),
+    )
+
+    losses = criterion(
+        logits,
+        predicted_boxes,
+        batch,
+        objectness_logits=objectness,
+        reference_points=reference_points,
+    )
+
+    assert losses["object_teacher_region_obj"] > 0.0
 
 
 def test_lane_set_criterion_prefers_exact_match(small_config, synthetic_batch) -> None:

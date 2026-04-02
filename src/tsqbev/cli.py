@@ -422,6 +422,11 @@ def _make_parser() -> argparse.ArgumentParser:
     parser.add_argument("--lr", type=float, default=3e-4)
     parser.add_argument("--weight-decay", type=float, default=1e-4)
     parser.add_argument(
+        "--augmentation-mode",
+        choices=("off", "moderate", "strong"),
+        default="off",
+    )
+    parser.add_argument(
         "--optimizer-schedule",
         choices=("cosine", "constant"),
         default=None,
@@ -446,6 +451,8 @@ def _make_parser() -> argparse.ArgumentParser:
     parser.add_argument("--hard-negative-cap", type=int, default=96)
     parser.add_argument("--teacher-anchor-class-weight", type=float, default=0.5)
     parser.add_argument("--teacher-anchor-objectness-weight", type=float, default=0.5)
+    parser.add_argument("--teacher-region-objectness-weight", type=float, default=0.0)
+    parser.add_argument("--teacher-region-radius-m", type=float, default=4.0)
     parser.add_argument("--teacher-anchor-final-class-weight", type=float, default=None)
     parser.add_argument("--teacher-anchor-final-objectness-weight", type=float, default=None)
     parser.add_argument("--teacher-anchor-bootstrap-epochs", type=int, default=0)
@@ -662,6 +669,7 @@ def main() -> None:
                 val_split=val_split,
                 epochs=args.epochs,
                 max_train_steps=args.max_train_steps,
+                init_checkpoint=args.init_checkpoint,
                 lr=args.lr,
                 weight_decay=args.weight_decay,
                 optimizer_schedule=(
@@ -676,11 +684,14 @@ def main() -> None:
                 early_stop_min_epochs=(
                     args.early_stop_min_epochs if args.early_stop_min_epochs is not None else 0
                 ),
+                augmentation_mode=args.augmentation_mode,
                 loss_mode=args.loss_mode,
                 hard_negative_ratio=args.hard_negative_ratio,
                 hard_negative_cap=args.hard_negative_cap,
                 teacher_anchor_class_weight=args.teacher_anchor_class_weight,
                 teacher_anchor_objectness_weight=args.teacher_anchor_objectness_weight,
+                teacher_region_objectness_weight=args.teacher_region_objectness_weight,
+                teacher_region_radius_m=args.teacher_region_radius_m,
                 teacher_anchor_final_class_weight=args.teacher_anchor_final_class_weight,
                 teacher_anchor_final_objectness_weight=args.teacher_anchor_final_objectness_weight,
                 teacher_anchor_bootstrap_epochs=args.teacher_anchor_bootstrap_epochs,
@@ -719,6 +730,7 @@ def main() -> None:
                 seed=args.seed,
                 max_train_samples=args.max_train_samples,
                 max_val_samples=args.max_val_samples,
+                augmentation_mode=args.augmentation_mode,
             )
         )
         return
@@ -761,11 +773,14 @@ def main() -> None:
                 early_stop_min_epochs=(
                     args.early_stop_min_epochs if args.early_stop_min_epochs is not None else 16
                 ),
+                augmentation_mode=args.augmentation_mode,
                 loss_mode=args.loss_mode,
                 hard_negative_ratio=args.hard_negative_ratio,
                 hard_negative_cap=args.hard_negative_cap,
                 teacher_anchor_class_weight=args.teacher_anchor_class_weight,
                 teacher_anchor_objectness_weight=args.teacher_anchor_objectness_weight,
+                teacher_region_objectness_weight=args.teacher_region_objectness_weight,
+                teacher_region_radius_m=args.teacher_region_radius_m,
                 teacher_anchor_final_class_weight=args.teacher_anchor_final_class_weight,
                 teacher_anchor_final_objectness_weight=args.teacher_anchor_final_objectness_weight,
                 teacher_anchor_bootstrap_epochs=args.teacher_anchor_bootstrap_epochs,

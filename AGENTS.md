@@ -14,6 +14,8 @@ repeated in chat.
   path, pivot to that stack rather than deepening the custom path
 - read the local research brief before planning new bounded work
 - write back distilled findings and PI-facing reports after each completed invocation
+- keep lane work explicit and staged: isolated OpenLane sanity first, then export/eval, then only
+  later consider joint detection+lane work if both branches are healthy
 
 ## Target Stack Bias
 
@@ -82,6 +84,13 @@ For this repo, default KD ROI priority is:
 
 Do not jump to higher-cost KD forms until the lower-cost targets have been tested honestly.
 
+Lane work must also stay staged:
+
+- get a real OpenLane baseline and evaluator artifact first
+- keep lane as a separate bounded track while detection is still bottlenecked on ranking or
+  source-mix collapse
+- only mix lane into the main detection loop after both branches have real measured baselines
+
 ## ROI Rule
 
 Before starting a new direction, record:
@@ -138,6 +147,8 @@ The bounded research loop must:
 - compare teacher-off and teacher-on paths honestly
 - use web/literature review to refresh the design space when local progress stalls
 - treat the local research-memory stack as required context, not optional decoration
+- when multiple ROI-positive directions land together, prefer one KD/ranking branch and one
+  augmentation branch before opening a broader search fanout
 
 ## Repo Update Rule
 

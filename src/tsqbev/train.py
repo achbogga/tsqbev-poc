@@ -133,6 +133,8 @@ def _make_detection_criterion(
     hard_negative_cap: int,
     teacher_anchor_class_weight: float,
     teacher_anchor_objectness_weight: float,
+    teacher_region_objectness_weight: float = 0.0,
+    teacher_region_radius_m: float = 4.0,
 ) -> DetectionSetCriterion:
     return DetectionSetCriterion(
         loss_mode=loss_mode,
@@ -140,6 +142,8 @@ def _make_detection_criterion(
         hard_negative_cap=hard_negative_cap,
         teacher_anchor_class_weight=teacher_anchor_class_weight,
         teacher_anchor_objectness_weight=teacher_anchor_objectness_weight,
+        teacher_region_objectness_weight=teacher_region_objectness_weight,
+        teacher_region_radius_m=teacher_region_radius_m,
     )
 
 
@@ -320,11 +324,14 @@ def fit_nuscenes(
     early_stop_patience: int | None = None,
     early_stop_min_delta: float = 0.0,
     early_stop_min_epochs: int = 0,
+    augmentation_mode: Literal["off", "moderate", "strong"] = "off",
     loss_mode: Literal["baseline", "focal_hardneg", "quality_focal"] = "baseline",
     hard_negative_ratio: int = 3,
     hard_negative_cap: int = 96,
     teacher_anchor_class_weight: float = 0.5,
     teacher_anchor_objectness_weight: float = 0.5,
+    teacher_region_objectness_weight: float = 0.0,
+    teacher_region_radius_m: float = 4.0,
     teacher_anchor_final_class_weight: float | None = None,
     teacher_anchor_final_objectness_weight: float | None = None,
     teacher_anchor_bootstrap_epochs: int = 0,
@@ -364,6 +371,7 @@ def fit_nuscenes(
                 version=version,
                 split=resolved_train_split,
                 sample_tokens=train_sample_tokens,
+                augmentation_mode=augmentation_mode,
             ),
             max_train_samples,
         )
@@ -383,6 +391,7 @@ def fit_nuscenes(
                 version=version,
                 split=resolved_val_split,
                 sample_tokens=val_sample_tokens,
+                augmentation_mode="off",
             ),
             max_val_samples,
         )
@@ -458,11 +467,14 @@ def fit_nuscenes(
                         "early_stop_patience": early_stop_patience,
                         "early_stop_min_delta": early_stop_min_delta,
                         "early_stop_min_epochs": early_stop_min_epochs,
+                        "augmentation_mode": augmentation_mode,
                         "loss_mode": loss_mode,
                         "hard_negative_ratio": hard_negative_ratio,
                         "hard_negative_cap": hard_negative_cap,
                         "teacher_anchor_class_weight": teacher_anchor_class_weight,
                         "teacher_anchor_objectness_weight": teacher_anchor_objectness_weight,
+                        "teacher_region_objectness_weight": teacher_region_objectness_weight,
+                        "teacher_region_radius_m": teacher_region_radius_m,
                         "teacher_anchor_final_class_weight": teacher_anchor_final_class_weight,
                         "teacher_anchor_final_objectness_weight": (
                             teacher_anchor_final_objectness_weight
@@ -498,6 +510,8 @@ def fit_nuscenes(
                 hard_negative_cap=hard_negative_cap,
                 teacher_anchor_class_weight=teacher_anchor_class_weight,
                 teacher_anchor_objectness_weight=teacher_anchor_objectness_weight,
+                teacher_region_objectness_weight=teacher_region_objectness_weight,
+                teacher_region_radius_m=teacher_region_radius_m,
             ),
             enable_distillation=enable_teacher_distillation,
         )
@@ -565,7 +579,9 @@ def fit_nuscenes(
                 f"pretrained_backbone={model_config.pretrained_image_backbone} "
                 f"freeze_backbone={model_config.freeze_image_backbone} "
                 f"teacher_anchor_cls_w={current_teacher_anchor_class_weight:.3f} "
-                f"teacher_anchor_obj_w={current_teacher_anchor_objectness_weight:.3f}",
+                f"teacher_anchor_obj_w={current_teacher_anchor_objectness_weight:.3f} "
+                f"teacher_region_obj_w={teacher_region_objectness_weight:.3f} "
+                f"augment={augmentation_mode}",
                 flush=True,
             )
             train_metrics = _train_epoch(
@@ -715,8 +731,11 @@ def fit_nuscenes(
                 teacher_provider_config.kind if teacher_provider_config is not None else None
             ),
             "enable_teacher_distillation": enable_teacher_distillation,
+            "augmentation_mode": augmentation_mode,
             "teacher_anchor_class_weight": teacher_anchor_class_weight,
             "teacher_anchor_objectness_weight": teacher_anchor_objectness_weight,
+            "teacher_region_objectness_weight": teacher_region_objectness_weight,
+            "teacher_region_radius_m": teacher_region_radius_m,
             "teacher_anchor_final_class_weight": final_teacher_anchor_class_weight,
             "teacher_anchor_final_objectness_weight": final_teacher_anchor_objectness_weight,
             "teacher_anchor_bootstrap_epochs": teacher_anchor_bootstrap_epochs,
@@ -774,9 +793,12 @@ def fit_openlane(
     device: str | None = None,
     max_train_samples: int | None = None,
     max_val_samples: int | None = None,
+    max_train_steps: int | None = None,
     seed: int | None = None,
+    init_checkpoint: str | Path | None = None,
     use_amp: bool = False,
     log_every_steps: int | None = 100,
+    augmentation_mode: Literal["off", "moderate", "strong"] = "off",
     tracker: ExperimentTracker | None = None,
     tracking_metadata: TrackingMetadata | None = None,
 ) -> dict[str, object]:
@@ -794,7 +816,8 @@ def fit_openlane(
             torch.backends.cudnn.benchmark = True
         set_global_seed(seed)
         amp_enabled = bool(use_amp) and resolved_device.type == "cuda"
-        model_config = config if config is not None else ModelConfig(views=1)
+        base_config = config if config is not None else ModelConfig(views=1)
+        model_config = base_config.model_copy(update={"views": 1})
         print(f"[setup] loading OpenLane train split={train_split} from {dataroot}", flush=True)
         start_time = time.perf_counter()
         train_dataset = _subset_if_requested(
@@ -803,6 +826,7 @@ def fit_openlane(
                 split=train_split,
                 subset=subset,
                 lane_points=model_config.lane_points,
+                augmentation_mode=augmentation_mode,
             ),
             max_train_samples,
         )
@@ -818,6 +842,7 @@ def fit_openlane(
                 split=val_split,
                 subset=subset,
                 lane_points=model_config.lane_points,
+                augmentation_mode="off",
             ),
             max_val_samples,
         )
@@ -872,8 +897,13 @@ def fit_openlane(
                         "grad_accum_steps": grad_accum_steps,
                         "batch_size": batch_size,
                         "num_workers": num_workers,
+                        "max_train_steps": max_train_steps,
                         "max_train_samples": max_train_samples,
                         "max_val_samples": max_val_samples,
+                        "init_checkpoint": (
+                            str(init_checkpoint) if init_checkpoint is not None else None
+                        ),
+                        "augmentation_mode": augmentation_mode,
                     },
                 },
             )
@@ -885,6 +915,13 @@ def fit_openlane(
             flush=True,
         )
         model = TSQBEVModel(model_config).to(resolved_device)
+        if init_checkpoint is not None:
+            load_weights_into_model_from_checkpoint(
+                model,
+                init_checkpoint,
+                map_location=resolved_device,
+            )
+            print(f"[setup] warm-started model from {init_checkpoint}", flush=True)
         criterion = MultitaskCriterion()
         optimizer = AdamW(model.parameters(), lr=lr, weight_decay=weight_decay)
         scheduler = CosineAnnealingLR(optimizer, T_max=max(epochs, 1))
@@ -892,10 +929,18 @@ def fit_openlane(
 
         history: list[dict[str, object]] = []
         checkpoint_path = artifact_root / "checkpoint_last.pt"
+        train_steps_completed = 0
         for epoch in range(1, epochs + 1):
+            epoch_max_steps = None
+            if max_train_steps is not None:
+                remaining_steps = max_train_steps - train_steps_completed
+                if remaining_steps <= 0:
+                    break
+                epoch_max_steps = min(len(train_loader), remaining_steps)
             print(
                 f"[train] epoch={epoch}/{epochs} device={resolved_device.type} "
-                f"train_samples={train_sample_count} val_samples={val_sample_count}",
+                f"train_samples={train_sample_count} val_samples={val_sample_count} "
+                f"max_train_steps={max_train_steps}",
                 flush=True,
             )
             train_metrics = _train_epoch(
@@ -909,6 +954,7 @@ def fit_openlane(
                 scaler=scaler,
                 epoch=epoch,
                 log_every_steps=log_every_steps,
+                max_steps=epoch_max_steps,
             )
             val_metrics = _eval_epoch(
                 model=model,
@@ -935,6 +981,8 @@ def fit_openlane(
                         **_prefixed_metrics("train", train_metrics),
                         **_prefixed_metrics("val", val_metrics),
                         "learning_rate": scheduler.get_last_lr()[0],
+                        "train_steps_completed": train_steps_completed
+                        + (len(train_loader) if epoch_max_steps is None else epoch_max_steps),
                     },
                     step=epoch,
                 )
@@ -943,14 +991,22 @@ def fit_openlane(
                 f"val=({_format_metrics(val_metrics)})",
                 flush=True,
             )
+            train_steps_completed += (
+                len(train_loader) if epoch_max_steps is None else epoch_max_steps
+            )
+            if max_train_steps is not None and train_steps_completed >= max_train_steps:
+                break
 
         result = {
             "device": resolved_device.type,
             "amp_enabled": amp_enabled,
             "seed": seed,
             "epochs": epochs,
+            "train_steps": train_steps_completed,
             "artifact_dir": str(artifact_root),
             "checkpoint_path": str(checkpoint_path),
+            "augmentation_mode": augmentation_mode,
+            "max_train_steps": max_train_steps,
             "train_samples": train_sample_count,
             "val_samples": val_sample_count,
             "last_train": history[-1]["train"],

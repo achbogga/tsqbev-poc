@@ -46,6 +46,7 @@ def test_run_bounded_research_loop_writes_autoresearch_ledgers(
         "mini_propheavy_mbv3_frozen": 22.0,
         "mini_propheavy_effb0_frozen": 23.0,
         "mini_propheavy_effb0_frozen_quality_focal": 21.25,
+        "mini_propheavy_effb0_frozen_moderate_aug": 22.5,
         "mini_propheavy_effb0_frozen_query_boost": 20.0,
     }
     evals = {
@@ -53,6 +54,7 @@ def test_run_bounded_research_loop_writes_autoresearch_ledgers(
         "mini_propheavy_mbv3_frozen": _fake_eval(0.0, 0.0),
         "mini_propheavy_effb0_frozen": _fake_eval(0.01, 0.0),
         "mini_propheavy_effb0_frozen_quality_focal": _fake_eval(0.02, 0.002),
+        "mini_propheavy_effb0_frozen_moderate_aug": _fake_eval(0.015, 0.001),
         "mini_propheavy_effb0_frozen_query_boost": _fake_eval(0.03, 0.01, car_ap_4m=0.02),
     }
 
@@ -143,7 +145,7 @@ def test_run_bounded_research_loop_writes_autoresearch_ledgers(
         dataroot=dataset_root,
         artifact_dir=artifact_dir,
         device="cpu",
-        max_experiments=5,
+        max_experiments=6,
     )
 
     assert summary["status"] == "completed"
@@ -159,7 +161,7 @@ def test_run_bounded_research_loop_writes_autoresearch_ledgers(
     assert tsv_path.exists()
 
     records = [json.loads(line) for line in results_path.read_text().splitlines()]
-    assert len(records) == 5
+    assert len(records) == 6
     promoted = [record for record in records if record["final_decision"] == "promote"]
     assert len(promoted) == 1
     assert promoted[0]["recipe"] == "mini_propheavy_effb0_frozen_query_boost"
@@ -167,11 +169,11 @@ def test_run_bounded_research_loop_writes_autoresearch_ledgers(
 
     tsv_lines = tsv_path.read_text().splitlines()
     assert tsv_lines[0].startswith("run_id\trecipe\tstage")
-    assert len(tsv_lines) == 6
-    assert jsonl_snapshots[:5] == [1, 2, 3, 4, 5]
-    assert tsv_snapshots[:5] == [1, 2, 3, 4, 5]
-    assert jsonl_snapshots[-1] == 5
-    assert tsv_snapshots[-1] == 5
+    assert len(tsv_lines) == 7
+    assert jsonl_snapshots[:6] == [1, 2, 3, 4, 5, 6]
+    assert tsv_snapshots[:6] == [1, 2, 3, 4, 5, 6]
+    assert jsonl_snapshots[-1] == 6
+    assert tsv_snapshots[-1] == 6
 
     manifest_path = (
         artifact_dir
@@ -529,7 +531,7 @@ def test_exploitation_candidates_do_not_repeat_active_loss_mode() -> None:
         incumbent,
         incumbent_record,
         teacher_provider,
-        remaining_budget=4,
+        remaining_budget=9,
     )
 
     candidate_names = [candidate.name for candidate in candidates]
@@ -537,6 +539,39 @@ def test_exploitation_candidates_do_not_repeat_active_loss_mode() -> None:
     assert f"{incumbent.name}_query_boost" in candidate_names
     assert f"{incumbent.name}_lr_down" in candidate_names
     assert f"{incumbent.name}_focal_hardneg" in candidate_names
+
+
+def test_exploitation_candidates_add_teacher_region_and_augmentation_for_teacher_runs() -> None:
+    incumbent = research.ResearchRecipe(
+        name="carryover_recipe",
+        note="incumbent",
+        hypothesis="incumbent",
+        mutation_reason="incumbent",
+        config=ModelConfig.rtx5000_nuscenes_teacher_bootstrap(),
+        stage="baseline",
+        use_teacher_provider=True,
+        loss_mode="quality_focal",
+        enable_teacher_distillation=False,
+    )
+    incumbent_record = {
+        "recipe": incumbent.name,
+        "source_mix": {"lidar": 1.0, "proposal": 0.0, "global": 0.0},
+        "checkpoint_path": "/tmp/incumbent.pt",
+        "evaluation": _fake_eval(0.12, 0.09, car_ap_4m=0.35),
+        "val": {"total": 12.0},
+    }
+    teacher_provider = research.TeacherProviderConfig(kind="cache", cache_dir="/tmp/cache")
+
+    candidates = research._build_exploitation_recipes(
+        incumbent,
+        incumbent_record,
+        teacher_provider,
+        remaining_budget=8,
+    )
+
+    candidate_names = [candidate.name for candidate in candidates]
+    assert f"{incumbent.name}_teacher_region" in candidate_names
+    assert f"{incumbent.name}_teacher_region_aug" in candidate_names
 
 
 def test_query_boost_recipe_preserves_active_loss_mode() -> None:

@@ -14,13 +14,13 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, cast
+from typing import Any, Literal, cast
 
 import numpy as np
 import torch
 from PIL import Image
 from torch.utils.data import Dataset
-from torchvision.transforms.functional import pil_to_tensor
+from torchvision.transforms import functional as TF
 
 from tsqbev.contracts import CameraProposals, LaneTargets, ObjectTargets, SceneBatch, TeacherTargets
 from tsqbev.labels import (
@@ -30,6 +30,7 @@ from tsqbev.labels import (
 from tsqbev.quaternion import rotate_xy, transform_from_quaternion, wrap_angle, yaw_from_quaternion
 
 Tensor = torch.Tensor
+AugmentationMode = Literal["off", "moderate", "strong"]
 
 _OPENLANE_R_VG = np.array([[0.0, 1.0, 0.0], [-1.0, 0.0, 0.0], [0.0, 0.0, 1.0]], dtype=np.float32)
 _OPENLANE_R_GC = np.array([[1.0, 0.0, 0.0], [0.0, 0.0, 1.0], [0.0, -1.0, 0.0]], dtype=np.float32)
@@ -47,6 +48,130 @@ class SceneExample:
 
     scene: SceneBatch
     metadata: dict[str, Any]
+
+
+def _is_training_split(split: str) -> bool:
+    return split in {"train", "mini_train", "training"}
+
+
+def _augmentation_strength(mode: AugmentationMode) -> dict[str, float]:
+    if mode == "strong":
+        return {
+            "brightness": 0.20,
+            "contrast": 0.20,
+            "saturation": 0.20,
+            "hue": 0.05,
+            "blur_prob": 0.20,
+            "noise_std": 0.03,
+            "erase_prob": 0.15,
+            "erase_area_min": 0.02,
+            "erase_area_max": 0.12,
+            "lidar_dropout": 0.10,
+            "lidar_xyz_jitter": 0.08,
+            "lidar_intensity_jitter": 0.04,
+        }
+    return {
+        "brightness": 0.12,
+        "contrast": 0.12,
+        "saturation": 0.12,
+        "hue": 0.03,
+        "blur_prob": 0.10,
+        "noise_std": 0.015,
+        "erase_prob": 0.05,
+        "erase_area_min": 0.02,
+        "erase_area_max": 0.08,
+        "lidar_dropout": 0.05,
+        "lidar_xyz_jitter": 0.04,
+        "lidar_intensity_jitter": 0.02,
+    }
+
+
+def _apply_random_erasing(
+    image: Tensor,
+    *,
+    area_min: float,
+    area_max: float,
+) -> Tensor:
+    channels, height, width = image.shape
+    del channels
+    image_area = float(height * width)
+    erase_fraction = float(torch.empty(1).uniform_(area_min, area_max).item())
+    erase_area = max(1, int(image_area * erase_fraction))
+    aspect_ratio = float(torch.empty(1).uniform_(0.5, 2.0).item())
+    erase_h = min(height, max(1, int(round((erase_area / aspect_ratio) ** 0.5))))
+    erase_w = min(width, max(1, int(round((erase_area * aspect_ratio) ** 0.5))))
+    if erase_h >= height:
+        top = 0
+    else:
+        top = int(torch.randint(0, height - erase_h + 1, (1,)).item())
+    if erase_w >= width:
+        left = 0
+    else:
+        left = int(torch.randint(0, width - erase_w + 1, (1,)).item())
+    image = image.clone()
+    image[:, top : top + erase_h, left : left + erase_w] = image.mean(dim=(-1, -2), keepdim=True)
+    return image
+
+
+def _apply_image_augmentations(image: Tensor, mode: AugmentationMode) -> Tensor:
+    if mode == "off":
+        return image
+    strength = _augmentation_strength(mode)
+    augmented = image.clone()
+
+    brightness = 1.0 + float(
+        torch.empty(1).uniform_(-strength["brightness"], strength["brightness"]).item()
+    )
+    contrast = 1.0 + float(
+        torch.empty(1).uniform_(-strength["contrast"], strength["contrast"]).item()
+    )
+    saturation = 1.0 + float(
+        torch.empty(1).uniform_(-strength["saturation"], strength["saturation"]).item()
+    )
+    hue = float(torch.empty(1).uniform_(-strength["hue"], strength["hue"]).item())
+    augmented = TF.adjust_brightness(augmented, brightness)
+    augmented = TF.adjust_contrast(augmented, contrast)
+    augmented = TF.adjust_saturation(augmented, saturation)
+    augmented = TF.adjust_hue(augmented, hue)
+
+    if torch.rand(()) < strength["blur_prob"]:
+        sigma = float(torch.empty(1).uniform_(0.1, 1.1).item())
+        augmented = TF.gaussian_blur(augmented, kernel_size=[5, 5], sigma=[sigma, sigma])
+
+    if strength["noise_std"] > 0.0:
+        augmented = augmented + torch.randn_like(augmented) * strength["noise_std"]
+
+    if torch.rand(()) < strength["erase_prob"]:
+        augmented = _apply_random_erasing(
+            augmented,
+            area_min=strength["erase_area_min"],
+            area_max=strength["erase_area_max"],
+        )
+    return augmented.clamp(0.0, 1.0)
+
+
+def _apply_lidar_augmentations(
+    points: Tensor,
+    mask: Tensor,
+    mode: AugmentationMode,
+) -> tuple[Tensor, Tensor]:
+    if mode == "off" or not bool(mask.any()):
+        return points, mask
+    strength = _augmentation_strength(mode)
+    augmented_points = points.clone()
+    augmented_mask = mask.clone()
+    keep_mask = torch.rand_like(augmented_mask.float()) > strength["lidar_dropout"]
+    augmented_mask = augmented_mask & keep_mask
+    if bool(augmented_mask.any()):
+        augmented_points[augmented_mask, :3] += (
+            torch.randn_like(augmented_points[augmented_mask, :3]) * strength["lidar_xyz_jitter"]
+        )
+        augmented_points[augmented_mask, 3] += (
+            torch.randn_like(augmented_points[augmented_mask, 3])
+            * strength["lidar_intensity_jitter"]
+        )
+    augmented_points[~augmented_mask] = 0.0
+    return augmented_points, augmented_mask
 
 
 def _pad_rows(tensor: Tensor, target_rows: int) -> Tensor:
@@ -326,7 +451,7 @@ def _image_to_tensor(path: Path, image_size: tuple[int, int]) -> tuple[Tensor, t
         rgb = image.convert("RGB")
         original_size = rgb.height, rgb.width
         resized = rgb.resize((image_size[1], image_size[0]), Image.Resampling.BILINEAR)
-        tensor = pil_to_tensor(resized).float() / 255.0
+        tensor = TF.pil_to_tensor(resized).float() / 255.0
     return tensor, original_size
 
 
@@ -411,6 +536,7 @@ class NuScenesDataset(Dataset[SceneExample]):
         split: str = "train",
         image_size: tuple[int, int] = (256, 704),
         sample_tokens: list[str] | None = None,
+        augmentation_mode: AugmentationMode = "off",
         verbose: bool = False,
     ) -> None:
         super().__init__()
@@ -419,6 +545,7 @@ class NuScenesDataset(Dataset[SceneExample]):
         self.version = version
         self.split = split
         self.image_size = image_size
+        self.augmentation_mode = augmentation_mode if _is_training_split(split) else "off"
         self.nusc = NuScenes(version=version, dataroot=str(self.dataroot), verbose=verbose)
         if sample_tokens is not None:
             self.sample_tokens = list(sample_tokens)
@@ -453,6 +580,7 @@ class NuScenesDataset(Dataset[SceneExample]):
             )
             image_path = self.dataroot / sample_data["filename"]
             image_tensor, original_size = _image_to_tensor(image_path, self.image_size)
+            image_tensor = _apply_image_augmentations(image_tensor, self.augmentation_mode)
             image_tensors.append(image_tensor)
 
             intrinsic = np.asarray(calibrated_sensor["camera_intrinsic"], dtype=np.float32)
@@ -474,6 +602,13 @@ class NuScenesDataset(Dataset[SceneExample]):
             axis=-1,
         )
         lidar_points[:, :3] = (lidar_xyz1 @ lidar_to_ego.T)[:, :3]
+        lidar_tensor = torch.from_numpy(lidar_points[:, :4])
+        lidar_mask = torch.ones(lidar_points.shape[0], dtype=torch.bool)
+        lidar_tensor, lidar_mask = _apply_lidar_augmentations(
+            lidar_tensor,
+            lidar_mask,
+            self.augmentation_mode,
+        )
 
         ego_pose_record = self.nusc.get("ego_pose", lidar_sd["ego_pose_token"])
         ego_to_global = transform_from_quaternion(
@@ -522,8 +657,8 @@ class NuScenesDataset(Dataset[SceneExample]):
 
         scene = SceneBatch(
             images=torch.stack(image_tensors, dim=0).unsqueeze(0),
-            lidar_points=torch.from_numpy(lidar_points[:, :4]).unsqueeze(0),
-            lidar_mask=torch.ones(1, lidar_points.shape[0], dtype=torch.bool),
+            lidar_points=lidar_tensor.unsqueeze(0),
+            lidar_mask=lidar_mask.unsqueeze(0),
             intrinsics=torch.from_numpy(np.stack(intrinsics, axis=0)).unsqueeze(0),
             extrinsics=torch.from_numpy(np.stack(extrinsics, axis=0)).unsqueeze(0),
             ego_pose=torch.from_numpy(ego_to_global).unsqueeze(0),
@@ -550,6 +685,7 @@ class OpenLaneDataset(Dataset[SceneExample]):
         subset: str = "lane3d_300",
         image_size: tuple[int, int] = (256, 704),
         lane_points: int = 20,
+        augmentation_mode: AugmentationMode = "off",
     ) -> None:
         super().__init__()
         self.dataroot = Path(dataroot)
@@ -557,6 +693,7 @@ class OpenLaneDataset(Dataset[SceneExample]):
         self.subset = subset
         self.image_size = image_size
         self.lane_points = lane_points
+        self.augmentation_mode = augmentation_mode if _is_training_split(split) else "off"
         lane_root = self.dataroot / subset / split
         self.annotation_paths = sorted(lane_root.rglob("*.json"))
         if not self.annotation_paths:
@@ -572,6 +709,7 @@ class OpenLaneDataset(Dataset[SceneExample]):
 
         image_path = self.dataroot / "images" / file_path
         image_tensor, original_size = _image_to_tensor(image_path, self.image_size)
+        image_tensor = _apply_image_augmentations(image_tensor, self.augmentation_mode)
 
         original_intrinsic = np.asarray(annotation["intrinsic"], dtype=np.float32)
         scaled_intrinsic = _scale_intrinsics(original_intrinsic, original_size, self.image_size)
