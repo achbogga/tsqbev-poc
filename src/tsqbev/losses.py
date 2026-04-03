@@ -132,8 +132,10 @@ class DetectionSetCriterion(nn.Module):
         velocity_weight: float = 0.5,
         reference_weight: float = 0.25,
         teacher_anchor_class_weight: float = 0.5,
+        teacher_anchor_quality_class_weight: float = 0.0,
         teacher_anchor_objectness_weight: float = 0.5,
         teacher_region_objectness_weight: float = 0.0,
+        teacher_region_class_weight: float = 0.0,
         loss_mode: str = "baseline",
         hard_negative_ratio: int = 3,
         hard_negative_cap: int = 96,
@@ -149,8 +151,10 @@ class DetectionSetCriterion(nn.Module):
         self.velocity_weight = velocity_weight
         self.reference_weight = reference_weight
         self.teacher_anchor_class_weight = teacher_anchor_class_weight
+        self.teacher_anchor_quality_class_weight = teacher_anchor_quality_class_weight
         self.teacher_anchor_objectness_weight = teacher_anchor_objectness_weight
         self.teacher_region_objectness_weight = teacher_region_objectness_weight
+        self.teacher_region_class_weight = teacher_region_class_weight
         self.loss_mode = loss_mode
         self.hard_negative_ratio = hard_negative_ratio
         self.hard_negative_cap = hard_negative_cap
@@ -300,6 +304,53 @@ class DetectionSetCriterion(nn.Module):
             distance = torch.cdist(refs_xy[batch_index], teacher_xy, p=2)
             affinity = torch.exp(-0.5 * (distance / radius) ** 2)
             targets[batch_index] = (affinity * teacher_quality.unsqueeze(0)).max(dim=1).values
+        return targets
+
+    def _teacher_region_class_targets(
+        self,
+        reference_points: Tensor,
+        batch: SceneBatch,
+        num_classes: int,
+    ) -> Tensor | None:
+        teacher_targets = batch.teacher_targets
+        if teacher_targets is None or teacher_targets.object_boxes is None:
+            return None
+        if teacher_targets.object_labels is None or teacher_targets.object_scores is None:
+            return None
+        teacher_boxes = teacher_targets.object_boxes.float()
+        teacher_labels = teacher_targets.object_labels.long()
+        teacher_scores = teacher_targets.object_scores.float().clamp(0.0, 1.0)
+        teacher_mask = (
+            teacher_targets.valid_mask
+            if teacher_targets.valid_mask is not None
+            else torch.ones(
+                teacher_boxes.shape[:2],
+                dtype=torch.bool,
+                device=teacher_boxes.device,
+            )
+        )
+        targets = torch.zeros(
+            reference_points.shape[0],
+            reference_points.shape[1],
+            num_classes,
+            dtype=teacher_boxes.dtype,
+            device=reference_points.device,
+        )
+        refs_xy = reference_points[..., :2].detach().float()
+        radius = max(self.teacher_region_radius_m, 1e-3)
+        query_indices = torch.arange(reference_points.shape[1], device=reference_points.device)
+        for batch_index in range(reference_points.shape[0]):
+            valid = teacher_mask[batch_index]
+            if not bool(valid.any()):
+                continue
+            teacher_xy = teacher_boxes[batch_index, valid, :2]
+            labels = teacher_labels[batch_index, valid]
+            scores = teacher_scores[batch_index, valid]
+            distance = torch.cdist(refs_xy[batch_index], teacher_xy, p=2)
+            affinity = torch.exp(-0.5 * (distance / radius) ** 2) * scores.unsqueeze(0)
+            best_scores, best_index = affinity.max(dim=1)
+            best_labels = labels[best_index]
+            targets[batch_index, query_indices, best_labels] = best_scores
         return targets
 
     def forward(
@@ -453,8 +504,10 @@ class DetectionSetCriterion(nn.Module):
         )
         box_loss = total_box / float(normalizer)
         teacher_anchor_cls_loss = zero
+        teacher_anchor_quality_cls_loss = zero
         teacher_anchor_objectness_loss = zero
         teacher_region_objectness_loss = zero
+        teacher_region_class_loss = zero
         if (
             teacher_prior_labels is not None
             and teacher_prior_valid_mask is not None
@@ -489,6 +542,20 @@ class DetectionSetCriterion(nn.Module):
             teacher_anchor_cls_loss = (
                 teacher_anchor_cls_loss * self.teacher_anchor_class_weight
             )
+            if self.teacher_anchor_quality_class_weight > 0.0:
+                quality_targets = torch.zeros_like(object_logits)
+                quality_targets[valid, teacher_prior_labels[valid].long()] = prior_weights[valid]
+                teacher_anchor_quality_cls_loss = _quality_focal_loss_with_logits(
+                    object_logits,
+                    quality_targets,
+                    beta=self.quality_focal_beta,
+                )
+                teacher_anchor_quality_cls_loss = (
+                    teacher_anchor_quality_cls_loss * valid.unsqueeze(-1).float()
+                ).sum() / valid.sum().clamp_min(1.0)
+                teacher_anchor_quality_cls_loss = (
+                    teacher_anchor_quality_cls_loss * self.teacher_anchor_quality_class_weight
+                )
         if (
             self.teacher_region_objectness_weight > 0.0
             and objectness_logits is not None
@@ -516,14 +583,43 @@ class DetectionSetCriterion(nn.Module):
                 teacher_region_objectness_loss = (
                     teacher_region_objectness_loss * self.teacher_region_objectness_weight
                 )
+        if self.teacher_region_class_weight > 0.0 and reference_points is not None:
+            teacher_region_class_targets = self._teacher_region_class_targets(
+                reference_points,
+                batch,
+                num_classes=object_logits.shape[-1],
+            )
+            if teacher_region_class_targets is not None:
+                if self.loss_mode == "quality_focal":
+                    teacher_region_class_loss = _quality_focal_loss_with_logits(
+                        object_logits,
+                        teacher_region_class_targets,
+                        beta=self.quality_focal_beta,
+                    ).mean()
+                elif self.loss_mode == "focal_hardneg":
+                    teacher_region_class_loss = _sigmoid_focal_loss_with_logits(
+                        object_logits,
+                        teacher_region_class_targets,
+                    ).mean()
+                else:
+                    teacher_region_class_loss = F.binary_cross_entropy_with_logits(
+                        object_logits,
+                        teacher_region_class_targets,
+                        reduction="mean",
+                    )
+                teacher_region_class_loss = (
+                    teacher_region_class_loss * self.teacher_region_class_weight
+                )
         return {
             "objectness": objectness_loss,
             "object_cls": cls_loss,
             "object_box": box_loss,
             "object_ref": reference_loss,
             "object_teacher_anchor_cls": teacher_anchor_cls_loss,
+            "object_teacher_anchor_quality_cls": teacher_anchor_quality_cls_loss,
             "object_teacher_anchor_obj": teacher_anchor_objectness_loss,
             "object_teacher_region_obj": teacher_region_objectness_loss,
+            "object_teacher_region_cls": teacher_region_class_loss,
         }
 
 

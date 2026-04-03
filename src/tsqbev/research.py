@@ -98,7 +98,9 @@ class ResearchRecipe:
     loss_mode: Literal["baseline", "focal_hardneg", "quality_focal"] = "baseline"
     hard_negative_ratio: int = 3
     hard_negative_cap: int = 96
+    teacher_anchor_quality_class_weight: float = 0.0
     teacher_region_objectness_weight: float = 0.0
+    teacher_region_class_weight: float = 0.0
     teacher_region_radius_m: float = 4.0
     score_threshold_candidates: tuple[float, ...] = (0.05,)
     top_k_candidates: tuple[int, ...] = (112,)
@@ -263,7 +265,9 @@ def _clone_recipe(
     loss_mode: Literal["baseline", "focal_hardneg", "quality_focal"] | None = None,
     hard_negative_ratio: int | None = None,
     hard_negative_cap: int | None = None,
+    teacher_anchor_quality_class_weight: float | None = None,
     teacher_region_objectness_weight: float | None = None,
+    teacher_region_class_weight: float | None = None,
     teacher_region_radius_m: float | None = None,
     score_threshold_candidates: tuple[float, ...] | None = None,
     top_k_candidates: tuple[int, ...] | None = None,
@@ -311,10 +315,20 @@ def _clone_recipe(
         hard_negative_cap=(
             recipe.hard_negative_cap if hard_negative_cap is None else hard_negative_cap
         ),
+        teacher_anchor_quality_class_weight=(
+            recipe.teacher_anchor_quality_class_weight
+            if teacher_anchor_quality_class_weight is None
+            else teacher_anchor_quality_class_weight
+        ),
         teacher_region_objectness_weight=(
             recipe.teacher_region_objectness_weight
             if teacher_region_objectness_weight is None
             else teacher_region_objectness_weight
+        ),
+        teacher_region_class_weight=(
+            recipe.teacher_region_class_weight
+            if teacher_region_class_weight is None
+            else teacher_region_class_weight
         ),
         teacher_region_radius_m=(
             recipe.teacher_region_radius_m
@@ -402,9 +416,13 @@ def _load_previous_incumbent(artifact_root: Path) -> ResearchRecipe | None:
         ),
         hard_negative_ratio=int(selected.get("hard_negative_ratio", 3)),
         hard_negative_cap=int(selected.get("hard_negative_cap", 96)),
+        teacher_anchor_quality_class_weight=float(
+            selected.get("teacher_anchor_quality_class_weight", 0.0)
+        ),
         teacher_region_objectness_weight=float(
             selected.get("teacher_region_objectness_weight", 0.0)
         ),
+        teacher_region_class_weight=float(selected.get("teacher_region_class_weight", 0.0)),
         teacher_region_radius_m=float(selected.get("teacher_region_radius_m", 4.0)),
         score_threshold_candidates=tuple(
             float(value) for value in selected.get("score_threshold_candidates", [0.05])
@@ -800,6 +818,34 @@ def _make_teacher_region_recipe(recipe: ResearchRecipe) -> ResearchRecipe:
     )
 
 
+def _make_teacher_quality_recipe(recipe: ResearchRecipe) -> ResearchRecipe:
+    return _clone_recipe(
+        recipe,
+        name=f"{recipe.name}_teacher_quality",
+        note="preserve teacher class-quality signal on anchored and nearby queries",
+        hypothesis=(
+            "the current student still loses teacher object hypotheses in ranking and class "
+            "confidence; soft teacher quality targets should retain those hypotheses better "
+            "than hard label-only anchor losses"
+        ),
+        mutation_reason=(
+            "add quality-aware teacher class supervision on teacher-seeded queries plus "
+            "soft class-region targets around teacher boxes"
+        ),
+        stage="exploit",
+        loss_mode="quality_focal",
+        teacher_anchor_quality_class_weight=max(
+            recipe.teacher_anchor_quality_class_weight,
+            0.35,
+        ),
+        teacher_region_objectness_weight=max(recipe.teacher_region_objectness_weight, 0.10),
+        teacher_region_class_weight=max(recipe.teacher_region_class_weight, 0.10),
+        teacher_region_radius_m=6.0,
+        score_threshold_candidates=(0.05, 0.15, 0.25, 0.35),
+        top_k_candidates=(16, 32, 48, 64),
+    )
+
+
 def _make_augmented_recipe(recipe: ResearchRecipe) -> ResearchRecipe:
     next_mode: Literal["off", "moderate", "strong"]
     if recipe.augmentation_mode == "off":
@@ -879,6 +925,14 @@ def _build_exploitation_recipes(
         candidates.append(_make_teacher_kd_recipe(incumbent_recipe, stage="exploit"))
     if incumbent_recipe.config.teacher_seed_mode != "off":
         candidates.append(_make_teacher_off_control_recipe(incumbent_recipe))
+    if incumbent_recipe.use_teacher_provider:
+        candidates.append(_make_teacher_quality_recipe(incumbent_recipe))
+    if (
+        incumbent_recipe.use_teacher_provider
+        and incumbent_recipe.teacher_region_objectness_weight <= 0.0
+    ):
+        candidates.append(_make_teacher_region_recipe(incumbent_recipe))
+        candidates.append(_make_teacher_region_aug_recipe(incumbent_recipe))
     if incumbent_recipe.loss_mode != "quality_focal":
         candidates.append(_make_quality_focal_recipe(incumbent_recipe))
     elif incumbent_recipe.config.ranking_mode != "quality_class_only":
@@ -895,12 +949,6 @@ def _build_exploitation_recipes(
         candidates.append(_make_focal_hardneg_recipe(incumbent_recipe))
     if incumbent_recipe.config.freeze_image_backbone:
         candidates.append(_make_unfreeze_recipe(incumbent_recipe))
-    if (
-        incumbent_recipe.use_teacher_provider
-        and incumbent_recipe.teacher_region_objectness_weight <= 0.0
-    ):
-        candidates.append(_make_teacher_region_recipe(incumbent_recipe))
-        candidates.append(_make_teacher_region_aug_recipe(incumbent_recipe))
     if incumbent_recipe.augmentation_mode != "moderate":
         candidates.append(_make_augmented_recipe(incumbent_recipe))
     deduped: list[ResearchRecipe] = []
@@ -941,7 +989,9 @@ def _serialize_recipe(recipe: ResearchRecipe) -> dict[str, Any]:
         "loss_mode": recipe.loss_mode,
         "hard_negative_ratio": recipe.hard_negative_ratio,
         "hard_negative_cap": recipe.hard_negative_cap,
+        "teacher_anchor_quality_class_weight": recipe.teacher_anchor_quality_class_weight,
         "teacher_region_objectness_weight": recipe.teacher_region_objectness_weight,
+        "teacher_region_class_weight": recipe.teacher_region_class_weight,
         "teacher_region_radius_m": recipe.teacher_region_radius_m,
         "score_threshold_candidates": list(recipe.score_threshold_candidates),
         "top_k_candidates": list(recipe.top_k_candidates),
@@ -1699,7 +1749,11 @@ def run_bounded_research_loop(
                     "batch_size": recipe.batch_size,
                     "num_workers": recipe.num_workers,
                     "augmentation_mode": recipe.augmentation_mode,
+                    "teacher_anchor_quality_class_weight": (
+                        recipe.teacher_anchor_quality_class_weight
+                    ),
                     "teacher_region_objectness_weight": recipe.teacher_region_objectness_weight,
+                    "teacher_region_class_weight": recipe.teacher_region_class_weight,
                     "teacher_region_radius_m": recipe.teacher_region_radius_m,
                 },
             },
@@ -1770,7 +1824,9 @@ def run_bounded_research_loop(
                 loss_mode=recipe.loss_mode,
                 hard_negative_ratio=recipe.hard_negative_ratio,
                 hard_negative_cap=recipe.hard_negative_cap,
+                teacher_anchor_quality_class_weight=recipe.teacher_anchor_quality_class_weight,
                 teacher_region_objectness_weight=recipe.teacher_region_objectness_weight,
+                teacher_region_class_weight=recipe.teacher_region_class_weight,
                 teacher_region_radius_m=recipe.teacher_region_radius_m,
                 tracker=tracker,
             )

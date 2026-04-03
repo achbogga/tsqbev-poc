@@ -132,8 +132,10 @@ def _make_detection_criterion(
     hard_negative_ratio: int,
     hard_negative_cap: int,
     teacher_anchor_class_weight: float,
+    teacher_anchor_quality_class_weight: float,
     teacher_anchor_objectness_weight: float,
     teacher_region_objectness_weight: float = 0.0,
+    teacher_region_class_weight: float = 0.0,
     teacher_region_radius_m: float = 4.0,
 ) -> DetectionSetCriterion:
     return DetectionSetCriterion(
@@ -141,8 +143,10 @@ def _make_detection_criterion(
         hard_negative_ratio=hard_negative_ratio,
         hard_negative_cap=hard_negative_cap,
         teacher_anchor_class_weight=teacher_anchor_class_weight,
+        teacher_anchor_quality_class_weight=teacher_anchor_quality_class_weight,
         teacher_anchor_objectness_weight=teacher_anchor_objectness_weight,
         teacher_region_objectness_weight=teacher_region_objectness_weight,
+        teacher_region_class_weight=teacher_region_class_weight,
         teacher_region_radius_m=teacher_region_radius_m,
     )
 
@@ -329,8 +333,10 @@ def fit_nuscenes(
     hard_negative_ratio: int = 3,
     hard_negative_cap: int = 96,
     teacher_anchor_class_weight: float = 0.5,
+    teacher_anchor_quality_class_weight: float = 0.0,
     teacher_anchor_objectness_weight: float = 0.5,
     teacher_region_objectness_weight: float = 0.0,
+    teacher_region_class_weight: float = 0.0,
     teacher_region_radius_m: float = 4.0,
     teacher_anchor_final_class_weight: float | None = None,
     teacher_anchor_final_objectness_weight: float | None = None,
@@ -472,8 +478,12 @@ def fit_nuscenes(
                         "hard_negative_ratio": hard_negative_ratio,
                         "hard_negative_cap": hard_negative_cap,
                         "teacher_anchor_class_weight": teacher_anchor_class_weight,
+                        "teacher_anchor_quality_class_weight": (
+                            teacher_anchor_quality_class_weight
+                        ),
                         "teacher_anchor_objectness_weight": teacher_anchor_objectness_weight,
                         "teacher_region_objectness_weight": teacher_region_objectness_weight,
+                        "teacher_region_class_weight": teacher_region_class_weight,
                         "teacher_region_radius_m": teacher_region_radius_m,
                         "teacher_anchor_final_class_weight": teacher_anchor_final_class_weight,
                         "teacher_anchor_final_objectness_weight": (
@@ -509,8 +519,10 @@ def fit_nuscenes(
                 hard_negative_ratio=hard_negative_ratio,
                 hard_negative_cap=hard_negative_cap,
                 teacher_anchor_class_weight=teacher_anchor_class_weight,
+                teacher_anchor_quality_class_weight=teacher_anchor_quality_class_weight,
                 teacher_anchor_objectness_weight=teacher_anchor_objectness_weight,
                 teacher_region_objectness_weight=teacher_region_objectness_weight,
+                teacher_region_class_weight=teacher_region_class_weight,
                 teacher_region_radius_m=teacher_region_radius_m,
             ),
             enable_distillation=enable_teacher_distillation,
@@ -579,8 +591,10 @@ def fit_nuscenes(
                 f"pretrained_backbone={model_config.pretrained_image_backbone} "
                 f"freeze_backbone={model_config.freeze_image_backbone} "
                 f"teacher_anchor_cls_w={current_teacher_anchor_class_weight:.3f} "
+                f"teacher_anchor_qcls_w={teacher_anchor_quality_class_weight:.3f} "
                 f"teacher_anchor_obj_w={current_teacher_anchor_objectness_weight:.3f} "
                 f"teacher_region_obj_w={teacher_region_objectness_weight:.3f} "
+                f"teacher_region_cls_w={teacher_region_class_weight:.3f} "
                 f"augment={augmentation_mode}",
                 flush=True,
             )
@@ -645,9 +659,14 @@ def fit_nuscenes(
                         "best_val_total": best_val_total,
                         "epochs_without_improvement": epochs_without_improvement,
                         "teacher_anchor_class_weight": current_teacher_anchor_class_weight,
+                        "teacher_anchor_quality_class_weight": (
+                            teacher_anchor_quality_class_weight
+                        ),
                         "teacher_anchor_objectness_weight": (
                             current_teacher_anchor_objectness_weight
                         ),
+                        "teacher_region_objectness_weight": teacher_region_objectness_weight,
+                        "teacher_region_class_weight": teacher_region_class_weight,
                     },
                     step=epoch,
                 )
@@ -733,8 +752,10 @@ def fit_nuscenes(
             "enable_teacher_distillation": enable_teacher_distillation,
             "augmentation_mode": augmentation_mode,
             "teacher_anchor_class_weight": teacher_anchor_class_weight,
+            "teacher_anchor_quality_class_weight": teacher_anchor_quality_class_weight,
             "teacher_anchor_objectness_weight": teacher_anchor_objectness_weight,
             "teacher_region_objectness_weight": teacher_region_objectness_weight,
+            "teacher_region_class_weight": teacher_region_class_weight,
             "teacher_region_radius_m": teacher_region_radius_m,
             "teacher_anchor_final_class_weight": final_teacher_anchor_class_weight,
             "teacher_anchor_final_objectness_weight": final_teacher_anchor_objectness_weight,
