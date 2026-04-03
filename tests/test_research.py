@@ -19,6 +19,35 @@ def _fake_eval(nds: float, mean_ap: float, car_ap_4m: float = 0.0) -> dict[str, 
     }
 
 
+def _fake_selected_record(
+    *,
+    recipe: str,
+    nds: float,
+    mean_ap: float,
+    val_total: float,
+    boxes_mean: float,
+    root_cause_verdict: str = "incremental_progress",
+    ranking_mode: str = "class_times_objectness",
+    lidar_share: float = 1.0,
+    proposal_share: float = 0.0,
+) -> dict[str, object]:
+    return {
+        "recipe": recipe,
+        "evaluation": _fake_eval(nds, mean_ap, car_ap_4m=0.1),
+        "val": {"total": val_total},
+        "prediction_geometry": {"boxes_per_sample_mean": boxes_mean},
+        "root_cause_verdict": root_cause_verdict,
+        "use_teacher_provider": True,
+        "config": {"ranking_mode": ranking_mode},
+        "source_mix": {
+            "lidar": lidar_share,
+            "proposal": proposal_share,
+            "global": max(0.0, 1.0 - lidar_share - proposal_share),
+        },
+        "teacher_anchor_quality_class_weight": 0.35,
+    }
+
+
 def _fake_calibration_selected(
     kwargs: dict[str, object],
     evals: dict[str, dict[str, object]],
@@ -259,6 +288,84 @@ def test_initial_recipes_insert_teacher_kd_when_teacher_is_available(tmp_path: P
         assert recipes[1].config.router_mode == "anchor_first"
     finally:
         research.REPO_ROOT = original_repo_root
+
+
+def test_boss_progress_verdict_marks_breakthrough_against_previous_incumbent(
+    tmp_path: Path,
+) -> None:
+    artifact_root = tmp_path / "research_vx" / "research_loop"
+    artifact_root.mkdir(parents=True)
+    previous = _fake_selected_record(
+        recipe="prev_incumbent",
+        nds=0.1507,
+        mean_ap=0.1736,
+        val_total=12.0182,
+        boxes_mean=31.9,
+    )
+    current = _fake_selected_record(
+        recipe="current_incumbent",
+        nds=0.1712,
+        mean_ap=0.1787,
+        val_total=11.1095,
+        boxes_mean=32.0,
+    )
+
+    verdict = research._boss_progress_verdict(
+        current_record=current,
+        previous_record=previous,
+        artifact_root=artifact_root,
+    )
+
+    assert verdict["progress_class"] == "breakthrough"
+    assert verdict["delta_vs_previous_incumbent"]["nds"] > 0.01
+
+
+def test_build_exploitation_recipes_respects_boss_priority_only() -> None:
+    incumbent_recipe = research.ResearchRecipe(
+        name="incumbent",
+        note="",
+        hypothesis="",
+        mutation_reason="",
+        config=ModelConfig.rtx5000_nuscenes_baseline().model_copy(
+            update={
+                "ranking_mode": "class_times_objectness",
+                "teacher_seed_mode": "replace_lidar",
+            }
+        ),
+        use_teacher_provider=True,
+        loss_mode="quality_focal",
+        teacher_anchor_quality_class_weight=0.35,
+        teacher_region_objectness_weight=0.1,
+        teacher_region_class_weight=0.1,
+    )
+    incumbent_record = _fake_selected_record(
+        recipe="incumbent",
+        nds=0.1712,
+        mean_ap=0.1787,
+        val_total=11.1095,
+        boxes_mean=32.0,
+        lidar_share=0.8571,
+        proposal_share=0.0,
+    )
+
+    recipes = research._build_exploitation_recipes(
+        incumbent_recipe,
+        incumbent_record,
+        teacher_provider_config=None,
+        remaining_budget=5,
+        boss_policy={
+            "force_priority_only": True,
+            "priority_tags": ["quality_rank", "anchor_mix", "teacher_off_control"],
+            "suppress_tags": ["query_boost", "lr_down", "augmentation", "focal_hardneg"],
+        },
+    )
+
+    names = [recipe.name for recipe in recipes]
+    assert names == [
+        "incumbent_quality_rank",
+        "incumbent_anchor_mix",
+        "incumbent_teacher_off_control",
+    ]
 
 
 def test_initial_recipes_prefer_passed_overfit_frontier(monkeypatch, tmp_path: Path) -> None:

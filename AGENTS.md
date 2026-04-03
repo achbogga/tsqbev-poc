@@ -147,6 +147,10 @@ The bounded research loop must:
 - compare teacher-off and teacher-on paths honestly
 - use web/literature review to refresh the design space when local progress stalls
 - treat the local research-memory stack as required context, not optional decoration
+- emit a machine-readable `boss_progress_verdict` after every invocation that compares the new
+  promoted run against the previous mini incumbent and the best historical mini result
+- when repeated `incremental_progress`, `schedule_checkpoint_drift`, or regression appears,
+  suppress low-ROI exploit families automatically instead of reopening them by habit
 - when multiple ROI-positive directions land together, prefer one KD/ranking branch and one
   augmentation branch before opening a broader search fanout
 

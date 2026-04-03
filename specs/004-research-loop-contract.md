@@ -66,6 +66,10 @@ The loop must also operate from durable local memory:
 - write a pre-run first-principles checkpoint before launching the invocation
 - sync new run artifacts back into the local memory stack
 - publish a PI-facing report after each completed invocation
+- emit a `boss_progress_verdict` after each invocation so progress is measured against the prior
+  mini incumbent and the best historical mini result, not inferred from prose
+- suppress low-ROI exploit families automatically after repeated `incremental_progress`,
+  `schedule_checkpoint_drift`, or regression until the evidence changes
 
 ## Active Scope
 
@@ -187,6 +191,8 @@ or if the comparison mixes different backbones or incompatible parent recipes.
 ## Scale-Gate Output
 
 Every completed invocation must emit a machine-readable `scale_gate_verdict` in `summary.json`.
+Every completed invocation must also emit a machine-readable `boss_progress_verdict` and
+`boss_policy_next` in `summary.json`.
 
 This verdict must at minimum report:
 

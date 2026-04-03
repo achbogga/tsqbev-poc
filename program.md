@@ -122,6 +122,10 @@ Follow the strongest transferable ideas from `karpathy/autoresearch`, adapted to
 - log every run to an append-only ledger
 - record the hypothesis and mutation reason for every run
 - advance only when official metrics improve
+- emit a `boss_progress_verdict` that compares the promoted run against the previous incumbent and
+  the best historical mini result
+- if repeated `incremental_progress`, `schedule_checkpoint_drift`, or regression appears, suppress
+  low-ROI exploit families automatically instead of reopening them by habit
 - preserve failed runs in the ledger instead of deleting evidence
 - record the active bottleneck and token-burn score for each direction under investigation
 - keep the legacy sparse-query line only as a bounded comparison control unless the dense-BEV
@@ -149,6 +153,8 @@ The bounded loop is not enough by itself. A Karpathy-style lab workflow in this 
    and publish the generated report artifacts
 5. the next invocation should start automatically unless a stop file is present or the repo is
    explicitly disabled
+6. the next invocation must read the prior `boss_progress_verdict` and obey its
+   `boss_policy_next`; suppressed exploit families stay suppressed until the evidence changes
 
 The intended entrypoint is `tsqbev research-supervisor`, not manual one-off screens, whenever the
 goal is continuous unattended progress.

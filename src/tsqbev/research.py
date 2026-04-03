@@ -431,6 +431,280 @@ def _load_previous_incumbent(artifact_root: Path) -> ResearchRecipe | None:
     )
 
 
+def _load_summary_payload(path: Path) -> dict[str, Any] | None:
+    if not path.exists():
+        return None
+    try:
+        payload = json.loads(path.read_text())
+    except json.JSONDecodeError:
+        return None
+    return payload if isinstance(payload, dict) else None
+
+
+def _summary_selected_record(path: Path) -> dict[str, Any] | None:
+    payload = _load_summary_payload(path)
+    if payload is None:
+        return None
+    selected = payload.get("selected_record")
+    return selected if isinstance(selected, dict) else None
+
+
+def _historical_summary_paths(artifact_root: Path) -> list[Path]:
+    artifacts_root = artifact_root.parent.parent
+    candidates = list(artifacts_root.glob("research_*/research_loop/summary.json"))
+    current_summary = artifact_root / "summary.json"
+    if current_summary.exists():
+        candidates.append(current_summary)
+    deduped: dict[str, Path] = {str(path.resolve()): path for path in candidates}
+    return sorted(
+        deduped.values(),
+        key=lambda path: (
+            path.stat().st_mtime if path.exists() else 0.0,
+            str(path),
+        ),
+    )
+
+
+def _historical_selected_records(
+    artifact_root: Path,
+    *,
+    limit: int | None = None,
+) -> list[dict[str, Any]]:
+    records: list[dict[str, Any]] = []
+    for summary_path in _historical_summary_paths(artifact_root):
+        record = _summary_selected_record(summary_path)
+        if record is not None:
+            records.append(record)
+    if limit is not None:
+        return records[-limit:]
+    return records
+
+
+def _record_nds(record: dict[str, Any]) -> float:
+    evaluation = record.get("evaluation", {})
+    assert isinstance(evaluation, dict)
+    return _metric_float(evaluation.get("nd_score"), float("-inf"))
+
+
+def _record_map(record: dict[str, Any]) -> float:
+    evaluation = record.get("evaluation", {})
+    assert isinstance(evaluation, dict)
+    return _metric_float(evaluation.get("mean_ap"), float("-inf"))
+
+
+def _record_val_total(record: dict[str, Any]) -> float:
+    val = record.get("val", {})
+    assert isinstance(val, dict)
+    return _metric_float(val.get("total"), float("inf"))
+
+
+def _record_boxes_mean(record: dict[str, Any]) -> float:
+    geometry = record.get("prediction_geometry", {})
+    assert isinstance(geometry, dict)
+    return _metric_float(geometry.get("boxes_per_sample_mean"), float("inf"))
+
+
+def _best_historical_record(
+    artifact_root: Path,
+    *,
+    exclude_recipe: str | None = None,
+) -> dict[str, Any] | None:
+    candidates = [
+        record
+        for record in _historical_selected_records(artifact_root)
+        if exclude_recipe is None or str(record.get("recipe")) != exclude_recipe
+    ]
+    if not candidates:
+        return None
+    return sorted(
+        candidates,
+        key=lambda record: (
+            -_record_nds(record),
+            -_record_map(record),
+            _record_val_total(record),
+        ),
+    )[0]
+
+
+def _boss_progress_verdict(
+    *,
+    current_record: dict[str, Any],
+    previous_record: dict[str, Any] | None,
+    artifact_root: Path,
+) -> dict[str, Any]:
+    current_nds = _record_nds(current_record)
+    current_map = _record_map(current_record)
+    current_val = _record_val_total(current_record)
+    current_boxes = _record_boxes_mean(current_record)
+    current_recipe = str(current_record.get("recipe", ""))
+
+    previous_nds = None
+    previous_map = None
+    previous_val = None
+    previous_boxes = None
+    delta_vs_previous: dict[str, float] | None = None
+    if previous_record is not None:
+        previous_nds = _record_nds(previous_record)
+        previous_map = _record_map(previous_record)
+        previous_val = _record_val_total(previous_record)
+        previous_boxes = _record_boxes_mean(previous_record)
+        delta_vs_previous = {
+            "nds": current_nds - previous_nds,
+            "map": current_map - previous_map,
+            "val_total": previous_val - current_val,
+            "boxes_per_sample_mean": previous_boxes - current_boxes,
+        }
+
+    best_all_time = _best_historical_record(artifact_root, exclude_recipe=current_recipe)
+    delta_vs_best_all_time: dict[str, float] | None = None
+    best_all_time_recipe: str | None = None
+    if best_all_time is not None:
+        best_all_time_recipe = str(best_all_time.get("recipe"))
+        delta_vs_best_all_time = {
+            "nds": current_nds - _record_nds(best_all_time),
+            "map": current_map - _record_map(best_all_time),
+            "val_total": _record_val_total(best_all_time) - current_val,
+            "boxes_per_sample_mean": _record_boxes_mean(best_all_time) - current_boxes,
+        }
+
+    progress_class = "establishing"
+    reason = "no previous incumbent was available for comparison"
+    if delta_vs_previous is not None:
+        nds_delta = delta_vs_previous["nds"]
+        map_delta = delta_vs_previous["map"]
+        box_delta = delta_vs_previous["boxes_per_sample_mean"]
+        if nds_delta <= -0.003 or (nds_delta < 0.0 and map_delta <= -0.01):
+            progress_class = "regression"
+            reason = "regressed against the previous incumbent on the main mini_val metrics"
+        elif nds_delta >= 0.01 or (nds_delta >= 0.003 and map_delta >= 0.01):
+            progress_class = "breakthrough"
+            reason = "cleared the aggressive improvement bar against the previous incumbent"
+        elif nds_delta >= 0.003 or map_delta >= 0.01 or (nds_delta >= 0.0 and box_delta >= 20.0):
+            progress_class = "meaningful"
+            reason = "improved either the main metrics or a key deployment-side blocker materially"
+        else:
+            progress_class = "stalled"
+            reason = (
+                "failed to clear the minimum meaningful-uplift bar against the "
+                "previous incumbent"
+            )
+
+    recent_selected = _historical_selected_records(artifact_root, limit=4)
+    repeated_incremental = 0
+    repeated_schedule = 0
+    for record in reversed(recent_selected):
+        verdict = str(record.get("root_cause_verdict", ""))
+        if verdict == "incremental_progress":
+            repeated_incremental += 1
+        else:
+            break
+    for record in reversed(recent_selected):
+        verdict = str(record.get("root_cause_verdict", ""))
+        if verdict == "schedule_checkpoint_drift":
+            repeated_schedule += 1
+        else:
+            break
+
+    return {
+        "progress_class": progress_class,
+        "reason": reason,
+        "current_recipe": current_recipe,
+        "current_nds": current_nds,
+        "current_map": current_map,
+        "current_val_total": current_val,
+        "current_boxes_per_sample_mean": current_boxes,
+        "previous_recipe": None if previous_record is None else previous_record.get("recipe"),
+        "previous_nds": previous_nds,
+        "previous_map": previous_map,
+        "delta_vs_previous_incumbent": delta_vs_previous,
+        "best_all_time_recipe": best_all_time_recipe,
+        "delta_vs_best_all_time": delta_vs_best_all_time,
+        "recent_repeated_incremental_progress": repeated_incremental,
+        "recent_repeated_schedule_checkpoint_drift": repeated_schedule,
+    }
+
+
+def _boss_policy_from_history(
+    artifact_root: Path,
+    *,
+    extra_record: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    recent_selected = _historical_selected_records(artifact_root, limit=4)
+    if extra_record is not None:
+        recent_selected = [*recent_selected[-3:], extra_record]
+    latest = recent_selected[-1] if recent_selected else None
+
+    repeated_incremental = 0
+    repeated_schedule = 0
+    for record in reversed(recent_selected):
+        verdict = str(record.get("root_cause_verdict", ""))
+        if verdict == "incremental_progress":
+            repeated_incremental += 1
+        else:
+            break
+    for record in reversed(recent_selected):
+        verdict = str(record.get("root_cause_verdict", ""))
+        if verdict == "schedule_checkpoint_drift":
+            repeated_schedule += 1
+        else:
+            break
+
+    priority_tags: list[str] = []
+    suppress_tags: list[str] = []
+    force_priority_only = False
+    reasons: list[str] = []
+    if repeated_incremental >= 2 or repeated_schedule >= 2:
+        force_priority_only = True
+        suppress_tags.extend(
+            ["query_boost", "lr_down", "augmentation", "focal_hardneg", "unfreeze"]
+        )
+        reasons.append(
+            "suppressed low-ROI exploit families after repeated incremental or "
+            "schedule-drift outcomes"
+        )
+    if latest is not None:
+        config = latest.get("config", {})
+        assert isinstance(config, dict)
+        source_mix = latest.get("source_mix", {})
+        assert isinstance(source_mix, dict)
+        if latest.get("use_teacher_provider"):
+            priority_tags.append("teacher_off_control")
+        if (
+            latest.get("use_teacher_provider")
+            and str(config.get("ranking_mode")) != "quality_class_only"
+        ):
+            priority_tags.append("quality_rank")
+            reasons.append("ranking is still misaligned with the quality-aware target")
+        if (
+            float(source_mix.get("lidar", 0.0)) >= 0.8
+            or float(source_mix.get("proposal", 0.0)) < 0.1
+        ):
+            priority_tags.append("anchor_mix")
+            reasons.append("source mix is still collapsing toward LiDAR anchors")
+        if (
+            latest.get("use_teacher_provider")
+            and _metric_float(latest.get("teacher_anchor_quality_class_weight"), 0.0) <= 0.0
+        ):
+            priority_tags.append("teacher_quality")
+            reasons.append("teacher quality supervision is not yet active on the incumbent")
+    deduped_priority: list[str] = []
+    for tag in priority_tags:
+        if tag not in deduped_priority:
+            deduped_priority.append(tag)
+    deduped_suppress: list[str] = []
+    for tag in suppress_tags:
+        if tag not in deduped_suppress:
+            deduped_suppress.append(tag)
+    return {
+        "force_priority_only": force_priority_only,
+        "priority_tags": deduped_priority,
+        "suppress_tags": deduped_suppress,
+        "reasons": reasons,
+        "recent_repeated_incremental_progress": repeated_incremental,
+        "recent_repeated_schedule_checkpoint_drift": repeated_schedule,
+    }
+
+
 def _load_best_ratio_passing_overfit_frontier(artifact_dir: Path) -> ResearchRecipe | None:
     best_recipe: ResearchRecipe | None = None
     best_key: tuple[float, float, float, float] | None = None
@@ -914,46 +1188,75 @@ def _build_exploitation_recipes(
     incumbent_record: dict[str, Any],
     teacher_provider_config: TeacherProviderConfig | None,
     remaining_budget: int,
+    *,
+    boss_policy: dict[str, Any] | None = None,
 ) -> list[ResearchRecipe]:
     if remaining_budget <= 0:
         return []
     source_mix = incumbent_record.get("source_mix", {})
     assert isinstance(source_mix, dict)
-    candidates: list[ResearchRecipe] = []
+    tagged_candidates: list[tuple[str, ResearchRecipe]] = []
+
+    def add(tag: str, candidate: ResearchRecipe) -> None:
+        tagged_candidates.append((tag, candidate))
+
     if teacher_provider_config is not None and incumbent_recipe.config.teacher_seed_mode == "off":
-        candidates.append(_make_teacher_seed_recipe(incumbent_recipe))
-        candidates.append(_make_teacher_kd_recipe(incumbent_recipe, stage="exploit"))
+        add("teacher_seed", _make_teacher_seed_recipe(incumbent_recipe))
+        add("teacher_kd", _make_teacher_kd_recipe(incumbent_recipe, stage="exploit"))
     if incumbent_recipe.config.teacher_seed_mode != "off":
-        candidates.append(_make_teacher_off_control_recipe(incumbent_recipe))
+        add("teacher_off_control", _make_teacher_off_control_recipe(incumbent_recipe))
     if incumbent_recipe.use_teacher_provider:
-        candidates.append(_make_teacher_quality_recipe(incumbent_recipe))
+        add("teacher_quality", _make_teacher_quality_recipe(incumbent_recipe))
     if (
         incumbent_recipe.use_teacher_provider
         and incumbent_recipe.teacher_region_objectness_weight <= 0.0
     ):
-        candidates.append(_make_teacher_region_recipe(incumbent_recipe))
-        candidates.append(_make_teacher_region_aug_recipe(incumbent_recipe))
+        add("teacher_region", _make_teacher_region_recipe(incumbent_recipe))
+        add("teacher_region_aug", _make_teacher_region_aug_recipe(incumbent_recipe))
     if incumbent_recipe.loss_mode != "quality_focal":
-        candidates.append(_make_quality_focal_recipe(incumbent_recipe))
+        add("quality_focal", _make_quality_focal_recipe(incumbent_recipe))
     elif incumbent_recipe.config.ranking_mode != "quality_class_only":
-        candidates.append(_make_quality_rank_recipe(incumbent_recipe))
+        add("quality_rank", _make_quality_rank_recipe(incumbent_recipe))
     if float(source_mix.get("lidar", 0.0)) >= 0.8 or float(source_mix.get("proposal", 0.0)) < 0.2:
-        candidates.append(_make_anchor_mix_recipe(incumbent_recipe))
-    candidates.extend(
-        [
-            _make_query_boost_recipe(incumbent_recipe, source_mix=source_mix),
-            _make_lr_down_recipe(incumbent_recipe),
-        ]
-    )
+        add("anchor_mix", _make_anchor_mix_recipe(incumbent_recipe))
+    add("query_boost", _make_query_boost_recipe(incumbent_recipe, source_mix=source_mix))
+    add("lr_down", _make_lr_down_recipe(incumbent_recipe))
     if incumbent_recipe.loss_mode != "focal_hardneg":
-        candidates.append(_make_focal_hardneg_recipe(incumbent_recipe))
+        add("focal_hardneg", _make_focal_hardneg_recipe(incumbent_recipe))
     if incumbent_recipe.config.freeze_image_backbone:
-        candidates.append(_make_unfreeze_recipe(incumbent_recipe))
+        add("unfreeze", _make_unfreeze_recipe(incumbent_recipe))
     if incumbent_recipe.augmentation_mode != "moderate":
-        candidates.append(_make_augmented_recipe(incumbent_recipe))
+        add("augmentation", _make_augmented_recipe(incumbent_recipe))
+
+    if boss_policy is not None:
+        suppress_tags = {str(tag) for tag in boss_policy.get("suppress_tags", [])}
+        priority_tags = [str(tag) for tag in boss_policy.get("priority_tags", [])]
+        force_priority_only = bool(boss_policy.get("force_priority_only", False))
+        if suppress_tags:
+            tagged_candidates = [
+                (tag, candidate)
+                for tag, candidate in tagged_candidates
+                if tag not in suppress_tags
+            ]
+        if priority_tags:
+            priority_order = {tag: index for index, tag in enumerate(priority_tags)}
+            tagged_candidates = sorted(
+                tagged_candidates,
+                key=lambda item: (
+                    priority_order.get(item[0], len(priority_order)),
+                ),
+            )
+        if force_priority_only and priority_tags:
+            allowed_tags = set(priority_tags)
+            tagged_candidates = [
+                (tag, candidate)
+                for tag, candidate in tagged_candidates
+                if tag in allowed_tags
+            ]
+
     deduped: list[ResearchRecipe] = []
     seen_names: set[str] = set()
-    for candidate in candidates:
+    for _tag, candidate in tagged_candidates:
         if candidate.name in seen_names:
             continue
         seen_names.add(candidate.name)
@@ -1689,6 +1992,8 @@ def run_bounded_research_loop(
     artifact_root = Path(artifact_dir) / "research_loop"
     artifact_root.mkdir(parents=True, exist_ok=True)
     max_experiments = max(1, max_experiments)
+    previous_selected_record = _summary_selected_record(artifact_root / "summary.json")
+    pre_run_boss_policy = _boss_policy_from_history(artifact_root)
     pre_run_brief = safe_build_research_brief(REPO_ROOT)
     (artifact_root / "pre_run_brief.json").write_text(json.dumps(pre_run_brief, indent=2))
 
@@ -2007,6 +2312,7 @@ def run_bounded_research_loop(
                 incumbent_record,
                 teacher_provider_config,
                 remaining_budget,
+                boss_policy=pre_run_boss_policy,
             )
             candidate_queue.extend(
                 [
@@ -2039,6 +2345,12 @@ def run_bounded_research_loop(
         return failed_summary
 
     scale_verdict = _scale_gate_verdict(incumbent_record, records)
+    boss_progress_verdict = _boss_progress_verdict(
+        current_record=incumbent_record,
+        previous_record=previous_selected_record,
+        artifact_root=artifact_root,
+    )
+    boss_policy_next = _boss_policy_from_history(artifact_root, extra_record=incumbent_record)
     summary: dict[str, Any] = {
         "status": "completed",
         "reference_workflow": "karpathy/autoresearch",
@@ -2050,6 +2362,9 @@ def run_bounded_research_loop(
         "evaluation": incumbent_record["evaluation"],
         "leaderboard": _leaderboard(records),
         "scale_gate_verdict": scale_verdict,
+        "boss_progress_verdict": boss_progress_verdict,
+        "boss_policy_pre_run": pre_run_boss_policy,
+        "boss_policy_next": boss_policy_next,
         "recommended_next_steps": _recommended_next_steps(
             scale_verdict,
             incumbent_record,
