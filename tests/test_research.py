@@ -392,13 +392,19 @@ def test_build_exploitation_recipes_respects_boss_priority_only() -> None:
         remaining_budget=5,
         boss_policy={
             "force_priority_only": True,
-            "priority_tags": ["quality_rank", "anchor_mix", "teacher_off_control"],
+            "priority_tags": [
+                "teacher_bag",
+                "quality_rank",
+                "anchor_mix",
+                "teacher_off_control",
+            ],
             "suppress_tags": ["query_boost", "lr_down", "augmentation", "focal_hardneg"],
         },
     )
 
     names = [recipe.name for recipe in recipes]
     assert names == [
+        "incumbent_teacher_bag",
         "incumbent_quality_rank",
         "incumbent_anchor_mix",
         "incumbent_teacher_off_control",

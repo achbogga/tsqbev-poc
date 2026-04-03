@@ -668,6 +668,7 @@ def _boss_policy_from_history(
         source_mix = latest.get("source_mix", {})
         assert isinstance(source_mix, dict)
         if latest.get("use_teacher_provider"):
+            priority_tags.append("teacher_bag")
             priority_tags.append("teacher_off_control")
         if (
             latest.get("use_teacher_provider")
@@ -1155,6 +1156,59 @@ def _make_teacher_quality_recipe(recipe: ResearchRecipe) -> ResearchRecipe:
     )
 
 
+def _make_teacher_bag_recipe(recipe: ResearchRecipe) -> ResearchRecipe:
+    q_2d = min(max(recipe.config.q_2d, 80), 128)
+    q_global = recipe.config.q_global
+    q_lidar = recipe.config.q_lidar
+    total_queries = q_lidar + q_2d + q_global
+    max_object_queries = min(max(recipe.config.max_object_queries, 112), total_queries)
+    config = _updated_config(
+        recipe.config,
+        ranking_mode="quality_class_only",
+        q_2d=q_2d,
+        max_object_queries=max_object_queries,
+        proposals_per_view=min(max(recipe.config.proposals_per_view, 24), 32),
+        anchor_first_min_proposal=max(
+            recipe.config.anchor_first_min_proposal,
+            min(16, q_2d),
+        ),
+        anchor_first_min_global=max(
+            recipe.config.anchor_first_min_global,
+            min(8, q_global),
+        ),
+    )
+    return _clone_recipe(
+        recipe,
+        name=f"{recipe.name}_teacher_bag",
+        note=(
+            "bundle the proven ranking, teacher-quality, source-mix, and robustness "
+            "tricks into one efficient teacher-anchored recipe"
+        ),
+        hypothesis=(
+            "a bundled teacher-anchor recipe with quality-aware ranking, reserved "
+            "non-LiDAR slots, teacher-region supervision, and label-safe augmentation "
+            "should outperform piecemeal sparse mutations"
+        ),
+        mutation_reason=(
+            "compose the current highest-ROI local tricks into one bag-of-tricks "
+            "candidate instead of testing them one by one"
+        ),
+        config=config,
+        stage="exploit",
+        augmentation_mode="moderate",
+        loss_mode="quality_focal",
+        teacher_anchor_quality_class_weight=max(
+            recipe.teacher_anchor_quality_class_weight,
+            0.40,
+        ),
+        teacher_region_objectness_weight=max(recipe.teacher_region_objectness_weight, 0.15),
+        teacher_region_class_weight=max(recipe.teacher_region_class_weight, 0.15),
+        teacher_region_radius_m=6.0,
+        score_threshold_candidates=(0.05, 0.10, 0.15, 0.25),
+        top_k_candidates=(16, 32, 48, 64),
+    )
+
+
 def _make_augmented_recipe(recipe: ResearchRecipe) -> ResearchRecipe:
     next_mode: Literal["off", "moderate", "strong"]
     if recipe.augmentation_mode == "off":
@@ -1241,6 +1295,7 @@ def _build_exploitation_recipes(
     if incumbent_recipe.config.teacher_seed_mode != "off":
         add("teacher_off_control", _make_teacher_off_control_recipe(incumbent_recipe))
     if incumbent_recipe.use_teacher_provider:
+        add("teacher_bag", _make_teacher_bag_recipe(incumbent_recipe))
         add("teacher_quality", _make_teacher_quality_recipe(incumbent_recipe))
     if (
         incumbent_recipe.use_teacher_provider
