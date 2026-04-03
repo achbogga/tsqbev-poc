@@ -548,9 +548,6 @@ def _initial_recipes(
     *,
     teacher_provider_available: bool = False,
 ) -> list[ResearchRecipe]:
-    overfit_carryover = _load_best_ratio_passing_overfit_frontier(artifact_root.parent)
-    if overfit_carryover is not None:
-        return [overfit_carryover]
     carryover = _load_previous_incumbent(artifact_root)
     if carryover is not None:
         query_boost = _make_query_boost_recipe(
@@ -564,6 +561,9 @@ def _initial_recipes(
             recipes.append(_make_teacher_seed_recipe(carryover))
         recipes.extend([query_boost, lr_down])
         return recipes
+    overfit_carryover = _load_best_ratio_passing_overfit_frontier(artifact_root.parent)
+    if overfit_carryover is not None:
+        return [overfit_carryover]
     baseline = _baseline_recipe()
     proposal = _proposal_heavy_recipe()
     efficientnet = _efficientnet_recipe(proposal)

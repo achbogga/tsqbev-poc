@@ -309,6 +309,72 @@ def test_initial_recipes_prefer_passed_overfit_frontier(monkeypatch, tmp_path: P
     assert recipes[0].enable_teacher_distillation is False
 
 
+def test_initial_recipes_prefer_previous_mini_incumbent_over_overfit_frontier(
+    monkeypatch, tmp_path: Path
+) -> None:
+    artifact_dir = tmp_path / "artifacts"
+    research_root = artifact_dir / "research_loop"
+    research_root.mkdir(parents=True)
+    summary_path = research_root / "summary.json"
+    summary_path.write_text(
+        json.dumps(
+            {
+                "selected_record": {
+                    "recipe": "mini_teacher_quality",
+                    "config": ModelConfig.rtx5000_nuscenes_teacher_bootstrap().model_dump(),
+                    "batch_size": 2,
+                    "grad_accum_steps": 1,
+                    "lr": 1e-4,
+                    "epochs": 6,
+                    "num_workers": 4,
+                    "score_threshold": 0.05,
+                    "top_k": 64,
+                    "use_teacher_provider": True,
+                    "loss_mode": "quality_focal",
+                }
+            }
+        )
+    )
+    overfit_dir = (
+        artifact_dir
+        / "gates"
+        / "recovery_v14_teacher_anchor_quality_focal"
+        / "overfit_gate"
+    )
+    overfit_dir.mkdir(parents=True)
+    checkpoint_path = overfit_dir / "checkpoint_best.pt"
+    config = ModelConfig.rtx5000_nuscenes_teacher_bootstrap().model_copy(
+        update={"freeze_image_backbone": False}
+    )
+    checkpoint_path.write_text("checkpoint")
+    monkeypatch.setattr(
+        research,
+        "load_model_from_checkpoint",
+        lambda *args, **kwargs: (object(), {"model_config": config.model_dump()}),
+    )
+    (overfit_dir / "summary.json").write_text(
+        json.dumps(
+            {
+                "recipe": "recovery_v14_teacher_anchor_quality_focal",
+                "selected_checkpoint_path": str(checkpoint_path),
+                "gate_verdict": {
+                    "passed": True,
+                    "train_total_ratio": 0.3624,
+                    "nds": 0.1553,
+                    "mean_ap": 0.1992,
+                    "car_ap_4m": 0.4958,
+                    "nonzero_classes": 7,
+                },
+            }
+        )
+    )
+
+    recipes = research._initial_recipes(research_root, teacher_provider_available=True)
+
+    assert recipes[0].name == "carryover_mini_teacher_quality"
+    assert recipes[0].parent_recipe == "mini_teacher_quality"
+
+
 def test_initial_recipes_find_passed_overfit_frontier_in_canonical_repo_root(
     monkeypatch,
     tmp_path: Path,
