@@ -290,6 +290,43 @@ def test_initial_recipes_insert_teacher_kd_when_teacher_is_available(tmp_path: P
         research.REPO_ROOT = original_repo_root
 
 
+def test_initial_recipes_obey_boss_priority_only(tmp_path: Path) -> None:
+    artifact_root = tmp_path / "research_loop"
+    artifact_root.mkdir(parents=True)
+    summary_path = artifact_root / "summary.json"
+    summary_path.write_text(
+        json.dumps(
+            {
+                "selected_record": {
+                    "recipe": "mini_teacher_quality",
+                    "config": ModelConfig.rtx5000_nuscenes_baseline()
+                    .model_copy(update={"teacher_seed_mode": "replace_lidar"})
+                    .model_dump(),
+                    "batch_size": 2,
+                    "grad_accum_steps": 1,
+                    "lr": 1e-4,
+                    "epochs": 6,
+                    "num_workers": 4,
+                    "score_threshold": 0.05,
+                    "top_k": 64,
+                }
+            }
+        )
+    )
+
+    recipes = research._initial_recipes(
+        artifact_root,
+        teacher_provider_available=True,
+        boss_policy={
+            "force_priority_only": True,
+            "priority_tags": ["anchor_mix", "quality_rank"],
+            "suppress_tags": ["query_boost", "lr_down"],
+        },
+    )
+
+    assert [recipe.name for recipe in recipes] == ["carryover_mini_teacher_quality"]
+
+
 def test_boss_progress_verdict_marks_breakthrough_against_previous_incumbent(
     tmp_path: Path,
 ) -> None:

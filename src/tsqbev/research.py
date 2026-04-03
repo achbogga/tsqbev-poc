@@ -821,7 +821,33 @@ def _initial_recipes(
     artifact_root: Path,
     *,
     teacher_provider_available: bool = False,
+    boss_policy: dict[str, Any] | None = None,
 ) -> list[ResearchRecipe]:
+    suppress_tags = {str(tag) for tag in (boss_policy or {}).get("suppress_tags", [])}
+    priority_tags = [str(tag) for tag in (boss_policy or {}).get("priority_tags", [])]
+    force_priority_only = bool((boss_policy or {}).get("force_priority_only", False))
+
+    def filter_tagged(tagged: list[tuple[str, ResearchRecipe]]) -> list[ResearchRecipe]:
+        filtered = [
+            (tag, recipe)
+            for tag, recipe in tagged
+            if tag not in suppress_tags
+        ]
+        if priority_tags:
+            priority_order = {tag: index for index, tag in enumerate(priority_tags)}
+            filtered = sorted(
+                filtered,
+                key=lambda item: priority_order.get(item[0], len(priority_order)),
+            )
+        if force_priority_only and priority_tags:
+            allowed_tags = set(priority_tags) | {"baseline"}
+            filtered = [
+                (tag, recipe)
+                for tag, recipe in filtered
+                if tag in allowed_tags
+            ]
+        return [recipe for _tag, recipe in filtered]
+
     carryover = _load_previous_incumbent(artifact_root)
     if carryover is not None:
         query_boost = _make_query_boost_recipe(
@@ -830,21 +856,30 @@ def _initial_recipes(
             stage="explore",
         )
         lr_down = _make_lr_down_recipe(carryover, stage="explore")
-        recipes = [carryover]
-        if teacher_provider_available:
-            recipes.append(_make_teacher_seed_recipe(carryover))
-        recipes.extend([query_boost, lr_down])
-        return recipes
+        tagged: list[tuple[str, ResearchRecipe]] = [("baseline", carryover)]
+        if teacher_provider_available and carryover.config.teacher_seed_mode == "off":
+            tagged.append(("teacher_seed", _make_teacher_seed_recipe(carryover)))
+        tagged.extend(
+            [
+                ("query_boost", query_boost),
+                ("lr_down", lr_down),
+            ]
+        )
+        return filter_tagged(tagged)
     overfit_carryover = _load_best_ratio_passing_overfit_frontier(artifact_root.parent)
     if overfit_carryover is not None:
         return [overfit_carryover]
     baseline = _baseline_recipe()
     proposal = _proposal_heavy_recipe()
     efficientnet = _efficientnet_recipe(proposal)
-    recipes = [baseline, proposal, efficientnet]
+    tagged = [
+        ("baseline", baseline),
+        ("query_boost", proposal),
+        ("unfreeze", efficientnet),
+    ]
     if teacher_provider_available:
-        recipes.insert(1, _make_teacher_seed_recipe(baseline))
-    return recipes
+        tagged.insert(1, ("teacher_seed", _make_teacher_seed_recipe(baseline)))
+    return filter_tagged(tagged)
 
 
 def _make_lr_down_recipe(
@@ -2003,6 +2038,7 @@ def run_bounded_research_loop(
     candidate_queue = _initial_recipes(
         artifact_root,
         teacher_provider_available=teacher_provider_config is not None,
+        boss_policy=pre_run_boss_policy,
     )[:max_experiments]
     initial_recipe_count = len(candidate_queue)
     recipe_index = 0
