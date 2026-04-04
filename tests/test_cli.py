@@ -3,7 +3,7 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-from tsqbev.cli import _resolve_teacher_provider_config
+from tsqbev.cli import _resolve_config, _resolve_teacher_provider_config
 from tsqbev.research import _canonical_command
 from tsqbev.teacher_backends import TeacherProviderConfig
 
@@ -36,3 +36,23 @@ def test_canonical_command_includes_teacher_provider_flags() -> None:
 
     assert "--teacher-kind cache" in command
     assert "--teacher-cache-dir /tmp/teacher_cache" in command
+
+
+def test_resolve_config_supports_dinov2_teacher_preset() -> None:
+    args = argparse.Namespace(
+        preset="rtx5000-nuscenes-dinov2-teacher",
+        image_backbone=None,
+        pretrained_image_backbone=None,
+        freeze_image_backbone=None,
+        foundation_repo_root=None,
+        activation_checkpointing=None,
+        attention_backend=None,
+        teacher_seed_mode=None,
+        teacher_seed_selection_mode=None,
+    )
+
+    config = _resolve_config(args)
+
+    assert config.image_backbone == "dinov2_vits14_reg"
+    assert config.freeze_image_backbone is True
+    assert config.ranking_mode == "quality_class_only"

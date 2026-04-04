@@ -29,3 +29,12 @@ def test_rtx5000_query_boost_matches_current_best_mini_direction() -> None:
     assert config.q_lidar == 64
     assert config.q_2d == 112
     assert config.max_object_queries == 112
+
+
+def test_rtx5000_dinov2_teacher_preset_uses_foundation_backbone() -> None:
+    config = ModelConfig.rtx5000_nuscenes_dinov2_teacher()
+    assert config.image_backbone == "dinov2_vits14_reg"
+    assert config.pretrained_image_backbone is True
+    assert config.freeze_image_backbone is True
+    assert config.foundation_repo_root == "/home/achbogga/projects/dinov2"
+    assert config.ranking_mode == "quality_class_only"

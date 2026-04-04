@@ -276,6 +276,8 @@ def _resolve_config(args: argparse.Namespace) -> ModelConfig:
         config = ModelConfig.small()
     elif args.preset == "rtx5000-nuscenes-teacher":
         config = ModelConfig.rtx5000_nuscenes_teacher_bootstrap()
+    elif args.preset == "rtx5000-nuscenes-dinov2-teacher":
+        config = ModelConfig.rtx5000_nuscenes_dinov2_teacher()
     elif args.preset == "rtx5000-nuscenes-query-boost":
         config = ModelConfig.rtx5000_nuscenes_query_boost()
     elif args.preset == "rtx5000-nuscenes":
@@ -290,6 +292,12 @@ def _resolve_config(args: argparse.Namespace) -> ModelConfig:
         updates["pretrained_image_backbone"] = args.pretrained_image_backbone
     if args.freeze_image_backbone is not None:
         updates["freeze_image_backbone"] = args.freeze_image_backbone
+    if args.foundation_repo_root is not None:
+        updates["foundation_repo_root"] = str(args.foundation_repo_root)
+    if args.activation_checkpointing is not None:
+        updates["activation_checkpointing"] = args.activation_checkpointing
+    if args.attention_backend is not None:
+        updates["attention_backend"] = args.attention_backend
     if args.teacher_seed_mode is not None:
         updates["teacher_seed_mode"] = args.teacher_seed_mode
     if args.teacher_seed_selection_mode is not None:
@@ -378,12 +386,19 @@ def _make_parser() -> argparse.ArgumentParser:
             "rtx5000-nuscenes",
             "rtx5000-nuscenes-query-boost",
             "rtx5000-nuscenes-teacher",
+            "rtx5000-nuscenes-dinov2-teacher",
         ),
         default="default",
     )
     parser.add_argument(
         "--image-backbone",
-        choices=("tiny", "mobilenet_v3_large", "efficientnet_b0"),
+        choices=(
+            "tiny",
+            "mobilenet_v3_large",
+            "efficientnet_b0",
+            "dinov2_vits14_reg",
+            "dinov2_vitb14_reg",
+        ),
         default=None,
     )
     parser.add_argument(
@@ -394,6 +409,17 @@ def _make_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--freeze-image-backbone",
         action=argparse.BooleanOptionalAction,
+        default=None,
+    )
+    parser.add_argument("--foundation-repo-root", type=Path, default=None)
+    parser.add_argument(
+        "--activation-checkpointing",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+    )
+    parser.add_argument(
+        "--attention-backend",
+        choices=("auto", "math", "flash", "efficient", "cudnn"),
         default=None,
     )
     parser.add_argument(
@@ -452,8 +478,10 @@ def _make_parser() -> argparse.ArgumentParser:
     parser.add_argument("--hard-negative-ratio", type=int, default=3)
     parser.add_argument("--hard-negative-cap", type=int, default=96)
     parser.add_argument("--teacher-anchor-class-weight", type=float, default=0.5)
+    parser.add_argument("--teacher-anchor-quality-class-weight", type=float, default=0.0)
     parser.add_argument("--teacher-anchor-objectness-weight", type=float, default=0.5)
     parser.add_argument("--teacher-region-objectness-weight", type=float, default=0.0)
+    parser.add_argument("--teacher-region-class-weight", type=float, default=0.0)
     parser.add_argument("--teacher-region-radius-m", type=float, default=4.0)
     parser.add_argument("--teacher-anchor-final-class-weight", type=float, default=None)
     parser.add_argument("--teacher-anchor-final-objectness-weight", type=float, default=None)
@@ -701,8 +729,10 @@ def main() -> None:
                 hard_negative_ratio=args.hard_negative_ratio,
                 hard_negative_cap=args.hard_negative_cap,
                 teacher_anchor_class_weight=args.teacher_anchor_class_weight,
+                teacher_anchor_quality_class_weight=args.teacher_anchor_quality_class_weight,
                 teacher_anchor_objectness_weight=args.teacher_anchor_objectness_weight,
                 teacher_region_objectness_weight=args.teacher_region_objectness_weight,
+                teacher_region_class_weight=args.teacher_region_class_weight,
                 teacher_region_radius_m=args.teacher_region_radius_m,
                 teacher_anchor_final_class_weight=args.teacher_anchor_final_class_weight,
                 teacher_anchor_final_objectness_weight=args.teacher_anchor_final_objectness_weight,
@@ -790,8 +820,10 @@ def main() -> None:
                 hard_negative_ratio=args.hard_negative_ratio,
                 hard_negative_cap=args.hard_negative_cap,
                 teacher_anchor_class_weight=args.teacher_anchor_class_weight,
+                teacher_anchor_quality_class_weight=args.teacher_anchor_quality_class_weight,
                 teacher_anchor_objectness_weight=args.teacher_anchor_objectness_weight,
                 teacher_region_objectness_weight=args.teacher_region_objectness_weight,
+                teacher_region_class_weight=args.teacher_region_class_weight,
                 teacher_region_radius_m=args.teacher_region_radius_m,
                 teacher_anchor_final_class_weight=args.teacher_anchor_final_class_weight,
                 teacher_anchor_final_objectness_weight=args.teacher_anchor_final_objectness_weight,

@@ -27,9 +27,20 @@ class ModelConfig(BaseModel):
     """Configuration for the multimodal temporal sparse-query model."""
 
     image_channels: int = 3
-    image_backbone: Literal["tiny", "mobilenet_v3_large", "efficientnet_b0"] = "tiny"
+    image_backbone: Literal[
+        "tiny",
+        "mobilenet_v3_large",
+        "efficientnet_b0",
+        "dinov2_vits14_reg",
+        "dinov2_vitb14_reg",
+    ] = "tiny"
     pretrained_image_backbone: bool = False
     freeze_image_backbone: bool = False
+    foundation_repo_root: str | None = None
+    foundation_intermediate_layers: tuple[int, int] = (8, 11)
+    foundation_patch_multiple: int = 14
+    activation_checkpointing: bool = False
+    attention_backend: Literal["auto", "math", "flash", "efficient", "cudnn"] = "auto"
     router_mode: Literal["tri_source", "anchor_first"] = "tri_source"
     views: int = 6
     model_dim: int = 256
@@ -74,6 +85,13 @@ class ModelConfig(BaseModel):
             raise ValueError("feature_levels must be 1 or 2 for the minimal POC")
         if self.image_backbone == "tiny" and self.pretrained_image_backbone:
             raise ValueError("the tiny fallback backbone does not have pretrained weights")
+        if self.foundation_patch_multiple <= 0:
+            raise ValueError("foundation_patch_multiple must be positive")
+        low_layer, high_layer = self.foundation_intermediate_layers
+        if low_layer < 0 or high_layer < 0:
+            raise ValueError("foundation_intermediate_layers must be non-negative")
+        if high_layer <= low_layer:
+            raise ValueError("foundation_intermediate_layers must be strictly increasing")
         if self.anchor_first_min_proposal < 0 or self.anchor_first_min_global < 0:
             raise ValueError("anchor_first source reserves must be non-negative")
         if self.anchor_first_min_proposal > self.q_2d:
@@ -144,6 +162,43 @@ class ModelConfig(BaseModel):
                 "router_mode": "anchor_first",
                 "ranking_mode": "quality_class_only",
             }
+        )
+
+    @classmethod
+    def rtx5000_nuscenes_dinov2_teacher(cls) -> ModelConfig:
+        """Return the DINOv2-projected teacher-seeded baseline for local RTX 5000 runs.
+
+        References:
+        - DINOv2 model card:
+          https://github.com/facebookresearch/dinov2/blob/main/MODEL_CARD.md
+        - BEVFormer v2 perspective supervision:
+          https://openaccess.thecvf.com/content/CVPR2023/papers/Yang_BEVFormer_v2_Adapting_Modern_Image_Backbones_to_Birds-Eye-View_Recognition_via_CVPR_2023_paper.pdf
+        """
+
+        return cls(
+            image_backbone="dinov2_vits14_reg",
+            pretrained_image_backbone=True,
+            freeze_image_backbone=True,
+            foundation_repo_root="/home/achbogga/projects/dinov2",
+            foundation_intermediate_layers=(8, 11),
+            foundation_patch_multiple=14,
+            activation_checkpointing=False,
+            attention_backend="flash",
+            router_mode="anchor_first",
+            teacher_seed_mode="replace_lidar",
+            teacher_seed_selection_mode="class_balanced_round_robin",
+            ranking_mode="quality_class_only",
+            model_dim=128,
+            q_lidar=96,
+            q_2d=80,
+            q_global=32,
+            max_object_queries=112,
+            lane_queries=32,
+            lane_points=12,
+            proposals_per_view=24,
+            num_depth_bins=6,
+            map_input_dim=128,
+            pillar=PillarConfig(q_lidar=96),
         )
 
     @classmethod

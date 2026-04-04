@@ -21,11 +21,14 @@ References:
 
 from __future__ import annotations
 
+from contextlib import AbstractContextManager, nullcontext
+from pathlib import Path
 from typing import cast
 
 import torch
 from torch import nn
 from torch.nn import functional as F
+from torch.utils.checkpoint import checkpoint
 from torchvision.models import (
     EfficientNet_B0_Weights,
     MobileNet_V3_Large_Weights,
@@ -52,6 +55,26 @@ Tensor = torch.Tensor
 _CENTER_OFFSET_RADIUS_M = 8.0
 _MIN_BOX_SIZE_M = 0.1
 _VELOCITY_RADIUS_MPS = 25.0
+_IMAGENET_MEAN = (0.485, 0.456, 0.406)
+_IMAGENET_STD = (0.229, 0.224, 0.225)
+
+
+def _checkpoint_enabled(enabled: bool, *tensors: Tensor) -> bool:
+    return enabled and torch.is_grad_enabled() and any(tensor.requires_grad for tensor in tensors)
+
+
+def _resize_to_multiple(images: Tensor, multiple: int) -> Tensor:
+    height, width = images.shape[-2:]
+    target_height = max(multiple, ((height + multiple - 1) // multiple) * multiple)
+    target_width = max(multiple, ((width + multiple - 1) // multiple) * multiple)
+    if target_height == height and target_width == width:
+        return images
+    return F.interpolate(
+        images,
+        size=(target_height, target_width),
+        mode="bilinear",
+        align_corners=False,
+    )
 
 
 class TinyImageBackbone(nn.Module):
@@ -156,11 +179,101 @@ class TorchvisionImageBackbone(nn.Module):
         return [f8, f16]
 
 
+class DINOv2ProjectorBackbone(nn.Module):
+    """Projected multiscale camera backbone from official DINOv2 intermediate features.
+
+    References:
+    - DINOv2 official repo and hub loaders:
+      https://github.com/facebookresearch/dinov2
+    - BEVFormer v2 perspective supervision:
+      https://openaccess.thecvf.com/content/CVPR2023/papers/Yang_BEVFormer_v2_Adapting_Modern_Image_Backbones_to_Birds-Eye-View_Recognition_via_CVPR_2023_paper.pdf
+    """
+
+    def __init__(self, config: ModelConfig) -> None:
+        super().__init__()
+        self.config = config
+        self.freeze_backbone = config.freeze_image_backbone
+        self.activation_checkpointing = config.activation_checkpointing
+        repo_root = Path(config.foundation_repo_root or "/home/achbogga/projects/dinov2")
+        if not repo_root.exists():
+            raise FileNotFoundError(
+                f"DINOv2 repo root `{repo_root}` does not exist; clone the official repo first"
+            )
+        self.extractor = torch.hub.load(
+            str(repo_root),
+            config.image_backbone,
+            source="local",
+            pretrained=config.pretrained_image_backbone,
+        )
+        self.layers = list(config.foundation_intermediate_layers)
+        embed_dim = int(self.extractor.embed_dim)
+        self.low_proj = nn.Conv2d(embed_dim, config.model_dim, kernel_size=1)
+        self.high_proj = nn.Conv2d(embed_dim, config.model_dim, kernel_size=1)
+        self.high_downsample = nn.Sequential(
+            nn.Conv2d(config.model_dim, config.model_dim, kernel_size=3, stride=2, padding=1),
+            nn.ReLU(),
+        )
+        self.register_buffer(
+            "image_mean",
+            torch.tensor(_IMAGENET_MEAN, dtype=torch.float32).view(1, 3, 1, 1),
+        )
+        self.register_buffer(
+            "image_std",
+            torch.tensor(_IMAGENET_STD, dtype=torch.float32).view(1, 3, 1, 1),
+        )
+        if self.freeze_backbone:
+            self.extractor.requires_grad_(False)
+            self.extractor.eval()
+
+    def train(self, mode: bool = True) -> DINOv2ProjectorBackbone:
+        super().train(mode)
+        if self.freeze_backbone:
+            self.extractor.eval()
+        return self
+
+    def _extract_multiscale(self, images: Tensor) -> tuple[Tensor, Tensor]:
+        image_mean = cast(Tensor, self.image_mean).to(dtype=images.dtype, device=images.device)
+        image_std = cast(Tensor, self.image_std).to(dtype=images.dtype, device=images.device)
+        normalized = (images - image_mean) / image_std
+        resized = _resize_to_multiple(normalized, self.config.foundation_patch_multiple)
+        outputs = self.extractor.get_intermediate_layers(
+            resized,
+            n=self.layers,
+            reshape=True,
+            norm=True,
+        )
+        if len(outputs) != 2:
+            raise RuntimeError(
+                "DINOv2 backbone must return exactly two intermediate feature maps for TSQBEV"
+            )
+        low, high = outputs
+        return low, high
+
+    def forward(self, images: Tensor) -> list[Tensor]:
+        batch, views = images.shape[:2]
+        x = images.reshape(batch * views, *images.shape[2:])
+        if self.freeze_backbone:
+            with torch.no_grad():
+                low, high = self._extract_multiscale(x)
+        elif _checkpoint_enabled(self.activation_checkpointing, x):
+            low, high = checkpoint(self._extract_multiscale, x, use_reentrant=False)
+        else:
+            low, high = self._extract_multiscale(x)
+        low = self.low_proj(low)
+        high = self.high_proj(high)
+        high = self.high_downsample(high)
+        low = low.reshape(batch, views, self.config.model_dim, low.shape[-2], low.shape[-1])
+        high = high.reshape(batch, views, self.config.model_dim, high.shape[-2], high.shape[-1])
+        return [low, high]
+
+
 def build_image_backbone(config: ModelConfig) -> nn.Module:
     """Construct the configured image backbone."""
 
     if config.image_backbone == "tiny":
         return TinyImageBackbone(config)
+    if config.image_backbone.startswith("dinov2_"):
+        return DINOv2ProjectorBackbone(config)
     return TorchvisionImageBackbone(config)
 
 
@@ -351,7 +464,12 @@ class LaneHead(nn.Module):
         self.map_projector = nn.Linear(config.map_input_dim, config.model_dim)
         self.ground_projector = nn.Linear(config.model_dim, config.model_dim)
         self.query_bank = nn.Parameter(torch.randn(config.lane_queries, config.model_dim) * 0.02)
-        self.attn = nn.MultiheadAttention(config.model_dim, num_heads=4, batch_first=True)
+        self.attn = SDPACrossAttention(
+            config.model_dim,
+            num_heads=4,
+            backend=config.attention_backend,
+            activation_checkpointing=config.activation_checkpointing,
+        )
         self.lane_logits = nn.Linear(config.model_dim, 1)
         self.lane_points = nn.Linear(config.model_dim, config.lane_points * 3)
 
@@ -366,12 +484,81 @@ class LaneHead(nn.Module):
             projected_map = self.map_projector(map_priors.tokens)
             memory = torch.cat((memory, projected_map), dim=1)
         lane_queries = self.query_bank.unsqueeze(0).expand(batch, -1, -1)
-        attended, _ = self.attn(lane_queries, memory, memory)
+        attended = self.attn(lane_queries, memory)
         lane_logits = self.lane_logits(attended).squeeze(-1)
         lane_polylines = self.lane_points(attended).view(
             batch, self.config.lane_queries, self.config.lane_points, 3
         )
         return lane_logits, lane_polylines
+
+
+class SDPACrossAttention(nn.Module):
+    """Cross-attention with explicit SDPA backend selection.
+
+    References:
+    - PyTorch scaled dot product attention:
+      https://pytorch.org/docs/stable/generated/torch.nn.functional.scaled_dot_product_attention.html
+    - Sparse4D multi-view sparse attention motivation:
+      https://arxiv.org/pdf/2211.10581
+    """
+
+    def __init__(
+        self,
+        model_dim: int,
+        *,
+        num_heads: int,
+        backend: str,
+        activation_checkpointing: bool,
+    ) -> None:
+        super().__init__()
+        if model_dim % num_heads != 0:
+            raise ValueError("model_dim must be divisible by num_heads")
+        self.model_dim = model_dim
+        self.num_heads = num_heads
+        self.head_dim = model_dim // num_heads
+        self.backend = backend
+        self.activation_checkpointing = activation_checkpointing
+        self.q_proj = nn.Linear(model_dim, model_dim)
+        self.k_proj = nn.Linear(model_dim, model_dim)
+        self.v_proj = nn.Linear(model_dim, model_dim)
+        self.out_proj = nn.Linear(model_dim, model_dim)
+
+    def _sdpa_context(self, device: torch.device) -> AbstractContextManager[object]:
+        if self.backend == "auto" or device.type != "cuda":
+            return nullcontext()
+        try:
+            from torch.nn.attention import SDPBackend, sdpa_kernel
+        except Exception:  # pragma: no cover - depends on torch build.
+            return nullcontext()
+        backend_map = {
+            "math": SDPBackend.MATH,
+            "flash": SDPBackend.FLASH_ATTENTION,
+            "efficient": SDPBackend.EFFICIENT_ATTENTION,
+            "cudnn": SDPBackend.CUDNN_ATTENTION,
+        }
+        selected = backend_map.get(self.backend)
+        if selected is None:
+            return nullcontext()
+        return sdpa_kernel(backends=[selected])
+
+    def _forward_impl(self, queries: Tensor, context: Tensor) -> Tensor:
+        batch, query_count, _ = queries.shape
+        key_count = context.shape[1]
+        q = self.q_proj(queries).view(batch, query_count, self.num_heads, self.head_dim)
+        k = self.k_proj(context).view(batch, key_count, self.num_heads, self.head_dim)
+        v = self.v_proj(context).view(batch, key_count, self.num_heads, self.head_dim)
+        q = q.transpose(1, 2)
+        k = k.transpose(1, 2)
+        v = v.transpose(1, 2)
+        with self._sdpa_context(queries.device):
+            attended = F.scaled_dot_product_attention(q, k, v, dropout_p=0.0, is_causal=False)
+        attended = attended.transpose(1, 2).reshape(batch, query_count, self.model_dim)
+        return self.out_proj(attended)
+
+    def forward(self, queries: Tensor, context: Tensor) -> Tensor:
+        if _checkpoint_enabled(self.activation_checkpointing, queries, context):
+            return checkpoint(self._forward_impl, queries, context, use_reentrant=False)
+        return self._forward_impl(queries, context)
 
 
 class TSQBEVCore(nn.Module):
