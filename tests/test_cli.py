@@ -194,3 +194,29 @@ def test_train_joint_public_passes_lane_batch_multiplier(monkeypatch, tmp_path) 
     assert captured["lane_batch_multiplier"] == 0.75
     assert captured["official_eval_every_epochs"] == 5
     assert captured["official_eval_top_k"] == 40
+
+
+def test_maintenance_supervisor_dispatches_interval(monkeypatch, tmp_path) -> None:
+    captured: dict[str, int | str] = {}
+
+    def fake_parser() -> argparse.ArgumentParser:
+        class _Parser:
+            def parse_args(self_inner) -> SimpleNamespace:
+                return SimpleNamespace(
+                    command="maintenance-supervisor",
+                    artifact_dir=tmp_path / "maintenance",
+                    interval_hours=24,
+                )
+
+        return _Parser()  # type: ignore[return-value]
+
+    monkeypatch.setattr(cli_module, "_make_parser", fake_parser)
+
+    def fake_run_maintenance_supervisor(**kwargs):
+        captured["interval_hours"] = int(kwargs["interval_hours"])
+        captured["artifact_dir"] = str(kwargs["artifact_dir"])
+        return {"ok": True}
+
+    monkeypatch.setattr(cli_module, "run_maintenance_supervisor", fake_run_maintenance_supervisor)
+    cli_module.main()
+    assert captured["interval_hours"] == 24

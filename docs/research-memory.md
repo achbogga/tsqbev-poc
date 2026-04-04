@@ -42,6 +42,8 @@ uv run tsqbev research-supervisor \
   --dataset-root /home/achbogga/projects/research/nuscenes \
   --artifact-dir artifacts/autoresearch \
   --teacher-cache-dir artifacts/teacher_cache/centerpoint_pointpillar_mini
+uv run tsqbev maintenance-once --artifact-dir artifacts/maintenance
+uv run tsqbev maintenance-supervisor --artifact-dir artifacts/maintenance --interval-hours 24
 ```
 
 Optional stronger hosted reranking:

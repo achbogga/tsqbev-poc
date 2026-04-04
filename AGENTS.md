@@ -16,6 +16,8 @@ repeated in chat.
 - write back distilled findings and PI-facing reports after each completed invocation
 - keep lane work explicit and staged: isolated OpenLane sanity first, then export/eval, then only
   later consider joint detection+lane work if both branches are healthy
+- keep a separate CPU-only maintenance agent alive daily; it should run repo health checks,
+  memory/report sync, and tech-debt triage even when the main research agent is doing other work
 
 ## Target Stack Bias
 

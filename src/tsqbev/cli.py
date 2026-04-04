@@ -32,6 +32,7 @@ from tsqbev.eval_openlane import evaluate_openlane_predictions, export_openlane_
 from tsqbev.export import export_core_to_onnx
 from tsqbev.gap_analysis import analyze_reset_gap
 from tsqbev.latency import LatencyPredictor, features_from_config
+from tsqbev.maintenance_supervisor import run_maintenance_once, run_maintenance_supervisor
 from tsqbev.model import TSQBEVModel
 from tsqbev.openlane_download import (
     download_openlanev2_archive,
@@ -354,6 +355,8 @@ def _make_parser() -> argparse.ArgumentParser:
             "eval-openlane",
             "research-loop",
             "research-supervisor",
+            "maintenance-once",
+            "maintenance-supervisor",
             "reset-stack",
             "reset-gap-report",
             "upstream-registry",
@@ -510,6 +513,7 @@ def _make_parser() -> argparse.ArgumentParser:
     parser.add_argument("--max-invocations", type=int, default=None)
     parser.add_argument("--sleep-seconds", type=int, default=30)
     parser.add_argument("--wait-poll-seconds", type=int, default=20)
+    parser.add_argument("--interval-hours", type=int, default=24)
     parser.add_argument(
         "--git-publish",
         action=argparse.BooleanOptionalAction,
@@ -1050,6 +1054,17 @@ def main() -> None:
                 git_publish=args.git_publish,
                 git_remote=args.git_remote,
                 git_branch=args.git_branch,
+            )
+        )
+        return
+    if args.command == "maintenance-once":
+        print(run_maintenance_once(artifact_dir=args.artifact_dir))
+        return
+    if args.command == "maintenance-supervisor":
+        print(
+            run_maintenance_supervisor(
+                artifact_dir=args.artifact_dir,
+                interval_hours=args.interval_hours,
             )
         )
         return

@@ -170,6 +170,11 @@ The bounded loop is not enough by itself. A Karpathy-style lab workflow in this 
 The intended entrypoint is `tsqbev research-supervisor`, not manual one-off screens, whenever the
 goal is continuous unattended progress.
 
+Separate from the GPU research supervisor, the repo should keep a CPU-only daily maintenance agent
+alive via `tsqbev maintenance-supervisor`. That process is responsible for repo hygiene checks,
+memory sync, PI-facing maintenance reports, and tech-debt triage without contending for the active
+training GPU.
+
 ## Dataset And Budget
 
 - dataset scope: `nuScenes v1.0-mini` only
