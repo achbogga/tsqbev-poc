@@ -222,6 +222,31 @@ class ModelConfig(BaseModel):
             }
         )
 
+    @classmethod
+    def rtx5000_nuscenes_teacher_quality_plus(cls) -> ModelConfig:
+        """Return the current best MobileNet teacher-quality winner-line config.
+
+        This matches the selected recipe structure from the `v28` continuation frontier.
+        """
+
+        baseline = cls.rtx5000_nuscenes_baseline()
+        return baseline.model_copy(
+            update={
+                "pretrained_image_backbone": True,
+                "freeze_image_backbone": False,
+                "router_mode": "anchor_first",
+                "teacher_seed_mode": "replace_lidar",
+                "teacher_seed_selection_mode": "class_balanced_round_robin",
+                "ranking_mode": "quality_class_only",
+                "q_lidar": 96,
+                "q_2d": 80,
+                "q_global": 32,
+                "max_object_queries": 112,
+                "proposals_per_view": 24,
+                "pillar": baseline.pillar.model_copy(update={"q_lidar": 96}),
+            }
+        )
+
 
 class LatencyPredictorConfig(BaseModel):
     """Simple latency-predictor coefficients and gates."""

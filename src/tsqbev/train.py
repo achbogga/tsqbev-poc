@@ -258,6 +258,24 @@ def _eval_epoch(
     return avg
 
 
+def _scale_metrics(metrics: dict[str, float], scale: float) -> dict[str, float]:
+    return {name: value * scale for name, value in metrics.items()}
+
+
+def _merge_metric_histories(
+    left: list[dict[str, float]],
+    right: list[dict[str, float]],
+) -> dict[str, float]:
+    if not left and not right:
+        raise ValueError("cannot merge empty metric histories")
+    merged: dict[str, list[float]] = {}
+    for history in (left, right):
+        for row in history:
+            for key, value in row.items():
+                merged.setdefault(key, []).append(value)
+    return {key: sum(values) / float(len(values)) for key, values in merged.items()}
+
+
 def _write_history(artifact_dir: Path, history: list[dict[str, object]]) -> None:
     artifact_dir.mkdir(parents=True, exist_ok=True)
     (artifact_dir / "history.json").write_text(json.dumps(history, indent=2))
@@ -296,6 +314,154 @@ def _make_loader(
         pin_memory=torch.cuda.is_available(),
         generator=generator,
     )
+
+
+def _make_round_robin_plan(*named_lengths: tuple[str, int]) -> list[str]:
+    remaining = {name: length for name, length in named_lengths if length > 0}
+    plan: list[str] = []
+    while remaining:
+        for name in list(remaining.keys()):
+            plan.append(name)
+            remaining[name] -= 1
+            if remaining[name] <= 0:
+                del remaining[name]
+    return plan
+
+
+def _train_joint_epoch(
+    *,
+    model: TSQBEVModel,
+    detection_loader: DataLoader,
+    lane_loader: DataLoader,
+    criterion: MultitaskCriterion,
+    optimizer: AdamW,
+    grad_accum_steps: int,
+    device: torch.device,
+    amp_enabled: bool,
+    scaler: torch.amp.GradScaler,
+    epoch: int,
+    log_every_steps: int | None,
+    lane_loss_scale: float,
+    grad_clip_norm: float | None = 1.0,
+) -> tuple[dict[str, float], dict[str, float], dict[str, float]]:
+    model.train()
+    optimizer.zero_grad(set_to_none=True)
+    detection_iter = iter(detection_loader)
+    lane_iter = iter(lane_loader)
+    detection_history: list[dict[str, float]] = []
+    lane_history: list[dict[str, float]] = []
+    autocast_dtype = torch.float16 if device.type == "cuda" else torch.float32
+    plan = _make_round_robin_plan(
+        ("detection", len(detection_loader)),
+        ("lane", len(lane_loader)),
+    )
+    total_steps = len(plan)
+    optimizer_steps = 0
+
+    for step_index, task_name in enumerate(plan, start=1):
+        batch, _ = next(detection_iter if task_name == "detection" else lane_iter)
+        batch = move_batch(batch, device)
+        loss_scale = 1.0 if task_name == "detection" else lane_loss_scale
+        with torch.autocast(device_type=device.type, dtype=autocast_dtype, enabled=amp_enabled):
+            outputs = model(batch)
+            losses = criterion(outputs, batch)
+        scaled_total = losses["total"] * loss_scale
+        scaled_loss = scaled_total / float(grad_accum_steps)
+        if amp_enabled:
+            scaler.scale(scaled_loss).backward()
+        else:
+            scaled_loss.backward()
+
+        step_metrics = _to_float_metrics(losses)
+        step_metrics["total"] *= loss_scale
+        if task_name == "detection":
+            detection_history.append(step_metrics)
+        else:
+            lane_history.append(step_metrics)
+
+        if step_index % grad_accum_steps == 0:
+            if amp_enabled:
+                scaler.unscale_(optimizer)
+            if grad_clip_norm is not None:
+                torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=grad_clip_norm)
+            if amp_enabled:
+                scaler.step(optimizer)
+                scaler.update()
+            else:
+                optimizer.step()
+            optimizer.zero_grad(set_to_none=True)
+            optimizer_steps += 1
+
+        should_log = (
+            log_every_steps is not None
+            and (step_index == 1 or step_index % log_every_steps == 0 or step_index == total_steps)
+        )
+        if should_log:
+            print(
+                f"[joint-train] epoch={epoch} step={step_index}/{total_steps} "
+                f"task={task_name} {_format_metrics(step_metrics)}",
+                flush=True,
+            )
+
+    if total_steps % grad_accum_steps != 0:
+        if amp_enabled:
+            scaler.unscale_(optimizer)
+        if grad_clip_norm is not None:
+            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=grad_clip_norm)
+        if amp_enabled:
+            scaler.step(optimizer)
+            scaler.update()
+        else:
+            optimizer.step()
+        optimizer.zero_grad(set_to_none=True)
+        optimizer_steps += 1
+
+    return (
+        _merge_metric_histories(detection_history, []),
+        _merge_metric_histories(lane_history, []),
+        {
+            "optimizer_steps": float(optimizer_steps),
+            "lane_loss_scale": lane_loss_scale,
+            "total_batches": float(total_steps),
+        },
+    )
+
+
+@torch.no_grad()
+def _eval_joint_epoch(
+    *,
+    model: TSQBEVModel,
+    detection_loader: DataLoader,
+    lane_loader: DataLoader,
+    criterion: MultitaskCriterion,
+    device: torch.device,
+    amp_enabled: bool,
+    epoch: int,
+    lane_loss_scale: float,
+) -> tuple[dict[str, float], dict[str, float], dict[str, float]]:
+    detection_metrics = _eval_epoch(
+        model=model,
+        loader=detection_loader,
+        criterion=criterion,
+        device=device,
+        amp_enabled=amp_enabled,
+        epoch=epoch,
+    )
+    lane_metrics = _eval_epoch(
+        model=model,
+        loader=lane_loader,
+        criterion=criterion,
+        device=device,
+        amp_enabled=amp_enabled,
+        epoch=epoch,
+    )
+    selection = {
+        "detection_total": detection_metrics["total"],
+        "lane_total": lane_metrics["total"],
+        "joint_total": detection_metrics["total"] + lane_metrics["total"] * lane_loss_scale,
+        "lane_loss_scale": lane_loss_scale,
+    }
+    return detection_metrics, lane_metrics, selection
 
 
 def fit_nuscenes(
@@ -1049,6 +1215,422 @@ def fit_openlane(
                         "final_val",
                         cast(dict[str, float], history[-1]["val"]),
                     ),
+                }
+            )
+        status = "completed"
+        return result
+    finally:
+        if owns_tracker and active_tracker is not None:
+            active_tracker.finish(status=status)
+
+
+def fit_joint_public(
+    nuscenes_root: str | Path,
+    openlane_root: str | Path,
+    artifact_dir: str | Path,
+    *,
+    config: ModelConfig | None = None,
+    nuscenes_version: str = "v1.0-mini",
+    nuscenes_train_split: str | None = None,
+    nuscenes_val_split: str | None = None,
+    openlane_subset: str = "lane3d_300",
+    epochs: int = 36,
+    lr: float = 1e-4,
+    weight_decay: float = 0.0,
+    grad_accum_steps: int = 2,
+    num_workers: int = 4,
+    batch_size: int = 1,
+    device: str | None = None,
+    max_nuscenes_train_samples: int | None = None,
+    max_nuscenes_val_samples: int | None = None,
+    max_openlane_train_samples: int | None = None,
+    max_openlane_val_samples: int | None = None,
+    seed: int | None = None,
+    teacher_provider_config: TeacherProviderConfig | None = None,
+    init_checkpoint: str | Path | None = None,
+    use_amp: bool = False,
+    log_every_steps: int | None = 100,
+    optimizer_schedule: Literal["cosine", "constant"] = "constant",
+    grad_clip_norm: float | None = 5.0,
+    keep_best_checkpoint: bool = True,
+    early_stop_patience: int | None = 6,
+    early_stop_min_delta: float = 0.01,
+    early_stop_min_epochs: int = 6,
+    augmentation_mode: Literal["off", "moderate", "strong"] = "off",
+    loss_mode: Literal["baseline", "focal_hardneg", "quality_focal"] = "quality_focal",
+    hard_negative_ratio: int = 3,
+    hard_negative_cap: int = 96,
+    teacher_anchor_class_weight: float = 0.5,
+    teacher_anchor_quality_class_weight: float = 0.45,
+    teacher_anchor_objectness_weight: float = 0.5,
+    teacher_region_objectness_weight: float = 0.12,
+    teacher_region_class_weight: float = 0.12,
+    teacher_region_radius_m: float = 4.0,
+    enable_teacher_distillation: bool = True,
+    lane_loss_scale: float = 0.05,
+    tracker: ExperimentTracker | None = None,
+    tracking_metadata: TrackingMetadata | None = None,
+) -> dict[str, object]:
+    """Alternating public multitask training on nuScenes detection and OpenLane lane data."""
+
+    artifact_root = Path(artifact_dir)
+    resolved_device = resolve_device(device)
+    owns_tracker = tracker is None
+    active_tracker = tracker
+    status = "failed"
+    try:
+        if resolved_device.type == "cuda":
+            torch.backends.cuda.matmul.allow_tf32 = True
+            torch.backends.cudnn.allow_tf32 = True
+            torch.backends.cudnn.benchmark = True
+        set_global_seed(seed)
+        amp_enabled = bool(use_amp) and resolved_device.type == "cuda"
+        model_config = config if config is not None else ModelConfig()
+        det_train_split, det_val_split = resolve_nuscenes_splits(
+            version=nuscenes_version,
+            train_split=nuscenes_train_split,
+            val_split=nuscenes_val_split,
+        )
+
+        print(f"[setup] loading joint nuScenes train split={det_train_split}", flush=True)
+        det_train = _subset_if_requested(
+            NuScenesDataset(
+                dataroot=nuscenes_root,
+                version=nuscenes_version,
+                split=det_train_split,
+                augmentation_mode=augmentation_mode,
+            ),
+            max_nuscenes_train_samples,
+        )
+        det_train = maybe_attach_teacher_targets(det_train, teacher_provider_config)
+        print(f"[setup] loading joint nuScenes val split={det_val_split}", flush=True)
+        det_val = _subset_if_requested(
+            NuScenesDataset(
+                dataroot=nuscenes_root,
+                version=nuscenes_version,
+                split=det_val_split,
+                augmentation_mode="off",
+            ),
+            max_nuscenes_val_samples,
+        )
+        det_val = maybe_attach_teacher_targets(det_val, teacher_provider_config)
+        print(
+            f"[setup] loading joint OpenLane train split=training subset={openlane_subset}",
+            flush=True,
+        )
+        lane_train = _subset_if_requested(
+            OpenLaneDataset(
+                dataroot=openlane_root,
+                split="training",
+                subset=openlane_subset,
+                lane_points=model_config.lane_points,
+                augmentation_mode=augmentation_mode,
+            ),
+            max_openlane_train_samples,
+        )
+        print(
+            f"[setup] loading joint OpenLane val split=validation subset={openlane_subset}",
+            flush=True,
+        )
+        lane_val = _subset_if_requested(
+            OpenLaneDataset(
+                dataroot=openlane_root,
+                split="validation",
+                subset=openlane_subset,
+                lane_points=model_config.lane_points,
+                augmentation_mode="off",
+            ),
+            max_openlane_val_samples,
+        )
+
+        det_train_loader = _make_loader(
+            det_train,
+            shuffle=True,
+            num_workers=num_workers,
+            batch_size=batch_size,
+            seed=seed,
+        )
+        det_val_loader = _make_loader(
+            det_val,
+            shuffle=False,
+            num_workers=num_workers,
+            batch_size=batch_size,
+            seed=None if seed is None else seed + 1,
+        )
+        lane_train_loader = _make_loader(
+            lane_train,
+            shuffle=True,
+            num_workers=num_workers,
+            batch_size=batch_size,
+            seed=None if seed is None else seed + 2,
+        )
+        lane_val_loader = _make_loader(
+            lane_val,
+            shuffle=False,
+            num_workers=num_workers,
+            batch_size=batch_size,
+            seed=None if seed is None else seed + 3,
+        )
+
+        if len(det_train_loader) == 0 or len(lane_train_loader) == 0:
+            raise RuntimeError(
+                "joint training requires non-empty nuScenes and OpenLane train loaders"
+            )
+
+        if active_tracker is None:
+            metadata = tracking_metadata or TrackingMetadata(
+                suite="train",
+                dataset="joint-public",
+                job_type="train-joint-public",
+                run_name=artifact_root.name,
+                group=_default_tracking_group(artifact_root, "joint-public"),
+                tags=("nuscenes", "openlane", model_config.image_backbone, openlane_subset),
+                extra_config={
+                    "nuscenes_train_split": det_train_split,
+                    "nuscenes_val_split": det_val_split,
+                    "openlane_subset": openlane_subset,
+                    "teacher_provider": (
+                        teacher_provider_config.kind
+                        if teacher_provider_config is not None
+                        else None
+                    ),
+                },
+            )
+            active_tracker = start_experiment_tracking(
+                artifact_dir=artifact_root,
+                config=model_config,
+                metadata=metadata,
+                config_payload={
+                    "model": model_config.model_dump(),
+                    "train": {
+                        "epochs": epochs,
+                        "lr": lr,
+                        "weight_decay": weight_decay,
+                        "grad_accum_steps": grad_accum_steps,
+                        "batch_size": batch_size,
+                        "num_workers": num_workers,
+                        "seed": seed,
+                        "init_checkpoint": (
+                            str(init_checkpoint) if init_checkpoint is not None else None
+                        ),
+                        "optimizer_schedule": optimizer_schedule,
+                        "grad_clip_norm": grad_clip_norm,
+                        "keep_best_checkpoint": keep_best_checkpoint,
+                        "early_stop_patience": early_stop_patience,
+                        "early_stop_min_delta": early_stop_min_delta,
+                        "early_stop_min_epochs": early_stop_min_epochs,
+                        "augmentation_mode": augmentation_mode,
+                        "loss_mode": loss_mode,
+                        "hard_negative_ratio": hard_negative_ratio,
+                        "hard_negative_cap": hard_negative_cap,
+                        "teacher_anchor_class_weight": teacher_anchor_class_weight,
+                        "teacher_anchor_quality_class_weight": teacher_anchor_quality_class_weight,
+                        "teacher_anchor_objectness_weight": teacher_anchor_objectness_weight,
+                        "teacher_region_objectness_weight": teacher_region_objectness_weight,
+                        "teacher_region_class_weight": teacher_region_class_weight,
+                        "teacher_region_radius_m": teacher_region_radius_m,
+                        "enable_teacher_distillation": enable_teacher_distillation,
+                        "lane_loss_scale": lane_loss_scale,
+                    },
+                },
+            )
+
+        print(
+            f"[setup] building joint model backbone={model_config.image_backbone} "
+            f"pretrained_backbone={model_config.pretrained_image_backbone} "
+            f"freeze_backbone={model_config.freeze_image_backbone}",
+            flush=True,
+        )
+        model = TSQBEVModel(model_config).to(resolved_device)
+        if init_checkpoint is not None:
+            load_weights_into_model_from_checkpoint(
+                model,
+                init_checkpoint,
+                map_location=resolved_device,
+            )
+            print(f"[setup] warm-started joint model from {init_checkpoint}", flush=True)
+        criterion = MultitaskCriterion(
+            detection=_make_detection_criterion(
+                loss_mode=loss_mode,
+                hard_negative_ratio=hard_negative_ratio,
+                hard_negative_cap=hard_negative_cap,
+                teacher_anchor_class_weight=teacher_anchor_class_weight,
+                teacher_anchor_quality_class_weight=teacher_anchor_quality_class_weight,
+                teacher_anchor_objectness_weight=teacher_anchor_objectness_weight,
+                teacher_region_objectness_weight=teacher_region_objectness_weight,
+                teacher_region_class_weight=teacher_region_class_weight,
+                teacher_region_radius_m=teacher_region_radius_m,
+            ),
+            enable_distillation=enable_teacher_distillation,
+        )
+        optimizer = AdamW(model.parameters(), lr=lr, weight_decay=weight_decay)
+        scheduler = _make_scheduler(
+            optimizer,
+            epochs=epochs,
+            optimizer_schedule=optimizer_schedule,
+        )
+        scaler = torch.amp.GradScaler("cuda", enabled=amp_enabled)
+        checkpoint_last_path = artifact_root / "checkpoint_last.pt"
+        checkpoint_best_path = artifact_root / "checkpoint_best.pt"
+        history: list[dict[str, object]] = []
+        best_epoch = 0
+        best_detection_total = float("inf")
+        best_lane_total = float("inf")
+        epochs_without_improvement = 0
+        early_stop_triggered = False
+        early_stop_reason: str | None = None
+
+        for epoch in range(1, epochs + 1):
+            print(
+                f"[joint-train] epoch={epoch}/{epochs} device={resolved_device.type} "
+                f"detection_batches={len(det_train_loader)} lane_batches={len(lane_train_loader)} "
+                f"lane_loss_scale={lane_loss_scale:.3f}",
+                flush=True,
+            )
+            det_train_metrics, lane_train_metrics, train_aux = _train_joint_epoch(
+                model=model,
+                detection_loader=det_train_loader,
+                lane_loader=lane_train_loader,
+                criterion=criterion,
+                optimizer=optimizer,
+                grad_accum_steps=grad_accum_steps,
+                device=resolved_device,
+                amp_enabled=amp_enabled,
+                scaler=scaler,
+                epoch=epoch,
+                log_every_steps=log_every_steps,
+                lane_loss_scale=lane_loss_scale,
+                grad_clip_norm=grad_clip_norm,
+            )
+            det_val_metrics, lane_val_metrics, selection = _eval_joint_epoch(
+                model=model,
+                detection_loader=det_val_loader,
+                lane_loader=lane_val_loader,
+                criterion=criterion,
+                device=resolved_device,
+                amp_enabled=amp_enabled,
+                epoch=epoch,
+                lane_loss_scale=lane_loss_scale,
+            )
+            scheduler.step()
+            history.append(
+                {
+                    "epoch": epoch,
+                    "train_detection": det_train_metrics,
+                    "train_lane": lane_train_metrics,
+                    "train_aux": train_aux,
+                    "val_detection": det_val_metrics,
+                    "val_lane": lane_val_metrics,
+                    "selection": selection,
+                }
+            )
+            _write_history(artifact_root, history)
+            save_model_checkpoint(
+                model,
+                model_config,
+                checkpoint_last_path,
+                epoch=epoch,
+                history=history,
+            )
+
+            current_det_total = float(det_val_metrics["total"])
+            current_lane_total = float(lane_val_metrics["total"])
+            improved = (
+                current_det_total < (best_detection_total - early_stop_min_delta)
+                or (
+                    abs(current_det_total - best_detection_total) <= early_stop_min_delta
+                    and current_lane_total < best_lane_total
+                )
+            )
+            if improved:
+                best_detection_total = current_det_total
+                best_lane_total = current_lane_total
+                best_epoch = epoch
+                epochs_without_improvement = 0
+                save_model_checkpoint(
+                    model,
+                    model_config,
+                    checkpoint_best_path,
+                    epoch=epoch,
+                    history=history,
+                )
+            else:
+                epochs_without_improvement += 1
+
+            if active_tracker is not None:
+                active_tracker.log(
+                    {
+                        "epoch": epoch,
+                        **_prefixed_metrics("train_detection", det_train_metrics),
+                        **_prefixed_metrics("train_lane", lane_train_metrics),
+                        **_prefixed_metrics("val_detection", det_val_metrics),
+                        **_prefixed_metrics("val_lane", lane_val_metrics),
+                        **_prefixed_metrics("selection", selection),
+                        "learning_rate": scheduler.get_last_lr()[0],
+                        "best_epoch": best_epoch,
+                        "best_detection_total": best_detection_total,
+                        "best_lane_total": best_lane_total,
+                        "epochs_without_improvement": epochs_without_improvement,
+                    },
+                    step=epoch,
+                )
+
+            print(
+                f"[joint-epoch] completed epoch={epoch} "
+                f"train_det=({_format_metrics(det_train_metrics)}) "
+                f"train_lane=({_format_metrics(lane_train_metrics)}) "
+                f"val_det=({_format_metrics(det_val_metrics)}) "
+                f"val_lane=({_format_metrics(lane_val_metrics)})",
+                flush=True,
+            )
+            if (
+                early_stop_patience is not None
+                and epoch >= early_stop_min_epochs
+                and epochs_without_improvement >= early_stop_patience
+            ):
+                early_stop_triggered = True
+                early_stop_reason = (
+                    "joint plateau: "
+                    f"best_detection_total={best_detection_total:.4f} at epoch={best_epoch}, "
+                    f"no detection improvement > {early_stop_min_delta:.4f} for "
+                    f"{epochs_without_improvement} epoch(s)"
+                )
+                print(f"[early-stop] {early_stop_reason}", flush=True)
+                break
+
+        selected_checkpoint_path = (
+            checkpoint_best_path
+            if keep_best_checkpoint and checkpoint_best_path.exists()
+            else checkpoint_last_path
+        )
+        result = {
+            "device": resolved_device.type,
+            "amp_enabled": amp_enabled,
+            "epochs": len(history),
+            "artifact_dir": str(artifact_root),
+            "checkpoint_path": str(selected_checkpoint_path),
+            "selected_checkpoint_path": str(selected_checkpoint_path),
+            "last_checkpoint_path": str(checkpoint_last_path),
+            "best_checkpoint_path": str(checkpoint_best_path),
+            "best_epoch": best_epoch,
+            "best_detection_total": best_detection_total,
+            "best_lane_total": best_lane_total,
+            "early_stop_triggered": early_stop_triggered,
+            "early_stop_reason": early_stop_reason,
+            "lane_loss_scale": lane_loss_scale,
+            "last": history[-1],
+            "history": history,
+        }
+        if active_tracker is not None:
+            active_tracker.summary(
+                {
+                    "artifact_dir": str(artifact_root),
+                    "checkpoint_path": str(selected_checkpoint_path),
+                    "epochs": len(history),
+                    "best_epoch": best_epoch,
+                    "best_detection_total": best_detection_total,
+                    "best_lane_total": best_lane_total,
+                    "lane_loss_scale": lane_loss_scale,
                 }
             )
         status = "completed"

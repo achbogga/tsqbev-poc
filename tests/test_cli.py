@@ -56,3 +56,23 @@ def test_resolve_config_supports_dinov2_teacher_preset() -> None:
     assert config.image_backbone == "dinov2_vits14_reg"
     assert config.freeze_image_backbone is True
     assert config.ranking_mode == "quality_class_only"
+
+
+def test_resolve_config_supports_teacher_quality_plus_preset() -> None:
+    args = argparse.Namespace(
+        preset="rtx5000-nuscenes-teacher-quality-plus",
+        image_backbone=None,
+        pretrained_image_backbone=None,
+        freeze_image_backbone=None,
+        foundation_repo_root=None,
+        activation_checkpointing=None,
+        attention_backend=None,
+        teacher_seed_mode=None,
+        teacher_seed_selection_mode=None,
+    )
+
+    config = _resolve_config(args)
+
+    assert config.image_backbone == "mobilenet_v3_large"
+    assert config.freeze_image_backbone is False
+    assert config.teacher_seed_mode == "replace_lidar"

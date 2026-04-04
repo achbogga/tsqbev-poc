@@ -56,7 +56,7 @@ from tsqbev.synthetic import make_synthetic_batch
 from tsqbev.teacher_audit import audit_nuscenes_teacher_cache
 from tsqbev.teacher_backends import TeacherProviderConfig
 from tsqbev.teacher_import import cache_nuscenes_detection_results
-from tsqbev.train import fit_nuscenes, fit_openlane
+from tsqbev.train import fit_joint_public, fit_nuscenes, fit_openlane
 from tsqbev.trt import run_trt_benchmark
 from tsqbev.upstream_baselines import local_upstream_baselines, upstream_baselines
 from tsqbev.upstream_readiness import check_upstream_stack
@@ -278,6 +278,8 @@ def _resolve_config(args: argparse.Namespace) -> ModelConfig:
         config = ModelConfig.rtx5000_nuscenes_teacher_bootstrap()
     elif args.preset == "rtx5000-nuscenes-dinov2-teacher":
         config = ModelConfig.rtx5000_nuscenes_dinov2_teacher()
+    elif args.preset == "rtx5000-nuscenes-teacher-quality-plus":
+        config = ModelConfig.rtx5000_nuscenes_teacher_quality_plus()
     elif args.preset == "rtx5000-nuscenes-query-boost":
         config = ModelConfig.rtx5000_nuscenes_query_boost()
     elif args.preset == "rtx5000-nuscenes":
@@ -341,6 +343,7 @@ def _make_parser() -> argparse.ArgumentParser:
             "check-data",
             "train-nuscenes",
             "train-openlane",
+            "train-joint-public",
             "overfit-nuscenes",
             "cache-teacher-nuscenes",
             "audit-teacher-cache-nuscenes",
@@ -372,6 +375,7 @@ def _make_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument("--dataset-root", type=Path, default=None)
+    parser.add_argument("--lane-dataset-root", type=Path, default=None)
     parser.add_argument("--artifact-dir", type=Path, default=Path("artifacts/baselines"))
     parser.add_argument("--output-path", type=Path, default=Path("artifacts/eval/predictions.json"))
     parser.add_argument("--output-dir", type=Path, default=Path("artifacts/eval"))
@@ -386,6 +390,7 @@ def _make_parser() -> argparse.ArgumentParser:
             "rtx5000-nuscenes",
             "rtx5000-nuscenes-query-boost",
             "rtx5000-nuscenes-teacher",
+            "rtx5000-nuscenes-teacher-quality-plus",
             "rtx5000-nuscenes-dinov2-teacher",
         ),
         default="default",
@@ -773,6 +778,61 @@ def main() -> None:
                 max_train_samples=args.max_train_samples,
                 max_val_samples=args.max_val_samples,
                 augmentation_mode=args.augmentation_mode,
+            )
+        )
+        return
+    if args.command == "train-joint-public":
+        if args.dataset_root is None:
+            raise ValueError("--dataset-root is required for train-joint-public")
+        if args.lane_dataset_root is None:
+            raise ValueError("--lane-dataset-root is required for train-joint-public")
+        config = _resolve_config(args)
+        teacher_provider_config = _resolve_teacher_provider_config(args)
+        print(
+            fit_joint_public(
+                nuscenes_root=args.dataset_root,
+                openlane_root=args.lane_dataset_root,
+                artifact_dir=args.artifact_dir / "joint_public",
+                config=config,
+                nuscenes_version=args.version,
+                nuscenes_train_split=args.train_split,
+                nuscenes_val_split=_resolve_nuscenes_eval_split(args.version, args.split),
+                openlane_subset=args.subset,
+                epochs=args.epochs,
+                lr=args.lr,
+                weight_decay=args.weight_decay,
+                grad_accum_steps=args.grad_accum_steps,
+                batch_size=args.batch_size,
+                num_workers=args.num_workers,
+                device=args.device,
+                seed=args.seed,
+                init_checkpoint=args.init_checkpoint,
+                teacher_provider_config=teacher_provider_config,
+                optimizer_schedule=(
+                    args.optimizer_schedule if args.optimizer_schedule is not None else "constant"
+                ),
+                grad_clip_norm=5.0 if args.grad_clip_norm is None else args.grad_clip_norm,
+                keep_best_checkpoint=args.keep_best_checkpoint,
+                early_stop_patience=(
+                    args.early_stop_patience if args.early_stop_patience is not None else 6
+                ),
+                early_stop_min_delta=(
+                    args.early_stop_min_delta if args.early_stop_min_delta is not None else 0.01
+                ),
+                early_stop_min_epochs=(
+                    args.early_stop_min_epochs if args.early_stop_min_epochs is not None else 6
+                ),
+                augmentation_mode=args.augmentation_mode,
+                loss_mode=args.loss_mode,
+                hard_negative_ratio=args.hard_negative_ratio,
+                hard_negative_cap=args.hard_negative_cap,
+                teacher_anchor_class_weight=args.teacher_anchor_class_weight,
+                teacher_anchor_quality_class_weight=args.teacher_anchor_quality_class_weight,
+                teacher_anchor_objectness_weight=args.teacher_anchor_objectness_weight,
+                teacher_region_objectness_weight=args.teacher_region_objectness_weight,
+                teacher_region_class_weight=args.teacher_region_class_weight,
+                teacher_region_radius_m=args.teacher_region_radius_m,
+                enable_teacher_distillation=args.teacher_distillation,
             )
         )
         return
