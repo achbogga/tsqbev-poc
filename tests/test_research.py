@@ -757,6 +757,48 @@ def test_exploitation_candidates_do_not_repeat_active_loss_mode() -> None:
     assert f"{incumbent.name}_focal_hardneg" in candidate_names
 
 
+def test_exploitation_candidates_add_winner_line_finegrid_and_teacher_quality_plus() -> None:
+    incumbent = research.ResearchRecipe(
+        name="carryover_recipe",
+        note="incumbent",
+        hypothesis="incumbent",
+        mutation_reason="incumbent",
+        config=ModelConfig.rtx5000_nuscenes_teacher_bootstrap().model_copy(
+            update={"ranking_mode": "quality_class_only"}
+        ),
+        stage="baseline",
+        use_teacher_provider=True,
+        loss_mode="quality_focal",
+        enable_teacher_distillation=False,
+        teacher_anchor_quality_class_weight=0.35,
+        teacher_region_objectness_weight=0.10,
+        teacher_region_class_weight=0.10,
+    )
+    incumbent_record = {
+        "recipe": incumbent.name,
+        "source_mix": {"lidar": 0.8571, "proposal": 0.0, "global": 0.1429},
+        "checkpoint_path": "/tmp/incumbent.pt",
+        "evaluation": _fake_eval(0.1746, 0.1717, car_ap_4m=0.4303),
+        "val": {"total": 11.0},
+    }
+    teacher_provider = research.TeacherProviderConfig(kind="cache", cache_dir="/tmp/cache")
+
+    candidates = research._build_exploitation_recipes(
+        incumbent,
+        incumbent_record,
+        teacher_provider,
+        remaining_budget=8,
+    )
+
+    by_name = {candidate.name: candidate for candidate in candidates}
+    finegrid = by_name[f"{incumbent.name}_quality_rank_finegrid"]
+    assert finegrid.skip_training is True
+    assert finegrid.top_k_candidates == (40, 48, 56, 64)
+    teacher_plus = by_name[f"{incumbent.name}_teacher_quality_plus"]
+    assert teacher_plus.teacher_anchor_quality_class_weight >= 0.45
+    assert teacher_plus.teacher_region_objectness_weight >= 0.12
+
+
 def test_exploitation_candidates_add_teacher_region_and_augmentation_for_teacher_runs() -> None:
     incumbent = research.ResearchRecipe(
         name="carryover_recipe",
@@ -837,12 +879,52 @@ def test_exploitation_candidates_add_teacher_off_control_and_anchor_mix_for_lida
         incumbent,
         incumbent_record,
         teacher_provider,
-        remaining_budget=6,
+        remaining_budget=10,
     )
 
     candidate_names = [candidate.name for candidate in candidates]
     assert f"{incumbent.name}_teacher_off_control" in candidate_names
     assert f"{incumbent.name}_anchor_mix" in candidate_names
+
+
+def test_boss_policy_suppresses_losing_branches_for_quality_rank_winner(
+    tmp_path: Path,
+) -> None:
+    artifact_root = tmp_path / "research_vx" / "research_loop"
+    artifact_root.mkdir(parents=True)
+
+    latest = _fake_selected_record(
+        recipe="quality_rank_incumbent",
+        nds=0.1746,
+        mean_ap=0.1717,
+        val_total=11.0563,
+        boxes_mean=32.0,
+        lidar_share=0.8571,
+        proposal_share=0.0,
+    )
+    latest["use_teacher_provider"] = True
+    latest["teacher_anchor_quality_class_weight"] = 0.35
+    latest["config"] = (
+        ModelConfig.rtx5000_nuscenes_teacher_bootstrap()
+        .model_copy(
+            update={
+                "teacher_seed_mode": "replace_lidar",
+                "ranking_mode": "quality_class_only",
+            }
+        )
+        .model_dump()
+    )
+
+    policy = research._boss_policy_from_history(artifact_root, extra_record=latest)
+
+    assert policy["force_priority_only"] is True
+    assert policy["priority_tags"] == [
+        "quality_rank_finegrid",
+        "teacher_quality_plus",
+        "teacher_off_control",
+    ]
+    assert "teacher_bag" in policy["suppress_tags"]
+    assert "anchor_mix" in policy["suppress_tags"]
 
 
 def test_scale_gate_verdict_blocks_pathological_prediction_geometry() -> None:

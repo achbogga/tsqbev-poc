@@ -104,6 +104,7 @@ class ResearchRecipe:
     teacher_region_radius_m: float = 4.0
     score_threshold_candidates: tuple[float, ...] = (0.05,)
     top_k_candidates: tuple[int, ...] = (112,)
+    skip_training: bool = False
 
 
 def _baseline_recipe() -> ResearchRecipe:
@@ -271,6 +272,7 @@ def _clone_recipe(
     teacher_region_radius_m: float | None = None,
     score_threshold_candidates: tuple[float, ...] | None = None,
     top_k_candidates: tuple[int, ...] | None = None,
+    skip_training: bool | None = None,
 ) -> ResearchRecipe:
     return ResearchRecipe(
         name=name,
@@ -343,6 +345,7 @@ def _clone_recipe(
         top_k_candidates=(
             recipe.top_k_candidates if top_k_candidates is None else top_k_candidates
         ),
+        skip_training=recipe.skip_training if skip_training is None else skip_training,
     )
 
 
@@ -688,6 +691,23 @@ def _boss_policy_from_history(
         ):
             priority_tags.append("teacher_quality")
             reasons.append("teacher quality supervision is not yet active on the incumbent")
+        if (
+            latest.get("use_teacher_provider")
+            and str(config.get("ranking_mode")) == "quality_class_only"
+            and _metric_float(latest.get("teacher_anchor_quality_class_weight"), 0.0) > 0.0
+        ):
+            force_priority_only = True
+            suppress_tags.extend(["teacher_bag", "anchor_mix", "query_boost", "lr_down"])
+            priority_tags = [
+                "quality_rank_finegrid",
+                "teacher_quality_plus",
+                "teacher_off_control",
+            ]
+            reasons.append(
+                "the winner line is already teacher_quality + quality_rank; suppress "
+                "previously losing mixed branches and focus on calibration plus one "
+                "surgical teacher-quality ablation"
+            )
     deduped_priority: list[str] = []
     for tag in priority_tags:
         if tag not in deduped_priority:
@@ -1105,6 +1125,29 @@ def _make_quality_rank_recipe(recipe: ResearchRecipe) -> ResearchRecipe:
     )
 
 
+def _make_quality_rank_finegrid_recipe(recipe: ResearchRecipe) -> ResearchRecipe:
+    config = _updated_config(recipe.config, ranking_mode="quality_class_only")
+    return _clone_recipe(
+        recipe,
+        name=f"{recipe.name}_quality_rank_finegrid",
+        note="keep the winning quality-rank line and search only the export boundary",
+        hypothesis=(
+            "the current incumbent is already strong enough to pressure the v16 frontier; "
+            "the remaining gap is a calibration boundary around the geometry gate, not a "
+            "new architecture family"
+        ),
+        mutation_reason=(
+            "run an eval-only fine grid around the proven top-k / threshold boundary instead "
+            "of spending another full train cycle"
+        ),
+        config=config,
+        stage="exploit",
+        score_threshold_candidates=(0.20, 0.22, 0.24, 0.26, 0.28, 0.30, 0.32),
+        top_k_candidates=(40, 48, 56, 64),
+        skip_training=True,
+    )
+
+
 def _make_teacher_region_recipe(recipe: ResearchRecipe) -> ResearchRecipe:
     return _clone_recipe(
         recipe,
@@ -1153,6 +1196,33 @@ def _make_teacher_quality_recipe(recipe: ResearchRecipe) -> ResearchRecipe:
         teacher_region_radius_m=6.0,
         score_threshold_candidates=(0.05, 0.15, 0.25, 0.35),
         top_k_candidates=(16, 32, 48, 64),
+    )
+
+
+def _make_teacher_quality_plus_recipe(recipe: ResearchRecipe) -> ResearchRecipe:
+    config = _updated_config(recipe.config, ranking_mode="quality_class_only")
+    return _clone_recipe(
+        recipe,
+        name=f"{recipe.name}_teacher_quality_plus",
+        note="keep the winner line fixed and raise only teacher-quality pressure slightly",
+        hypothesis=(
+            "the quality-rank line is the current winner; a bounded increase in teacher "
+            "quality supervision may preserve more teacher confidence without the dilution "
+            "introduced by anchor-mix or heavy augmentation"
+        ),
+        mutation_reason=(
+            "raise only teacher-quality and teacher-region weights on the winning line"
+        ),
+        config=config,
+        stage="exploit",
+        teacher_anchor_quality_class_weight=max(
+            recipe.teacher_anchor_quality_class_weight,
+            0.45,
+        ),
+        teacher_region_objectness_weight=max(recipe.teacher_region_objectness_weight, 0.12),
+        teacher_region_class_weight=max(recipe.teacher_region_class_weight, 0.12),
+        score_threshold_candidates=(0.20, 0.24, 0.28, 0.32),
+        top_k_candidates=(32, 40, 48, 56),
     )
 
 
@@ -1294,6 +1364,17 @@ def _build_exploitation_recipes(
         add("teacher_kd", _make_teacher_kd_recipe(incumbent_recipe, stage="exploit"))
     if incumbent_recipe.config.teacher_seed_mode != "off":
         add("teacher_off_control", _make_teacher_off_control_recipe(incumbent_recipe))
+    if (
+        incumbent_recipe.use_teacher_provider
+        and incumbent_recipe.config.ranking_mode == "quality_class_only"
+    ):
+        add("quality_rank_finegrid", _make_quality_rank_finegrid_recipe(incumbent_recipe))
+    if (
+        incumbent_recipe.use_teacher_provider
+        and incumbent_recipe.config.ranking_mode == "quality_class_only"
+        and incumbent_recipe.teacher_anchor_quality_class_weight > 0.0
+    ):
+        add("teacher_quality_plus", _make_teacher_quality_plus_recipe(incumbent_recipe))
     if incumbent_recipe.use_teacher_provider:
         add("teacher_bag", _make_teacher_bag_recipe(incumbent_recipe))
         add("teacher_quality", _make_teacher_quality_recipe(incumbent_recipe))
@@ -1388,6 +1469,7 @@ def _serialize_recipe(recipe: ResearchRecipe) -> dict[str, Any]:
         "teacher_region_radius_m": recipe.teacher_region_radius_m,
         "score_threshold_candidates": list(recipe.score_threshold_candidates),
         "top_k_candidates": list(recipe.top_k_candidates),
+        "skip_training": recipe.skip_training,
     }
 
 
@@ -2187,46 +2269,86 @@ def run_bounded_research_loop(
         )
         try:
             durations_s: dict[str, float] = {}
-
-            start_time = time.perf_counter()
-            train_result = fit_nuscenes(
-                dataroot=root,
-                artifact_dir=run_dir,
-                config=recipe.config,
-                version="v1.0-mini",
-                train_split="mini_train",
-                val_split="mini_val",
-                epochs=recipe.epochs,
-                max_train_steps=recipe.max_train_steps,
-                lr=recipe.lr,
-                weight_decay=recipe.weight_decay,
-                grad_accum_steps=recipe.grad_accum_steps,
-                batch_size=recipe.batch_size,
-                num_workers=recipe.num_workers,
-                device=device,
-                teacher_provider_config=run_teacher_provider_config,
-                init_checkpoint=_warm_start_checkpoint_for_recipe(
-                    recipe,
-                    incumbent_recipe,
-                    incumbent_record,
-                ),
-                use_amp=False,
-                log_every_steps=25,
-                optimizer_schedule=recipe.optimizer_schedule,
-                grad_clip_norm=recipe.grad_clip_norm,
-                keep_best_checkpoint=recipe.keep_best_checkpoint,
-                augmentation_mode=recipe.augmentation_mode,
-                enable_teacher_distillation=recipe.enable_teacher_distillation,
-                loss_mode=recipe.loss_mode,
-                hard_negative_ratio=recipe.hard_negative_ratio,
-                hard_negative_cap=recipe.hard_negative_cap,
-                teacher_anchor_quality_class_weight=recipe.teacher_anchor_quality_class_weight,
-                teacher_region_objectness_weight=recipe.teacher_region_objectness_weight,
-                teacher_region_class_weight=recipe.teacher_region_class_weight,
-                teacher_region_radius_m=recipe.teacher_region_radius_m,
-                tracker=tracker,
+            warm_start_checkpoint = _warm_start_checkpoint_for_recipe(
+                recipe,
+                incumbent_recipe,
+                incumbent_record,
             )
-            durations_s["train"] = time.perf_counter() - start_time
+            if recipe.skip_training:
+                if warm_start_checkpoint is None:
+                    raise RuntimeError(
+                        f"skip_training recipe {recipe.name} requires a warm-start checkpoint"
+                    )
+                checkpoint_path = Path(warm_start_checkpoint)
+                model, _ = load_model_from_checkpoint(checkpoint_path)
+                incumbent_train = (
+                    {} if incumbent_record is None else incumbent_record.get("train", {})
+                )
+                incumbent_val = {} if incumbent_record is None else incumbent_record.get("val", {})
+                incumbent_last_train = (
+                    {} if incumbent_record is None else incumbent_record.get("last_train", {})
+                )
+                incumbent_last_val = (
+                    {} if incumbent_record is None else incumbent_record.get("last_val", {})
+                )
+                incumbent_selected_epoch = (
+                    None
+                    if incumbent_record is None
+                    else incumbent_record.get("selected_epoch")
+                )
+                incumbent_best_epoch = (
+                    None if incumbent_record is None else incumbent_record.get("best_epoch")
+                )
+                train_result = {
+                    "selected_train": incumbent_train,
+                    "selected_val": incumbent_val,
+                    "last_train": incumbent_last_train,
+                    "last_val": incumbent_last_val,
+                    "checkpoint_path": str(checkpoint_path),
+                    "selected_epoch": incumbent_selected_epoch,
+                    "best_epoch": incumbent_best_epoch,
+                    "train_samples": 0,
+                    "val_samples": 0,
+                }
+                durations_s["train"] = 0.0
+            else:
+                start_time = time.perf_counter()
+                train_result = fit_nuscenes(
+                    dataroot=root,
+                    artifact_dir=run_dir,
+                    config=recipe.config,
+                    version="v1.0-mini",
+                    train_split="mini_train",
+                    val_split="mini_val",
+                    epochs=recipe.epochs,
+                    max_train_steps=recipe.max_train_steps,
+                    lr=recipe.lr,
+                    weight_decay=recipe.weight_decay,
+                    grad_accum_steps=recipe.grad_accum_steps,
+                    batch_size=recipe.batch_size,
+                    num_workers=recipe.num_workers,
+                    device=device,
+                    teacher_provider_config=run_teacher_provider_config,
+                    init_checkpoint=warm_start_checkpoint,
+                    use_amp=False,
+                    log_every_steps=25,
+                    optimizer_schedule=recipe.optimizer_schedule,
+                    grad_clip_norm=recipe.grad_clip_norm,
+                    keep_best_checkpoint=recipe.keep_best_checkpoint,
+                    augmentation_mode=recipe.augmentation_mode,
+                    enable_teacher_distillation=recipe.enable_teacher_distillation,
+                    loss_mode=recipe.loss_mode,
+                    hard_negative_ratio=recipe.hard_negative_ratio,
+                    hard_negative_cap=recipe.hard_negative_cap,
+                    teacher_anchor_quality_class_weight=recipe.teacher_anchor_quality_class_weight,
+                    teacher_region_objectness_weight=recipe.teacher_region_objectness_weight,
+                    teacher_region_class_weight=recipe.teacher_region_class_weight,
+                    teacher_region_radius_m=recipe.teacher_region_radius_m,
+                    tracker=tracker,
+                )
+                durations_s["train"] = time.perf_counter() - start_time
+                checkpoint_path = Path(str(train_result["checkpoint_path"]))
+                model, _ = load_model_from_checkpoint(checkpoint_path)
 
             start_time = time.perf_counter()
             bench = benchmark_forward(
@@ -2239,9 +2361,6 @@ def run_bounded_research_loop(
                 image_width=704,
             )
             durations_s["benchmark"] = time.perf_counter() - start_time
-
-            checkpoint_path = Path(str(train_result["checkpoint_path"]))
-            model, _ = load_model_from_checkpoint(checkpoint_path)
 
             start_time = time.perf_counter()
             calibration = export_and_evaluate_nuscenes_grid(
