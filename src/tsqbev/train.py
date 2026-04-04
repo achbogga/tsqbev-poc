@@ -25,6 +25,12 @@ from torch.utils.data import DataLoader, Dataset, Subset
 from tsqbev.checkpoints import load_weights_into_model_from_checkpoint, save_model_checkpoint
 from tsqbev.config import ModelConfig
 from tsqbev.datasets import NuScenesDataset, OpenLaneDataset, collate_scene_examples
+from tsqbev.eval_nuscenes import evaluate_nuscenes_predictions, export_nuscenes_predictions
+from tsqbev.eval_openlane import (
+    evaluate_openlane_predictions,
+    export_openlane_predictions,
+    write_openlane_test_list,
+)
 from tsqbev.losses import DetectionSetCriterion, MultitaskCriterion
 from tsqbev.model import TSQBEVModel
 from tsqbev.runtime import move_batch, resolve_device
@@ -482,6 +488,86 @@ def _eval_joint_epoch(
         "lane_loss_scale": lane_loss_scale,
     }
     return detection_metrics, lane_metrics, selection
+
+
+def _run_joint_public_official_eval(
+    *,
+    checkpoint_path: Path,
+    model_config: ModelConfig,
+    device: str | None,
+    artifact_root: Path,
+    epoch: int,
+    nuscenes_root: str | Path,
+    nuscenes_version: str,
+    nuscenes_split: str,
+    openlane_root: str | Path,
+    openlane_subset: str,
+    openlane_repo_root: str | Path,
+    score_threshold: float,
+    top_k: int,
+) -> dict[str, float]:
+    eval_model = TSQBEVModel(model_config)
+    resolved_device = resolve_device(device)
+    load_weights_into_model_from_checkpoint(
+        eval_model,
+        checkpoint_path,
+        map_location=resolved_device,
+    )
+
+    eval_root = artifact_root / "official_eval" / f"epoch_{epoch:03d}"
+    det_output_dir = eval_root / "nuscenes"
+    lane_output_dir = eval_root / "openlane"
+
+    det_result_path = export_nuscenes_predictions(
+        model=eval_model,
+        dataroot=nuscenes_root,
+        version=nuscenes_version,
+        split=nuscenes_split,
+        output_path=det_output_dir / "predictions.json",
+        score_threshold=score_threshold,
+        top_k=top_k,
+        device=device,
+    )
+    det_metrics = evaluate_nuscenes_predictions(
+        dataroot=nuscenes_root,
+        version=nuscenes_version,
+        split=nuscenes_split,
+        result_path=det_result_path,
+        output_dir=det_output_dir / "metrics",
+    )
+
+    lane_pred_dir = export_openlane_predictions(
+        model=eval_model,
+        dataroot=openlane_root,
+        output_dir=lane_output_dir / "predictions",
+        split="validation",
+        subset=openlane_subset,
+        score_threshold=0.5,
+        max_lanes=64,
+        device=device,
+    )
+    lane_test_list = write_openlane_test_list(
+        dataroot=openlane_root,
+        output_path=lane_output_dir / "validation_test_list.txt",
+        split="validation",
+        subset=openlane_subset,
+    )
+    lane_metrics = evaluate_openlane_predictions(
+        openlane_repo_root=openlane_repo_root,
+        dataset_dir=Path(openlane_root) / openlane_subset,
+        pred_dir=lane_pred_dir,
+        test_list=lane_test_list,
+    )
+
+    metrics = {
+        "nuscenes_nds": float(cast(float, det_metrics.get("nd_score", 0.0))),
+        "nuscenes_map": float(cast(float, det_metrics.get("mean_ap", 0.0))),
+        "openlane_f_score": float(lane_metrics.get("f_score", 0.0)),
+        "openlane_recall": float(lane_metrics.get("recall", 0.0)),
+        "openlane_precision": float(lane_metrics.get("precision", 0.0)),
+    }
+    (eval_root / "summary.json").write_text(json.dumps(metrics, indent=2))
+    return metrics
 
 
 def fit_nuscenes(
@@ -1289,6 +1375,10 @@ def fit_joint_public(
     enable_teacher_distillation: bool = True,
     lane_loss_scale: float = 0.05,
     lane_batch_multiplier: float = 1.0,
+    official_eval_every_epochs: int | None = None,
+    official_eval_score_threshold: float = 0.20,
+    official_eval_top_k: int = 40,
+    openlane_repo_root: str | Path = "/home/achbogga/projects/OpenLane",
     tracker: ExperimentTracker | None = None,
     tracking_metadata: TrackingMetadata | None = None,
 ) -> dict[str, object]:
@@ -1453,6 +1543,9 @@ def fit_joint_public(
                         "enable_teacher_distillation": enable_teacher_distillation,
                         "lane_loss_scale": lane_loss_scale,
                         "lane_batch_multiplier": lane_batch_multiplier,
+                        "official_eval_every_epochs": official_eval_every_epochs,
+                        "official_eval_score_threshold": official_eval_score_threshold,
+                        "official_eval_top_k": official_eval_top_k,
                     },
                 },
             )
@@ -1501,6 +1594,7 @@ def fit_joint_public(
         epochs_without_improvement = 0
         early_stop_triggered = False
         early_stop_reason: str | None = None
+        latest_official_metrics: dict[str, float] | None = None
 
         for epoch in range(1, epochs + 1):
             lane_batches_per_epoch = _lane_batches_per_epoch(
@@ -1606,6 +1700,50 @@ def fit_joint_public(
                     step=epoch,
                 )
 
+            should_run_official_eval = (
+                official_eval_every_epochs is not None
+                and official_eval_every_epochs > 0
+                and epoch % official_eval_every_epochs == 0
+            )
+            if should_run_official_eval:
+                selected_checkpoint_path = (
+                    checkpoint_best_path
+                    if keep_best_checkpoint and checkpoint_best_path.exists()
+                    else checkpoint_last_path
+                )
+                latest_official_metrics = _run_joint_public_official_eval(
+                    checkpoint_path=selected_checkpoint_path,
+                    model_config=model_config,
+                    device=device,
+                    artifact_root=artifact_root,
+                    epoch=epoch,
+                    nuscenes_root=nuscenes_root,
+                    nuscenes_version=nuscenes_version,
+                    nuscenes_split=det_val_split,
+                    openlane_root=openlane_root,
+                    openlane_subset=openlane_subset,
+                    openlane_repo_root=openlane_repo_root,
+                    score_threshold=official_eval_score_threshold,
+                    top_k=official_eval_top_k,
+                )
+                history[-1]["official_eval"] = latest_official_metrics
+                _write_history(artifact_root, history)
+                if active_tracker is not None:
+                    active_tracker.log(
+                        {"epoch": epoch, **latest_official_metrics},
+                        step=epoch,
+                    )
+                print(
+                    "[joint-official-eval] "
+                    f"epoch={epoch} "
+                    f"nuscenes_nds={latest_official_metrics['nuscenes_nds']:.4f} "
+                    f"nuscenes_map={latest_official_metrics['nuscenes_map']:.4f} "
+                    f"openlane_f={latest_official_metrics['openlane_f_score']:.4f} "
+                    f"openlane_recall={latest_official_metrics['openlane_recall']:.4f} "
+                    f"openlane_precision={latest_official_metrics['openlane_precision']:.4f}",
+                    flush=True,
+                )
+
             print(
                 f"[joint-epoch] completed epoch={epoch} "
                 f"train_det=({_format_metrics(det_train_metrics)}) "
@@ -1650,6 +1788,8 @@ def fit_joint_public(
             "early_stop_reason": early_stop_reason,
             "lane_loss_scale": lane_loss_scale,
             "lane_batch_multiplier": lane_batch_multiplier,
+            "official_eval_every_epochs": official_eval_every_epochs,
+            "latest_official_eval": latest_official_metrics,
             "last": history[-1],
             "history": history,
         }
@@ -1664,6 +1804,8 @@ def fit_joint_public(
                     "best_lane_total": best_lane_total,
                     "lane_loss_scale": lane_loss_scale,
                     "lane_batch_multiplier": lane_batch_multiplier,
+                    "official_eval_every_epochs": official_eval_every_epochs,
+                    **(latest_official_metrics or {}),
                 }
             )
         status = "completed"

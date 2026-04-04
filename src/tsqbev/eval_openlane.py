@@ -23,6 +23,23 @@ from tsqbev.model import TSQBEVModel
 from tsqbev.runtime import move_batch, resolve_device
 
 
+def write_openlane_test_list(
+    dataroot: str | Path,
+    output_path: str | Path,
+    *,
+    split: str = "validation",
+    subset: str = "lane3d_300",
+) -> Path:
+    """Write the official OpenLane image-list file for a dataset split."""
+
+    dataset = OpenLaneDataset(dataroot=dataroot, split=split, subset=subset)
+    output_path = Path(output_path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    lines = [str(json.loads(path.read_text())["file_path"]) for path in dataset.annotation_paths]
+    output_path.write_text("\n".join(lines) + "\n")
+    return output_path
+
+
 @torch.no_grad()
 def export_openlane_predictions(
     model: TSQBEVModel,

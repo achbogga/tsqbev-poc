@@ -115,7 +115,7 @@ def test_eval_nuscenes_prefers_result_json(monkeypatch, tmp_path) -> None:
 
 
 def test_train_joint_public_passes_lane_batch_multiplier(monkeypatch, tmp_path) -> None:
-    captured: dict[str, float] = {}
+    captured: dict[str, float | int] = {}
 
     def fake_parser() -> argparse.ArgumentParser:
         class _Parser:
@@ -168,6 +168,10 @@ def test_train_joint_public_passes_lane_batch_multiplier(monkeypatch, tmp_path) 
                     teacher_region_radius_m=4.0,
                     teacher_distillation=True,
                     lane_batch_multiplier=0.75,
+                    official_eval_every_epochs=5,
+                    official_eval_score_threshold=0.2,
+                    official_eval_top_k=40,
+                    openlane_repo_root=tmp_path / "OpenLane",
                 )
 
         return _Parser()  # type: ignore[return-value]
@@ -181,8 +185,12 @@ def test_train_joint_public_passes_lane_batch_multiplier(monkeypatch, tmp_path) 
 
     def fake_fit_joint_public(**kwargs):
         captured["lane_batch_multiplier"] = float(kwargs["lane_batch_multiplier"])
+        captured["official_eval_every_epochs"] = int(kwargs["official_eval_every_epochs"])
+        captured["official_eval_top_k"] = int(kwargs["official_eval_top_k"])
         return {"ok": True}
 
     monkeypatch.setattr(cli_module, "fit_joint_public", fake_fit_joint_public)
     cli_module.main()
     assert captured["lane_batch_multiplier"] == 0.75
+    assert captured["official_eval_every_epochs"] == 5
+    assert captured["official_eval_top_k"] == 40

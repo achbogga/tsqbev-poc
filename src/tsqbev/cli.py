@@ -489,6 +489,9 @@ def _make_parser() -> argparse.ArgumentParser:
     parser.add_argument("--teacher-region-class-weight", type=float, default=0.0)
     parser.add_argument("--teacher-region-radius-m", type=float, default=4.0)
     parser.add_argument("--lane-batch-multiplier", type=float, default=1.0)
+    parser.add_argument("--official-eval-every-epochs", type=int, default=None)
+    parser.add_argument("--official-eval-score-threshold", type=float, default=0.20)
+    parser.add_argument("--official-eval-top-k", type=int, default=40)
     parser.add_argument("--teacher-anchor-final-class-weight", type=float, default=None)
     parser.add_argument("--teacher-anchor-final-objectness-weight", type=float, default=None)
     parser.add_argument("--teacher-anchor-bootstrap-epochs", type=int, default=0)
@@ -835,6 +838,10 @@ def main() -> None:
                 teacher_region_radius_m=args.teacher_region_radius_m,
                 enable_teacher_distillation=args.teacher_distillation,
                 lane_batch_multiplier=args.lane_batch_multiplier,
+                official_eval_every_epochs=args.official_eval_every_epochs,
+                official_eval_score_threshold=args.official_eval_score_threshold,
+                official_eval_top_k=args.official_eval_top_k,
+                openlane_repo_root=args.openlane_repo_root,
             )
         )
         return
