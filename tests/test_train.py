@@ -12,6 +12,7 @@ from tsqbev.train import (
     _make_detection_criterion,
     _teacher_anchor_schedule_value,
     fit_nuscenes,
+    fit_openlane,
     maybe_attach_teacher_targets,
     resolve_nuscenes_splits,
     set_global_seed,
@@ -64,10 +65,15 @@ def test_make_detection_criterion_exposes_teacher_anchor_weights() -> None:
         hard_negative_ratio=3,
         hard_negative_cap=96,
         teacher_anchor_class_weight=2.0,
+        teacher_anchor_quality_class_weight=0.0,
         teacher_anchor_objectness_weight=1.5,
+        teacher_region_objectness_weight=0.25,
+        teacher_region_radius_m=6.0,
     )
     assert criterion.teacher_anchor_class_weight == 2.0
     assert criterion.teacher_anchor_objectness_weight == 1.5
+    assert criterion.teacher_region_objectness_weight == 0.25
+    assert criterion.teacher_region_radius_m == 6.0
 
 
 def test_teacher_anchor_schedule_value_stays_constant_without_decay() -> None:
@@ -301,3 +307,42 @@ def test_fit_nuscenes_early_stops_on_val_plateau(
     assert result["early_stop_triggered"] is True
     assert "plateau" in str(result["early_stop_reason"])
     assert len(train_calls) == 4
+
+
+def test_fit_openlane_supports_warm_start_and_max_train_steps(
+    monkeypatch,
+    small_config,
+    tmp_path: Path,
+) -> None:
+    batch = make_synthetic_batch(small_config, batch_size=1, with_teacher=False)
+    example = SceneExample(scene=batch, metadata={"file_path": "segment-001/frame-001.jpg"})
+    loaded: list[str] = []
+
+    def fake_openlane_dataset(**kwargs: object) -> _RepeatedDataset:
+        del kwargs
+        return _RepeatedDataset(example, length=4)
+
+    monkeypatch.setattr("tsqbev.train.OpenLaneDataset", fake_openlane_dataset)
+    monkeypatch.setattr(
+        "tsqbev.train.load_weights_into_model_from_checkpoint",
+        lambda model, checkpoint_path, map_location="cpu": loaded.append(str(checkpoint_path)),
+    )
+
+    init_checkpoint = tmp_path / "lane-init.pt"
+    result = fit_openlane(
+        dataroot=tmp_path,
+        artifact_dir=tmp_path / "openlane-artifacts",
+        config=small_config,
+        epochs=3,
+        max_train_steps=1,
+        batch_size=1,
+        num_workers=0,
+        device="cpu",
+        log_every_steps=None,
+        init_checkpoint=init_checkpoint,
+        augmentation_mode="moderate",
+    )
+
+    assert loaded == [str(init_checkpoint)]
+    assert result["train_steps"] == 1
+    assert result["augmentation_mode"] == "moderate"
