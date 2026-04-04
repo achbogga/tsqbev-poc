@@ -50,3 +50,38 @@ def test_load_model_checkpoint_ignores_optional_teacher_seed_mismatch(tmp_path) 
     restored_model, loaded_payload = load_model_from_checkpoint(checkpoint_path)
     assert isinstance(restored_model, TSQBEVModel)
     assert loaded_payload["epoch"] == 1
+
+
+def test_load_model_checkpoint_ignores_legacy_lane_attention_projection_mismatch(
+    tmp_path,
+) -> None:
+    config = ModelConfig.small()
+    model = TSQBEVModel(config)
+    checkpoint_path = tmp_path / "legacy_lane_attention.pt"
+    state_dict = model.state_dict()
+    state_dict["core.lane_head.attn.in_proj_weight"] = torch.randn(
+        config.model_dim * 3,
+        config.model_dim,
+    )
+    state_dict["core.lane_head.attn.in_proj_bias"] = torch.randn(config.model_dim * 3)
+    for key in (
+        "core.lane_head.attn.q_proj.weight",
+        "core.lane_head.attn.q_proj.bias",
+        "core.lane_head.attn.k_proj.weight",
+        "core.lane_head.attn.k_proj.bias",
+        "core.lane_head.attn.v_proj.weight",
+        "core.lane_head.attn.v_proj.bias",
+    ):
+        del state_dict[key]
+
+    payload = {
+        "epoch": 1,
+        "model_config": config.model_dump(),
+        "model_state_dict": state_dict,
+        "history": [],
+    }
+    torch.save(payload, checkpoint_path)
+
+    restored_model, loaded_payload = load_model_from_checkpoint(checkpoint_path)
+    assert isinstance(restored_model, TSQBEVModel)
+    assert loaded_payload["epoch"] == 1

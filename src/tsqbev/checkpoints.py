@@ -19,7 +19,16 @@ from tsqbev.model import TSQBEVModel
 def _allowed_checkpoint_key_mismatch(key: str) -> bool:
     """Allow additive optional teacher bootstrap modules across checkpoint versions."""
 
-    return key.startswith("teacher_seed_encoder.")
+    if key.startswith("teacher_seed_encoder."):
+        return True
+    lane_attention_prefixes = (
+        "core.lane_head.attn.in_proj_weight",
+        "core.lane_head.attn.in_proj_bias",
+        "core.lane_head.attn.q_proj.",
+        "core.lane_head.attn.k_proj.",
+        "core.lane_head.attn.v_proj.",
+    )
+    return key.startswith(lane_attention_prefixes)
 
 
 def save_model_checkpoint(
