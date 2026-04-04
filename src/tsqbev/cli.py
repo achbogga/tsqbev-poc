@@ -488,6 +488,7 @@ def _make_parser() -> argparse.ArgumentParser:
     parser.add_argument("--teacher-region-objectness-weight", type=float, default=0.0)
     parser.add_argument("--teacher-region-class-weight", type=float, default=0.0)
     parser.add_argument("--teacher-region-radius-m", type=float, default=4.0)
+    parser.add_argument("--lane-batch-multiplier", type=float, default=1.0)
     parser.add_argument("--teacher-anchor-final-class-weight", type=float, default=None)
     parser.add_argument("--teacher-anchor-final-objectness-weight", type=float, default=None)
     parser.add_argument("--teacher-anchor-bootstrap-epochs", type=int, default=0)
@@ -833,6 +834,7 @@ def main() -> None:
                 teacher_region_class_weight=args.teacher_region_class_weight,
                 teacher_region_radius_m=args.teacher_region_radius_m,
                 enable_teacher_distillation=args.teacher_distillation,
+                lane_batch_multiplier=args.lane_batch_multiplier,
             )
         )
         return
@@ -965,12 +967,13 @@ def main() -> None:
         if args.dataset_root is None:
             raise ValueError("--dataset-root is required for eval-nuscenes")
         split = _resolve_nuscenes_eval_split(args.version, args.split)
+        result_path = args.result_json if args.result_json is not None else args.output_path
         print(
             evaluate_nuscenes_predictions(
                 dataroot=args.dataset_root,
                 version=args.version,
                 split=split,
-                result_path=args.output_path,
+                result_path=result_path,
                 output_dir=args.output_dir / "nuscenes",
             )
         )

@@ -328,6 +328,18 @@ def _make_round_robin_plan(*named_lengths: tuple[str, int]) -> list[str]:
     return plan
 
 
+def _lane_batches_per_epoch(
+    *,
+    detection_batches: int,
+    lane_batches: int,
+    lane_batch_multiplier: float,
+) -> int:
+    if detection_batches <= 0 or lane_batches <= 0:
+        return 0
+    capped = int(round(float(detection_batches) * lane_batch_multiplier))
+    return max(1, min(lane_batches, capped))
+
+
 def _train_joint_epoch(
     *,
     model: TSQBEVModel,
@@ -342,6 +354,7 @@ def _train_joint_epoch(
     epoch: int,
     log_every_steps: int | None,
     lane_loss_scale: float,
+    lane_batch_multiplier: float,
     grad_clip_norm: float | None = 1.0,
 ) -> tuple[dict[str, float], dict[str, float], dict[str, float]]:
     model.train()
@@ -351,9 +364,14 @@ def _train_joint_epoch(
     detection_history: list[dict[str, float]] = []
     lane_history: list[dict[str, float]] = []
     autocast_dtype = torch.float16 if device.type == "cuda" else torch.float32
+    lane_batches_per_epoch = _lane_batches_per_epoch(
+        detection_batches=len(detection_loader),
+        lane_batches=len(lane_loader),
+        lane_batch_multiplier=lane_batch_multiplier,
+    )
     plan = _make_round_robin_plan(
         ("detection", len(detection_loader)),
-        ("lane", len(lane_loader)),
+        ("lane", lane_batches_per_epoch),
     )
     total_steps = len(plan)
     optimizer_steps = 0
@@ -422,6 +440,8 @@ def _train_joint_epoch(
         {
             "optimizer_steps": float(optimizer_steps),
             "lane_loss_scale": lane_loss_scale,
+            "lane_batch_multiplier": lane_batch_multiplier,
+            "lane_batches_per_epoch": float(lane_batches_per_epoch),
             "total_batches": float(total_steps),
         },
     )
@@ -1268,6 +1288,7 @@ def fit_joint_public(
     teacher_region_radius_m: float = 4.0,
     enable_teacher_distillation: bool = True,
     lane_loss_scale: float = 0.05,
+    lane_batch_multiplier: float = 1.0,
     tracker: ExperimentTracker | None = None,
     tracking_metadata: TrackingMetadata | None = None,
 ) -> dict[str, object]:
@@ -1431,6 +1452,7 @@ def fit_joint_public(
                         "teacher_region_radius_m": teacher_region_radius_m,
                         "enable_teacher_distillation": enable_teacher_distillation,
                         "lane_loss_scale": lane_loss_scale,
+                        "lane_batch_multiplier": lane_batch_multiplier,
                     },
                 },
             )
@@ -1481,9 +1503,17 @@ def fit_joint_public(
         early_stop_reason: str | None = None
 
         for epoch in range(1, epochs + 1):
+            lane_batches_per_epoch = _lane_batches_per_epoch(
+                detection_batches=len(det_train_loader),
+                lane_batches=len(lane_train_loader),
+                lane_batch_multiplier=lane_batch_multiplier,
+            )
             print(
                 f"[joint-train] epoch={epoch}/{epochs} device={resolved_device.type} "
-                f"detection_batches={len(det_train_loader)} lane_batches={len(lane_train_loader)} "
+                f"detection_batches={len(det_train_loader)} "
+                f"lane_batches_full={len(lane_train_loader)} "
+                f"lane_batches_epoch={lane_batches_per_epoch} "
+                f"lane_batch_multiplier={lane_batch_multiplier:.3f} "
                 f"lane_loss_scale={lane_loss_scale:.3f}",
                 flush=True,
             )
@@ -1500,6 +1530,7 @@ def fit_joint_public(
                 epoch=epoch,
                 log_every_steps=log_every_steps,
                 lane_loss_scale=lane_loss_scale,
+                lane_batch_multiplier=lane_batch_multiplier,
                 grad_clip_norm=grad_clip_norm,
             )
             det_val_metrics, lane_val_metrics, selection = _eval_joint_epoch(
@@ -1618,6 +1649,7 @@ def fit_joint_public(
             "early_stop_triggered": early_stop_triggered,
             "early_stop_reason": early_stop_reason,
             "lane_loss_scale": lane_loss_scale,
+            "lane_batch_multiplier": lane_batch_multiplier,
             "last": history[-1],
             "history": history,
         }
@@ -1631,6 +1663,7 @@ def fit_joint_public(
                     "best_detection_total": best_detection_total,
                     "best_lane_total": best_lane_total,
                     "lane_loss_scale": lane_loss_scale,
+                    "lane_batch_multiplier": lane_batch_multiplier,
                 }
             )
         status = "completed"
