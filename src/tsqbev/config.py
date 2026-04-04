@@ -183,7 +183,7 @@ class ModelConfig(BaseModel):
             foundation_intermediate_layers=(8, 11),
             foundation_patch_multiple=14,
             activation_checkpointing=False,
-            attention_backend="flash",
+            attention_backend="auto",
             router_mode="anchor_first",
             teacher_seed_mode="replace_lidar",
             teacher_seed_selection_mode="class_balanced_round_robin",

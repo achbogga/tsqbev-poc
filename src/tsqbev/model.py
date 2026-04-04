@@ -530,6 +530,10 @@ class SDPACrossAttention(nn.Module):
             from torch.nn.attention import SDPBackend, sdpa_kernel
         except Exception:  # pragma: no cover - depends on torch build.
             return nullcontext()
+        if self.backend == "flash":
+            major, _minor = torch.cuda.get_device_capability(device)
+            if major < 8:
+                return nullcontext()
         backend_map = {
             "math": SDPBackend.MATH,
             "flash": SDPBackend.FLASH_ATTENTION,
