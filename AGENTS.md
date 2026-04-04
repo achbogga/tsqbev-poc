@@ -10,8 +10,8 @@ repeated in chat.
 - move fast, but only with bounded, evidence-backed steps
 - fix small issues immediately when they are clearly blocking progress
 - do not stop at a single result; continue to the next highest-ROI step unless a boundary is hit
-- if a public upstream dense-BEV stack is materially better grounded than the current custom
-  path, pivot to that stack rather than deepening the custom path
+- if a public upstream stack or teacher suite is materially better grounded than the current
+  custom path, pivot to that stack rather than deepening the custom path
 - read the local research brief before planning new bounded work
 - write back distilled findings and PI-facing reports after each completed invocation
 - keep lane work explicit and staged: isolated OpenLane sanity first, then export/eval, then only
@@ -19,19 +19,18 @@ repeated in chat.
 
 ## Target Stack Bias
 
-The default migration target for this repo is now a public dense-BEV fusion stack built from
-official upstreams such as:
+The default migration target for this repo is now a foundation-teacher perspective-sparse student:
 
-- BEVFusion
-- OpenPCDet
-- BEVDet / BEVDepth
-- MapTR / MapTRv2
-- EfficientViT
-- DINOv2 / DINOv3
-- OFA / AMC / HAQ
+- sparse temporal runtime core from the `Sparse4D` family
+- `BEVFormer v2`-style perspective supervision to adapt strong image backbones
+- `DINOv2` first and `DINOv3` second for projected camera foundation features
+- `OpenPCDet` / `BEVFusion` as strong geometry and multimodal teachers
+- `MapTRv2` as the staged lane/vector-map head
+- `EfficientViT`, `OFA`, `AMC`, and `HAQ` for the later efficiency path
+- `Alpamayo` as a teacher/evaluator for long-tail reasoning, not the runtime trunk
 
-Use the legacy sparse-query line only as comparison evidence unless the dense-BEV reset is
-demonstrably worse on the same gate.
+Use the legacy sparse-query line and dense-BEV control baselines only as comparison evidence unless
+the new reset is demonstrably worse on the same gate.
 
 ## Literature And Source Discipline
 
@@ -90,6 +89,7 @@ Lane work must also stay staged:
 - keep lane as a separate bounded track while detection is still bottlenecked on ranking or
   source-mix collapse
 - only mix lane into the main detection loop after both branches have real measured baselines
+- when lane enters multitask training, detection non-regression is mandatory
 
 ## ROI Rule
 
@@ -153,6 +153,8 @@ The bounded research loop must:
   suppress low-ROI exploit families automatically instead of reopening them by habit
 - when multiple ROI-positive directions land together, prefer one KD/ranking branch and one
   augmentation branch before opening a broader search fanout
+- after two stalled winner-line runs, stop local weight nudges and pivot to a new architecture or
+  teacher family with primary-source support
 
 ## Repo Update Rule
 

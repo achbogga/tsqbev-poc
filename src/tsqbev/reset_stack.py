@@ -1,16 +1,14 @@
-"""Public registry and recommendation logic for the dense-BEV reset stack.
+"""Public registry and recommendation logic for the reset stack.
 
 References:
-- MIT HAN Lab Once-for-All:
-  https://hanlab.mit.edu/projects/ofa
-- MIT HAN Lab EfficientViT:
-  https://github.com/mit-han-lab/efficientvit
-- OpenPCDet model zoo:
+- Sparse4D:
+  https://github.com/HorizonRobotics/Sparse4D
+- BEVFormer v2:
+  https://openaccess.thecvf.com/content/CVPR2023/papers/Yang_BEVFormer_v2_Adapting_Modern_Image_Backbones_to_Birds-Eye-View_Recognition_via_CVPR_2023_paper.pdf
+- OpenPCDet:
   https://github.com/open-mmlab/OpenPCDet
 - BEVFusion:
   https://github.com/mit-han-lab/bevfusion
-- BEVDet:
-  https://github.com/HuangJunJie2017/BEVDet
 - MapTR:
   https://github.com/hustvl/MapTR
 - PersFormer:
@@ -19,6 +17,10 @@ References:
   https://github.com/facebookresearch/dinov2
 - DINOv3:
   https://github.com/facebookresearch/dinov3
+- EfficientViT:
+  https://github.com/mit-han-lab/efficientvit
+- NVIDIA Alpamayo:
+  https://nvidianews.nvidia.com/news/alpamayo-autonom
 """
 
 from __future__ import annotations
@@ -118,7 +120,7 @@ def upstream_registry() -> tuple[UpstreamComponent, ...]:
         UpstreamComponent(
             key="openpcdet-centerpoint-pointpillar",
             name="OpenPCDet CenterPoint-PointPillar",
-            role="runtime_lidar_branch",
+            role="runtime_lidar_anchor_prior",
             modalities=("lidar",),
             tasks=("3d_detection",),
             repo_url="https://github.com/open-mmlab/OpenPCDet",
@@ -133,7 +135,7 @@ def upstream_registry() -> tuple[UpstreamComponent, ...]:
             license_access="Apache-2.0 code; public downloadable nuScenes checkpoints",
             rationale=(
                 "Best balance of public weights, mature code, and pillar-based deployability for "
-                "the runtime LiDAR branch."
+                "runtime LiDAR grounding and anchor priors."
             ),
         ),
         UpstreamComponent(
@@ -150,32 +152,14 @@ def upstream_registry() -> tuple[UpstreamComponent, ...]:
             deployability="medium",
             license_access="Apache-2.0 code; official model-zoo entries",
             rationale=(
-                "Strong public multimodal teacher and realistic integration baseline using "
-                "the same ecosystem as the LiDAR branch."
-            ),
-        ),
-        UpstreamComponent(
-            key="bevdet4d-bevdepth",
-            name="BEVDet4D / BEVDepth camera BEV encoder",
-            role="runtime_camera_branch",
-            modalities=("camera",),
-            tasks=("3d_detection", "temporal_bev"),
-            repo_url="https://github.com/HuangJunJie2017/BEVDet",
-            paper_url="https://github.com/HuangJunJie2017/BEVDet",
-            weights_url="https://github.com/HuangJunJie2017/BEVDet",
-            docs_url="https://github.com/HuangJunJie2017/BEVDet",
-            code_maturity="high",
-            deployability="high",
-            license_access="Public repo with published model table and backend latency data",
-            rationale=(
-                "Most practical public camera-only temporal BEV lift path with explicit TensorRT "
-                "latency evidence."
+                "Strong public multimodal teacher and realistic control baseline using the same "
+                "ecosystem as the LiDAR teacher path."
             ),
         ),
         UpstreamComponent(
             key="mit-bevfusion",
             name="MIT HAN Lab BEVFusion",
-            role="shared_bev_fusion_trunk",
+            role="control_multimodal_runtime",
             modalities=("lidar", "camera"),
             tasks=("3d_detection", "bev_map"),
             repo_url="https://github.com/mit-han-lab/bevfusion",
@@ -189,29 +173,48 @@ def upstream_registry() -> tuple[UpstreamComponent, ...]:
             deployability="high",
             license_access="MIT-origin public repo and NVIDIA DeepStream integration docs",
             rationale=(
-                "Only public stack in the current evidence set that already unifies detection and "
-                "BEV map segmentation with official NVIDIA deployment guidance."
+                "Strong reproduced control baseline and deployment reference, but no longer the "
+                "sole runtime thesis."
             ),
         ),
         UpstreamComponent(
-            key="centerhead",
-            name="CenterPoint CenterHead",
-            role="runtime_detection_head",
-            modalities=("bev",),
-            tasks=("3d_detection",),
-            repo_url="https://github.com/open-mmlab/OpenPCDet",
-            paper_url=(
-                "https://openaccess.thecvf.com/content/CVPR2021/papers/"
-                "Yin_Center-Based_3D_Object_Detection_and_Tracking_CVPR_2021_paper.pdf"
-            ),
-            weights_url=None,
-            docs_url="https://github.com/open-mmlab/OpenPCDet",
+            key="sparse4dv3",
+            name="Sparse4Dv3",
+            role="runtime_sparse_temporal_core",
+            modalities=("camera",),
+            tasks=("3d_detection", "tracking", "temporal_perception"),
+            repo_url="https://github.com/HorizonRobotics/Sparse4D",
+            paper_url="https://arxiv.org/abs/2311.11722",
+            weights_url="https://github.com/HorizonRobotics/Sparse4D",
+            docs_url="https://github.com/HorizonRobotics/Sparse4D",
             code_maturity="high",
-            deployability="high",
-            license_access="Comes from the public OpenPCDet/CenterPoint stack",
+            deployability="medium",
+            license_access="MIT code with public configs and checkpoints",
             rationale=(
-                "Dense heatmap-based head removes the current repo's ranking and query-selection "
-                "failure modes."
+                "Best current public sparse temporal camera-first detection family with strong "
+                "nuScenes evidence and a clear runtime story."
+            ),
+        ),
+        UpstreamComponent(
+            key="bevformer-v2",
+            name="BEVFormer v2",
+            role="perspective_supervision_template",
+            modalities=("camera",),
+            tasks=("3d_detection", "temporal_perception"),
+            repo_url="https://github.com/fundamentalvision/BEVFormer",
+            paper_url=(
+                "https://openaccess.thecvf.com/content/CVPR2023/papers/"
+                "Yang_BEVFormer_v2_Adapting_Modern_Image_Backbones_to_Birds-Eye-View_"
+                "Recognition_via_CVPR_2023_paper.pdf"
+            ),
+            weights_url="https://github.com/fundamentalvision/BEVFormer",
+            docs_url="https://github.com/fundamentalvision/BEVFormer",
+            code_maturity="high",
+            deployability="medium",
+            license_access="Apache-2.0 code and public configs/checkpoints",
+            rationale=(
+                "Best evidence-backed template for perspective supervision and adapting stronger "
+                "image backbones to 3D reasoning."
             ),
         ),
         UpstreamComponent(
@@ -228,7 +231,7 @@ def upstream_registry() -> tuple[UpstreamComponent, ...]:
             deployability="medium",
             license_access="Public repo with checkpoints and nuScenes map support",
             rationale=(
-                "Best fit for equal-priority vector map and lane outputs on a shared BEV trunk."
+                "Best fit for staged vector lane/map outputs once the shared latent is stable."
             ),
         ),
         UpstreamComponent(
@@ -245,8 +248,7 @@ def upstream_registry() -> tuple[UpstreamComponent, ...]:
             deployability="medium",
             license_access="Public repo and benchmark-specific weights",
             rationale=(
-                "Useful as an OpenLane-facing lane specialist, but not the shared "
-                "multimodal runtime."
+                "Useful as an OpenLane-facing lane specialist, but not the shared runtime."
             ),
         ),
         UpstreamComponent(
@@ -263,7 +265,8 @@ def upstream_registry() -> tuple[UpstreamComponent, ...]:
             deployability="high",
             license_access="Apache-2.0 code with pretrained models and deployment recipes",
             rationale=(
-                "Best candidate for the camera efficiency branch after baseline reproduction."
+                "Best candidate for the student efficiency branch after the perception thesis is "
+                "stabilized."
             ),
         ),
         UpstreamComponent(
@@ -280,7 +283,8 @@ def upstream_registry() -> tuple[UpstreamComponent, ...]:
             deployability="medium",
             license_access="Public code and hub-loading backbones",
             rationale=(
-                "Low-friction dense visual feature teacher for later BEV feature distillation."
+                "Low-friction dense visual feature teacher and projector source for the next "
+                "camera branch."
             ),
         ),
         UpstreamComponent(
@@ -295,31 +299,30 @@ def upstream_registry() -> tuple[UpstreamComponent, ...]:
             docs_url="https://github.com/facebookresearch/dinov3",
             code_maturity="high",
             deployability="medium",
-            license_access="Public code; weight access currently more cumbersome than DINOv2",
+            license_access="Public code; weight access more involved than DINOv2",
             rationale=(
-                "Stronger dense-feature frontier option, but not the first runtime "
-                "backbone for Orin."
+                "Higher-ceiling dense-feature teacher with public distilled ConvNeXt options for "
+                "later camera-side uplift."
             ),
         ),
         UpstreamComponent(
-            key="sam2",
-            name="SAM2",
-            role="offline_proposal_prior",
-            modalities=("camera",),
-            tasks=("segmentation", "proposal_priors"),
-            repo_url="https://github.com/facebookresearch/sam2",
-            paper_url="https://github.com/facebookresearch/sam2",
-            weights_url="https://github.com/facebookresearch/sam2",
-            docs_url="https://github.com/facebookresearch/sam2",
-            code_maturity="high",
+            key="alpamayo-r1",
+            name="NVIDIA Alpamayo",
+            role="reasoning_teacher_evaluator",
+            modalities=("camera", "lidar", "language"),
+            tasks=("reasoning", "scenario_mining", "evaluation"),
+            repo_url="https://nvidianews.nvidia.com/news/alpamayo-autonom",
+            paper_url="https://nvidianews.nvidia.com/news/alpamayo-autonom",
+            weights_url=None,
+            docs_url="https://nvidianews.nvidia.com/news/alpamayo-autonom",
+            code_maturity="medium",
             deployability="low",
             license_access=(
-                "Public code and models; better as offline prior than runtime "
-                "encoder here"
+                "Public announcement and ecosystem references; not a local runtime dependency"
             ),
             rationale=(
-                "Useful for later proposal priors, not as the primary multi-view "
-                "runtime encoder."
+                "Useful as a teacher-side long-tail reasoner and evaluator, not as the student "
+                "perception trunk."
             ),
         ),
         UpstreamComponent(
@@ -336,9 +339,8 @@ def upstream_registry() -> tuple[UpstreamComponent, ...]:
             deployability="high",
             license_access="Public research code and project pages from MIT HAN Lab",
             rationale=(
-                "The right efficiency toolkit after the reset baseline exists; not a "
-                "replacement for "
-                "the perception stack itself."
+                "The right efficiency toolkit after the perception thesis is proven; not a "
+                "replacement for the perception stack itself."
             ),
         ),
     )
@@ -357,11 +359,12 @@ def recommended_reset_plan() -> ResetArchitecturePlan:
     """Return the evidence-backed migration target for the repo."""
 
     return ResetArchitecturePlan(
-        name="dense-bev-multitask-reset",
+        name="foundation-teacher-perspective-sparse-reset",
         summary=(
-            "Replace the custom sparse-query runtime with a dense BEV fusion stack built from "
-            "OpenPCDet, BEVDet/BEVDepth, BEVFusion, and MapTR, while retaining the repo's "
-            "teacher/eval/research discipline."
+            "Replace the ad hoc local runtime with a Sparse4D-style sparse temporal student that "
+            "uses DINO camera priors, BEVFormer-v2-style perspective supervision, and strong "
+            "OpenPCDet/BEVFusion teachers while retaining the repo's teacher/eval/research "
+            "discipline."
         ),
         grid=BevGridSpec(
             x_range_m=(-54.0, 54.0),
@@ -372,118 +375,172 @@ def recommended_reset_plan() -> ResetArchitecturePlan:
         ),
         components=(
             PlannedComponent(
-                role="lidar_runtime",
+                role="camera_sparse_runtime",
+                component_key="sparse4dv3",
+                why_selected=(
+                    "Sparse temporal aggregation is now the strongest public runtime thesis that "
+                    "beats pure dense-BEV as a camera-first frontier."
+                ),
+                replaces_current="local sparse query fusion heuristics",
+            ),
+            PlannedComponent(
+                role="camera_perspective_supervision",
+                component_key="bevformer-v2",
+                why_selected=(
+                    "Perspective supervision directly fixes the weak camera-backbone adaptation "
+                    "problem highlighted by the literature."
+                ),
+                replaces_current="BEV-only supervision on the camera branch",
+            ),
+            PlannedComponent(
+                role="camera_foundation_teacher",
+                component_key="dinov2",
+                why_selected=(
+                    "Lowest-friction public foundation feature teacher with direct hub loading."
+                ),
+                replaces_current="scratch or torchvision-only camera feature bootstrapping",
+            ),
+            PlannedComponent(
+                role="camera_foundation_teacher_next",
+                component_key="dinov3",
+                why_selected=(
+                    "Higher-ceiling dense-feature teacher with public distilled ConvNeXt options."
+                ),
+                replaces_current="weak camera priors once DINOv2 is exhausted",
+            ),
+            PlannedComponent(
+                role="lidar_anchor_runtime",
                 component_key="openpcdet-centerpoint-pointpillar",
                 why_selected=(
-                    "Pillar-based LiDAR path preserves deployability and public checkpoint quality."
+                    "Pillar-based LiDAR anchors preserve deployability while grounding depth and "
+                    "3D box initialization."
                 ),
                 replaces_current="lightweight LiDAR seed encoder",
             ),
             PlannedComponent(
-                role="camera_runtime",
-                component_key="bevdet4d-bevdepth",
+                role="multimodal_teacher",
+                component_key="openpcdet-bevfusion",
                 why_selected=(
-                    "Temporal camera BEV lift is a solved upstream problem and should "
-                    "not be rebuilt "
-                    "around sparse per-query image sampling."
+                    "Use a dense multimodal teacher for geometry and BEV-space supervision without "
+                    "forcing the student into the same runtime shape."
                 ),
-                replaces_current="sparse proposal-ray camera path",
+                replaces_current="LiDAR-only teacher bootstrap ceiling",
             ),
             PlannedComponent(
-                role="fusion_trunk",
+                role="control_runtime",
                 component_key="mit-bevfusion",
                 why_selected=(
-                    "Single dense BEV tensor can serve both detection and vector-map heads."
+                    "Keep a reproduced dense-BEV control and deployment reference instead of "
+                    "pretending it is no longer relevant."
                 ),
-                replaces_current="query-level multimodal fusion blocks",
-            ),
-            PlannedComponent(
-                role="detection_head",
-                component_key="centerhead",
-                why_selected=(
-                    "Dense head removes ranking collapse and overproduction failure modes."
-                ),
-                replaces_current="custom objectness/query head",
+                replaces_current="unverified dense-BEV assumptions",
             ),
             PlannedComponent(
                 role="vector_map_head",
                 component_key="maptrv2",
                 why_selected=(
-                    "Vector-map head matches equal-priority lane/map scope better than the current "
-                    "light camera-dominant branch."
+                    "Vector-map head gives the right lane/map formulation once the shared latent "
+                    "is stable."
                 ),
                 replaces_current="camera-dominant lane head",
             ),
             PlannedComponent(
-                role="teacher_upper_bound",
-                component_key="openpcdet-bevfusion",
+                role="reasoning_teacher",
+                component_key="alpamayo-r1",
                 why_selected=(
-                    "Use a stronger public multimodal teacher before inventing new KD targets."
+                    "Use teacher-side reasoning and long-tail mining without burdening the "
+                    "student runtime."
                 ),
-                replaces_current="LiDAR-only teacher bootstrap ceiling",
+                replaces_current="ad hoc manual hard-case interpretation",
             ),
             PlannedComponent(
                 role="camera_efficiency_track",
                 component_key="efficientvit",
                 why_selected=(
-                    "Add only after baseline reproduction to specialize camera cost for Orin."
+                    "Add only after the new student branch is real to specialize cost for Orin."
                 ),
                 replaces_current="ad hoc torchvision backbone selection",
             ),
         ),
         milestones=(
             MigrationMilestone(
-                name="reproduce_upstream_baselines",
+                name="reproduce_unrestricted_teachers",
                 objective=(
-                    "Evaluate official OpenPCDet/BEVFusion/BEVDet/MapTR checkpoints locally and "
-                    "record the exact ceilings before new training."
-                ),
-                acceptance="All public baselines run and land within documented tolerance.",
-            ),
-            MigrationMilestone(
-                name="integrated_dense_bev_student",
-                objective=(
-                    "Stand up the first repo-native dense-BEV student using upstream-compatible "
-                    "interfaces and the shared BEV tensor."
+                    "Evaluate official OpenPCDet/BEVFusion/Sparse4D and DINO feature-loading "
+                    "paths locally and record the exact ceilings before new training."
                 ),
                 acceptance=(
-                    "Single integrated stack yields official detection and vector-map outputs from "
-                    "the same BEV trunk."
+                    "All public teachers or control baselines run and land within documented "
+                    "tolerance."
                 ),
             ),
             MigrationMilestone(
-                name="teacher_driven_lift",
+                name="foundation_camera_projector",
                 objective=(
-                    "Distill BEV features and dense heads from strong public teachers into the "
-                    "production student."
+                    "Add frozen DINOv2 first and DINOv3 second as projected camera features into "
+                    "the runtime student."
                 ),
-                acceptance="Teacher-on runs beat teacher-off runs on official mini metrics.",
+                acceptance=(
+                    "The projected-feature student trains stably and beats the non-foundation "
+                    "camera branch on official mini metrics."
+                ),
             ),
             MigrationMilestone(
-                name="hardware_specialization",
+                name="perspective_supervised_sparse_student",
                 objective=(
-                    "Use HAN-Lab style specialization and TensorRT-aware quantization for the "
-                    "production student."
+                    "Stand up the first repo-native student that combines sparse temporal "
+                    "aggregation, perspective supervision, and LiDAR anchors."
                 ),
-                acceptance="The student has a credible AGX Orin FP16/INT8 deployment path.",
+                acceptance=(
+                    "The new student materially beats the current local frontier on official mini "
+                    "metrics."
+                ),
+            ),
+            MigrationMilestone(
+                name="teacher_driven_bev_and_quality_lift",
+                objective=(
+                    "Distill quality maps, proposal quality, and BEV-space teacher signals from "
+                    "the unrestricted teachers."
+                ),
+                acceptance=(
+                    "Teacher-on runs materially beat teacher-off runs on official mini metrics."
+                ),
+            ),
+            MigrationMilestone(
+                name="lane_and_efficiency_specialization",
+                objective=(
+                    "Add the MapTRv2 lane/vector head under detection non-regression, then apply "
+                    "HAN-Lab style specialization and TensorRT-aware quantization."
+                ),
+                acceptance=(
+                    "The student has a credible AGX Orin FP16/INT8 path and a measured joint "
+                    "detection+lane non-regression artifact."
+                ),
             ),
         ),
         deferred_tracks=(
-            "DINOv2/DINOv3 dense-feature teachers after the BEV baseline exists",
+            "Pure dense-BEV runtime migration as the main architecture thesis",
             "SAM2 offline proposal priors after detection and vector-map quality are real",
-            "Any further query-only runtime research until the dense-BEV reset is proven",
+            "Any further weight-only local winner-line nudges after two stalled runs",
         ),
         primary_sources=(
-            SourceRef("BEVFusion", "https://github.com/mit-han-lab/bevfusion", "repo"),
-            SourceRef("OpenPCDet", "https://github.com/open-mmlab/OpenPCDet", "repo"),
-            SourceRef("BEVDet", "https://github.com/HuangJunJie2017/BEVDet", "repo"),
-            SourceRef("MapTR", "https://github.com/hustvl/MapTR", "repo"),
+            SourceRef("Sparse4D", "https://github.com/HorizonRobotics/Sparse4D", "repo"),
             SourceRef(
-                "DeepStream DS3D BEVFusion",
+                "BEVFormer v2",
                 (
-                    "https://docs.nvidia.com/metropolis/deepstream/7.1/text/"
-                    "DS_3D_MultiModal_Lidar_Camera_BEVFusion.html"
+                    "https://openaccess.thecvf.com/content/CVPR2023/papers/"
+                    "Yang_BEVFormer_v2_Adapting_Modern_Image_Backbones_to_Birds-Eye-View_"
+                    "Recognition_via_CVPR_2023_paper.pdf"
                 ),
+                "paper",
+            ),
+            SourceRef("OpenPCDet", "https://github.com/open-mmlab/OpenPCDet", "repo"),
+            SourceRef("MapTR", "https://github.com/hustvl/MapTR", "repo"),
+            SourceRef("DINOv2", "https://github.com/facebookresearch/dinov2", "repo"),
+            SourceRef("DINOv3", "https://github.com/facebookresearch/dinov3", "repo"),
+            SourceRef(
+                "NVIDIA Alpamayo",
+                "https://nvidianews.nvidia.com/news/alpamayo-autonom",
                 "docs",
             ),
         ),

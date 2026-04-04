@@ -1,12 +1,14 @@
-"""Gap analysis between the legacy sparse-query repo and the dense-BEV reset target.
+"""Gap analysis between the legacy sparse-query repo and the reset target.
 
 References:
-- BEVFusion unified BEV design:
-  https://github.com/mit-han-lab/bevfusion
-- OpenPCDet public model zoo:
+- Sparse4D:
+  https://github.com/HorizonRobotics/Sparse4D
+- BEVFormer v2:
+  https://openaccess.thecvf.com/content/CVPR2023/papers/Yang_BEVFormer_v2_Adapting_Modern_Image_Backbones_to_Birds-Eye-View_Recognition_via_CVPR_2023_paper.pdf
+- OpenPCDet:
   https://github.com/open-mmlab/OpenPCDet
-- BEVDet temporal camera lifting:
-  https://github.com/HuangJunJie2017/BEVDet
+- DINOv2:
+  https://github.com/facebookresearch/dinov2
 """
 
 from __future__ import annotations
@@ -58,108 +60,106 @@ def analyze_reset_gap() -> GapReport:
         current_runtime="legacy_sparse_query_multimodal_student",
         target_runtime=plan.name,
         move_now_reason=(
-            "The current repo has strong data/eval/teacher plumbing but still depends on custom "
-            "query-level detection logic that has underperformed public dense BEV baselines by a "
-            "wide margin."
+            "The current repo has strong data/eval/teacher plumbing but still lacks a runtime "
+            "camera path that exploits foundation features, perspective supervision, and stronger "
+            "teacher outputs."
         ),
         gaps=(
             GapItem(
                 area="primary_representation",
                 severity="critical",
                 current_state="Sparse query bank with query-level temporal memory.",
-                target_state="Shared dense BEV tensor with short temporal BEV memory.",
+                target_state=(
+                    "Sparse temporal instance memory with perspective-supervised camera features "
+                    "and a compact shared latent for lane/map supervision."
+                ),
                 why_it_matters=(
-                    "Equal-priority detection and lane/map tasks need one mature shared state, not "
-                    "two partially coupled query branches."
+                    "The current runtime has neither the sparse temporal maturity of Sparse4D nor "
+                    "the direct backbone supervision of BEVFormer v2."
                 ),
                 recommended_action=(
-                    "Adopt the BEVFusion/BEVDet representation and keep sparse-query code only as "
-                    "a legacy experiment branch."
+                    "Promote a Sparse4D-style temporal core and keep the old local query stack "
+                    "only as legacy evidence."
                 ),
             ),
             GapItem(
-                area="camera_branch",
+                area="camera_foundation",
                 severity="critical",
                 current_state="Torchvision backbone plus sparse proposal-ray lifting.",
                 target_state=(
-                    f"{component_by_key('bevdet4d-bevdepth').name} temporal camera BEV encoder."
+                    f"{component_by_key('dinov2').name} / {component_by_key('dinov3').name} "
+                    "projected into the camera branch."
                 ),
                 why_it_matters=(
-                    "The repo currently reinvents camera BEV lifting instead of using a stronger, "
-                    "publicly validated temporal camera path."
+                    "The repo is still trying to learn high-level camera features from scratch on "
+                    "tiny datasets instead of reusing public foundation features."
                 ),
                 recommended_action=(
-                    "Replace sparse camera lifting with a BEVDet4D/BEVDepth-compatible encoder."
+                    "Add a frozen camera foundation projector path before opening more local "
+                    "runtime tweaks."
                 ),
             ),
             GapItem(
-                area="detection_head",
+                area="perspective_supervision",
                 severity="critical",
-                current_state="Custom query/objectness head with calibration-heavy ranking.",
-                target_state=f"{component_by_key('centerhead').name} dense head.",
+                current_state="BEV-only supervision and ranking-heavy teacher guidance.",
+                target_state=(
+                    f"{component_by_key('bevformer-v2').name} style perspective auxiliary head."
+                ),
                 why_it_matters=(
-                    "Ranking collapse, overproduction, and weak car emergence have all centered on "
-                    "the custom head."
+                    "Public evidence says strong image backbones need direct perspective-side 3D "
+                    "supervision to adapt well to BEV or sparse 3D detection."
                 ),
                 recommended_action=(
-                    "Promote a CenterPoint-style dense heatmap head as the default detector."
+                    "Add a perspective head before spending more budget on ranking-only fixes."
                 ),
             ),
             GapItem(
-                area="multitask_scope",
-                severity="high",
-                current_state="Detection-first runtime with a light camera-dominant lane branch.",
-                target_state=f"{component_by_key('maptrv2').name} on top of shared BEV.",
-                why_it_matters=(
-                    "Lane/map parity requires the same BEV trunk to support vector outputs, not a "
-                    "side branch bolted onto detection queries."
-                ),
-                recommended_action=(
-                    "Move lane/map supervision onto the dense BEV trunk and treat OpenLane as an "
-                    "auxiliary eval/teacher path."
-                ),
-            ),
-            GapItem(
-                area="teacher_ceiling",
+                area="teacher_suite",
                 severity="high",
                 current_state="LiDAR-heavy teacher bootstrap used mainly for seed replacement.",
                 target_state=(
-                    f"{component_by_key('openpcdet-bevfusion').name} or similar multimodal teacher "
-                    "with BEV/head distillation."
+                    f"{component_by_key('openpcdet-bevfusion').name} plus "
+                    f"{component_by_key('sparse4dv3').name} / foundation camera teachers."
                 ),
                 why_it_matters=(
-                    "A LiDAR-only teacher cannot teach the camera BEV path or vector-map branch."
+                    "A geometry-only teacher cannot teach the camera branch to represent 3D cues "
+                    "the way stronger camera-temporal systems do."
                 ),
                 recommended_action=(
-                    "Upgrade the teacher suite to shared-BEV and dense-head distillation targets."
+                    "Upgrade the teacher suite to geometry, camera-foundation, and sparse-camera "
+                    "teachers rather than only stronger anchor replacement."
+                ),
+            ),
+            GapItem(
+                area="lane_multitask",
+                severity="high",
+                current_state="Detection-first runtime with a light camera-dominant lane branch.",
+                target_state=f"{component_by_key('maptrv2').name} on top of the shared latent.",
+                why_it_matters=(
+                    "Lane/map parity needs a real vector head and explicit non-regression gates, "
+                    "not an afterthought side branch."
+                ),
+                recommended_action=(
+                    "Stage lane separately on OpenLane first, then add MapTRv2-style supervision "
+                    "only after the latent is stable."
                 ),
             ),
             GapItem(
                 area="deployment_path",
                 severity="high",
-                current_state="ONNX/TensorRT exists only for the simplified legacy core.",
-                target_state="TensorRT and DeepStream DS3D-compatible dense-BEV deployment path.",
+                current_state="ONNX/TensorRT exists mainly for simplified legacy or control paths.",
+                target_state=(
+                    "Activation-checkpointed, GPU-auto-fit student with a credible Orin "
+                    "deployment path."
+                ),
                 why_it_matters=(
-                    "AGX Orin is a first-class target, so the runtime must align with NVIDIA's "
-                    "supported multimodal stack shape."
+                    "The next student branch will use stronger teachers and camera features, so it "
+                    "must adapt to local GPU RAM without becoming a one-off lab artifact."
                 ),
                 recommended_action=(
-                    "Use BEVFusion-compatible TensorRT chunking and DeepStream guidance as the "
-                    "deployment contract."
-                ),
-            ),
-            GapItem(
-                area="efficiency_specialization",
-                severity="medium",
-                current_state="Ad hoc backbone selection and local latency heuristics.",
-                target_state=f"{component_by_key('ofa-amc-haq').name} after baseline reproduction.",
-                why_it_matters=(
-                    "The repo needs hardware-aware specialization, but only after the perception "
-                    "stack itself is no longer the bottleneck."
-                ),
-                recommended_action=(
-                    "Treat EfficientViT/OFA/AMC/HAQ as phase-2 optimizers, not as a substitute for "
-                    "the dense-BEV reset."
+                    "Add activation checkpointing, GPU auto-fit, and keep BEVFusion/DeepStream as "
+                    "control deployment references while the new student matures."
                 ),
             ),
         ),

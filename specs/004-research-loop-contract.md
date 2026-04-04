@@ -16,12 +16,21 @@ The loop must be run with first-principles skepticism:
 - refresh the design space with primary papers, official repos, and official weights when
   progress stalls, especially for KD, teacher-student design, pretrained backbones, query design,
   multimodal fusion, and deployment tradeoffs
-- if a public dense-BEV upstream stack is materially better supported than the current custom
-  sparse-query line, treat that reset as the main search direction
+- if a public upstream stack or teacher suite is materially better supported than the current
+  custom sparse-query line, treat that reset as the main search direction
 
 The loop must treat KD as a menu of candidate mechanisms, not a single checkbox. Candidate
 directions include logits, feature, lightweight `1x1` alignment, dense teacher outputs such as
 heatmaps or BEV maps, relational, online, mutual, self-distillation, and teacher-anchor transfer.
+
+The default reset target is now a foundation-teacher perspective-sparse student:
+
+- Sparse4D-style sparse temporal aggregation for the runtime student
+- BEVFormer v2-style perspective supervision on the camera backbone
+- DINOv2 first and DINOv3 second as projected camera foundation features
+- OpenPCDet / BEVFusion as geometry and multimodal teachers
+- MapTRv2 as the staged lane/vector-map head
+- Alpamayo as a teacher/evaluator only, not as the runtime perception trunk
 
 For the current TSQBEV student, the bounded loop should prefer KD interventions in this order
 unless local evidence strongly contradicts it:
@@ -80,7 +89,7 @@ The loop must also operate from durable local memory:
 - fixed comparable train budget per recipe: `max_train_steps = 960`
 - loop shape:
   - baseline or carry-over incumbent recheck
-  - dense-BEV reset baselines when available
+  - dense-BEV reset baselines when available as control teachers
   - paired teacher-off versus teacher-on comparison when a teacher cache is available
   - bounded exploration
   - bounded exploitation derived from the current incumbent
@@ -89,7 +98,11 @@ The loop must also operate from durable local memory:
 
 ## Allowed Recipe Changes
 
-- dense-BEV architecture choices across LiDAR, camera, fusion, detection, and lane/map heads
+- sparse temporal aggregation family
+- runtime camera foundation backbone family and projection policy
+- perspective auxiliary head choice and weighting
+- LiDAR anchor prior family
+- dense-BEV teacher or control-arm choice
 - compact pretrained image-backbone family
 - pretrained image-backbone freeze policy
 - optional cache-backed external teacher provider
@@ -105,6 +118,7 @@ The loop must also operate from durable local memory:
 - bounded score-threshold / top-k calibration
 - label-safe augmentation mode
 - teacher-region objectness / ranking supervision derived from cached teacher boxes and scores
+- activation checkpointing and GPU auto-fit policy
 
 ## Required Per-Run Metadata
 
@@ -169,6 +183,9 @@ updates the corresponding camera intrinsics and supervision transforms correctly
 
 If a run keeps a best checkpoint that materially outperforms its last checkpoint, the selected
 checkpoint and selected-epoch metrics are the ones that count for promotion.
+
+After two winner-line stalls or regressions, the next invocation must open a fresh architecture or
+teacher-family branch rather than another weight-only exploit in the same family.
 
 ## Teacher Comparison Rule
 

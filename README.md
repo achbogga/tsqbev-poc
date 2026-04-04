@@ -1,8 +1,9 @@
 # tsqbev-poc
 
-`tsqbev-poc` is a public migration scaffold for multimodal BEV perception. The current codebase
-still carries a legacy sparse-query student for comparison, but the primary target is now a dense
-BEV fusion stack built from public upstreams and tuned for deployment validation.
+`tsqbev-poc` is a public migration scaffold for multimodal 3D perception. The current codebase
+still carries a legacy sparse-query student for comparison, but the primary target is now a
+foundation-teacher, perspective-supervised sparse temporal student tuned for deployment
+validation.
 
 [![CI](https://github.com/achbogga/tsqbev-poc/actions/workflows/ci.yml/badge.svg)](https://github.com/achbogga/tsqbev-poc/actions/workflows/ci.yml)
 ![Scale Up](https://img.shields.io/badge/scale_up-blocked-d73a49)
@@ -14,7 +15,8 @@ BEV fusion stack built from public upstreams and tuned for deployment validation
 
 - the legacy sparse-query line remains comparison evidence only
 - LiDAR, camera, and map/lane are equal-priority targets in the reset stack
-- dense BEV fusion is the primary target architecture
+- the primary runtime target is no longer pure dense-BEV fusion
+- strong dense-BEV systems remain first-class teachers and controls
 - distillation is designed in from the start
 - optional external LiDAR teacher bootstrap is scaffolded
 - ONNX, TensorRT, and Orin deployment stay first-class concerns
@@ -28,14 +30,14 @@ When tracking is enabled, runs are mirrored to Weights & Biases under the entity
 | --- | --- | --- |
 | CI | 🟢 Passing | `ruff`, `mypy`, `pytest` currently pass locally; GitHub Actions badge is wired in |
 | Legacy mini incumbent | 🟡 Real but weak | `mini_propheavy_mbv3_frozen_query_boost`, `mini_val NDS = 0.01581`, `mAP = 1.11e-04`, `17.19 ms` |
-| Dense-BEV reset | 🟢 Detection reproduced | target stack documented in [docs/stack-reset.md](docs/stack-reset.md); the official BEVFusion Docker path is codified in [docs/bevfusion-baseline-runbook.md](docs/bevfusion-baseline-runbook.md), local detection reproduction reached `mAP 0.6730 / NDS 0.7072`, and the next upstream step is segmentation |
+| Reset direction | 🟢 Finalized | target stack documented in [docs/stack-reset.md](docs/stack-reset.md) and [docs/foundation-teacher-direction-2026-04-04.md](docs/foundation-teacher-direction-2026-04-04.md); BEVFusion is reproduced as a control/teacher, while the runtime target is now a foundation-teacher perspective-sparse student |
 | Teacher bootstrap | 🟢 Verified | external OpenPCDet `CenterPoint-PointPillar` reached `0.4997 NDS` on `mini_val`; cache coverage is full |
 | Legacy teacher lift | 🟡 Strong on overfit, not scale-ready | corrected 32-sample balanced teacher-anchor overfit reached `NDS = 0.1001`, `mAP = 0.1391`, `car AP@4m = 0.5327`, and `7` nonzero classes; paired `mini_val` lift is still unproven |
 | Scale-up readiness | 🔴 Blocked | the main remaining blocker is optimization: the repaired overfit run still missed the `train_total_ratio <= 0.40` gate at `0.4703` |
 | Tracking | 🟢 Online | W&B smoke run synced under `achbogga-track` |
 | Research memory | 🟢 Local-first | exact research catalog, semantic evidence index, PI brief generation, and service-backed Mem0 sync are now built into the repo |
 
-The current state is straightforward: the public repo is healthy, tested, deploy-checked, and tracked. The legacy student model is still not strong enough to justify scaling compute by 10x, but the reset stack is no longer hypothetical: the official BEVFusion detection baseline has now been reproduced locally, and segmentation is next.
+The current state is straightforward: the public repo is healthy, tested, deploy-checked, and tracked. The local student still is not strong enough to justify scaling compute by 10x, but the direction is no longer ambiguous: BEVFusion is the reproduced dense control ceiling, and the active runtime thesis is now a perspective-supervised sparse temporal student with stronger foundation teachers.
 
 ## What This Repo Is
 
@@ -46,18 +48,20 @@ The current state is straightforward: the public repo is healthy, tested, deploy
 
 ## Target Stack
 
-The current reset target is a dense-BEV fusion stack built from public upstreams:
+The current reset target is a foundation-teacher perspective-sparse stack built from public
+upstreams:
 
-- LiDAR encoder: `OpenPCDet` / `PointPillars` / `CenterPoint`
-- camera encoder: `BEVDet` / `BEVDepth`
-- fusion trunk: `BEVFusion`
+- runtime student core: `Sparse4D`-style sparse temporal aggregation
+- perspective auxiliary path: `BEVFormer v2`-style supervision
+- camera foundation priors: `DINOv2` first, `DINOv3` second
+- LiDAR grounding: `OpenPCDet` / `PointPillars` / `CenterPoint`
+- dense geometry teachers and controls: `OpenPCDet` / `BEVFusion`
 - lane / map head: `MapTRv2` family
 - public lane reference path: `OpenLane` / `PersFormer`
-- optional dense teachers or feature priors: `DINOv2` / `DINOv3`
-- deployment specialization: `EfficientViT`, then `OFA` / `AMC` / `HAQ` for compression and quantization
+- reasoning teacher / evaluator: `Alpamayo`
+- deployment specialization: `EfficientViT`, then `OFA` / `AMC` / `HAQ`
 
-The dense-BEV reset is still a scaffolded migration target in this repo. It is not yet the fully
-integrated runtime.
+The dense-BEV control arm remains important, but it is no longer the only migration target.
 
 ## What This Repo Is Not
 

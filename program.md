@@ -32,10 +32,12 @@ These instructions are durable repo policy, not one-off chat guidance.
   - establish a real OpenLane baseline and evaluation artifact first
   - do not mix lane into the active detection loop until detection is no longer bottlenecked by
     ranking and source-mix collapse
-- if a public dense-BEV upstream stack is better supported than the current custom path, pivot to
-  it rather than deepening the custom sparse-query line
-- treat BEVFusion, OpenPCDet, BEVDet / BEVDepth, MapTRv2, EfficientViT, DINOv2 / DINOv3, and
-  MIT HAN Lab compression methods as first-class candidates
+- if a public upstream stack or teacher suite is better supported than the current custom path,
+  pivot to it rather than deepening the custom sparse-query line
+- treat Sparse4D, BEVFormer v2, OpenPCDet, BEVFusion, MapTRv2, EfficientViT, DINOv2 / DINOv3,
+  Alpamayo, and MIT HAN Lab compression methods as first-class candidates
+- treat Alpamayo as a teacher/evaluator and long-tail mining tool, not as the in-vehicle runtime
+  perception trunk
 - prefer the highest-ROI falsifiable change first, not the most fashionable or largest one
 - fix small blockers immediately when they are clearly slowing the loop
 - do not stop after one run if the next step is clear and bounded
@@ -82,15 +84,16 @@ Before any invocation:
 ## In-Scope Surface
 
 The bounded loop is intentionally narrower than the official `autoresearch` baseline, and the
-active architecture search target is now a dense-BEV fusion stack rather than the legacy
-sparse-query prototype.
+active architecture search target is now a foundation-teacher perspective-sparse student rather
+than either the legacy sparse-query prototype or a pure dense-BEV runtime.
 
 Allowed mutation surfaces:
 
-- LiDAR BEV encoder family
-- camera BEV encoder family
-- BEV fusion trunk choice
-- detection head choice
+- runtime camera foundation backbone and projection policy
+- perspective auxiliary head choice and weighting
+- sparse temporal aggregation family
+- LiDAR anchor prior family
+- dense-BEV teacher or control-arm choice
 - lane / map head choice
 - compact pretrained image-backbone family
 - pretrained image-backbone freeze policy
@@ -104,6 +107,7 @@ Allowed mutation surfaces:
 - bounded score-threshold / top-k calibration
 - optional cached external LiDAR teacher guidance, including full seed replacement
 - teacher-anchor selection policy inside the fixed seed budget
+- activation checkpointing and GPU auto-fit policy for large frozen teachers
 
 Read-only surfaces during the loop:
 
@@ -128,8 +132,15 @@ Follow the strongest transferable ideas from `karpathy/autoresearch`, adapted to
   low-ROI exploit families automatically instead of reopening them by habit
 - preserve failed runs in the ledger instead of deleting evidence
 - record the active bottleneck and token-burn score for each direction under investigation
-- keep the legacy sparse-query line only as a bounded comparison control unless the dense-BEV
-  reset is clearly worse on the same evidence
+- keep the legacy sparse-query line only as a bounded comparison control unless the current reset
+  is clearly worse on the same evidence
+- if two consecutive winner-line continuations fail to produce a meaningful improvement, stop
+  nudging weights and pivot to a new architecture or teacher family backed by fresh literature
+- the default pivot order is:
+  1. DINOv2/DINOv3 feature projection into the camera branch
+  2. BEVFormer v2-style perspective supervision
+  3. stronger BEV-space distillation from OpenPCDet / BEVFusion teachers
+  4. staged lane/map integration through MapTRv2
 
 The active local loop shape is:
 

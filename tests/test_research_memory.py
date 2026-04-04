@@ -22,7 +22,13 @@ def _write(path: Path, content: str) -> None:
 
 def _make_repo_fixture(tmp_path: Path) -> Path:
     repo_root = tmp_path / "repo"
-    _write(repo_root / "README.md", "# tsqbev-poc\n\nCurrent reset target is dense BEV fusion.\n")
+    _write(
+        repo_root / "README.md",
+        (
+            "# tsqbev-poc\n\nCurrent reset target is a foundation-teacher "
+            "perspective-sparse student.\n"
+        ),
+    )
     _write(repo_root / "program.md", "Status: enabled.\n")
     _write(repo_root / "AGENTS.md", "# Agent Rules\n\nUse memory-first research.\n")
     _write(
@@ -31,7 +37,7 @@ def _make_repo_fixture(tmp_path: Path) -> Path:
     )
     _write(
         repo_root / "docs" / "steering.md",
-        "# Steering\n\nPrioritize dense-BEV reset evidence.\n",
+        "# Steering\n\nPrioritize foundation-teacher perspective-sparse reset evidence.\n",
     )
     _write(
         repo_root / "specs" / "004-research-loop-contract.md",
@@ -83,7 +89,10 @@ def _make_repo_fixture(tmp_path: Path) -> Path:
             "reason": "optimization gate remains blocked by weak mini generalization",
         },
         "recommended_next_steps": [
-            "Continue dense-BEV reset reproduction and compare against BEVFusion.",
+            (
+                "Continue the foundation-teacher reset and compare against reproduced "
+                "BEVFusion and Sparse4D ceilings."
+            ),
             "Do not scale compute until the gate is cleared.",
         ],
     }

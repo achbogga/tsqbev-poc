@@ -20,31 +20,34 @@ fusion reset stack built from public upstreams.
 
 ## Immediate Agenda
 
-The active short-horizon agenda is tracked in [agenda-2026-04-02.md](./agenda-2026-04-02.md).
+The active short-horizon agenda is now tracked in [agenda-2026-04-04.md](./agenda-2026-04-04.md).
 
 The current bounded next steps are:
 
-- detection: teacher-region objectness plus label-safe camera/LiDAR augmentation on the incumbent
-  mini loop
+- detection: finish the current winner-line control run, then pivot to the `DINOv2` projector path
+  and `BEVFormer v2`-style perspective supervision if the line stalls
 - lane: isolated OpenLane V1 bootstrap, export, and evaluation sanity before any joint
   detection+lane claims
-- architecture: keep the dense-BEV reset as the control arm, but do not let it stall the active
-  bounded student loop
+- architecture: treat dense-BEV reproduction as a control and teacher path, while the primary
+  runtime direction becomes a foundation-teacher perspective-sparse student
 
 ## Reset Target Stack
 
-The new primary target is a dense-BEV fusion stack with public upstream support:
+The new primary target is a foundation-teacher perspective-sparse stack with public upstream
+support:
 
-- LiDAR BEV encoder: `OpenPCDet` / `CenterPoint-PointPillar`
-- camera BEV encoder: `BEVDet` / `BEVDepth`
-- fusion trunk: `BEVFusion`
-- detection head: `CenterHead`-style dense detection
-- lane / map head: `MapTRv2`-style vector output on the shared BEV
+- runtime perception core: `Sparse4D`-style sparse temporal aggregation
+- camera adaptation: `BEVFormer v2`-style perspective supervision
+- camera foundation priors: `DINOv2` first, `DINOv3` second
+- LiDAR grounding: `OpenPCDet` / `CenterPoint-PointPillar`
+- geometry and multimodal teacher ceiling: `OpenPCDet` / `BEVFusion`
+- lane / map head: `MapTRv2`-style vector output on the shared latent
 - efficiency branch: `EfficientViT`, then `OFA` / `AMC` / `HAQ`
-- optional dense priors: `DINOv2` / `DINOv3`
+- reasoning teacher and hard-case miner: `Alpamayo`
 
 The legacy sparse-query line remains in this repo as comparison evidence and a fallback benchmark,
-but it is no longer the primary architecture target.
+and the dense-BEV reset remains an important control arm, but neither is now the primary runtime
+architecture thesis.
 
 ## Standing Research Directives
 
@@ -230,9 +233,9 @@ integration cost, uncertainty, and evidence gain before more time or compute is 
 - Public-data work should stay measured and reproducible.
 - Local tuning should use `v1.0-mini` first and only promote after recorded evidence.
 - The active forward agenda is documented in
-  [docs/agenda-2026-04-02.md](./agenda-2026-04-02.md): bounded ranking-side KD and
-  label-safe augmentation first, then a lane warm-start sidecar, then only later joint lane +
-  detection work.
+  [docs/agenda-2026-04-04.md](./agenda-2026-04-04.md): current winner-line control completion,
+  then foundation camera projection and perspective supervision, then a lane warm-start sidecar,
+  and only later joint lane + detection work.
 
 ## Legacy System Goal
 
