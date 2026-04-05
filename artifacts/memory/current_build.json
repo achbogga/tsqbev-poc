@@ -1,0 +1,13 @@
+{
+  "build_id": "20260405T223328Z-647b888",
+  "generated_at_utc": "2026-04-05T22:34:56.375570+00:00",
+  "build_root": "/home/achbogga/projects/tsqbev-poc/.local/research-memory/builds/20260405T223328Z-647b888",
+  "catalog_path": "/home/achbogga/projects/tsqbev-poc/.local/research-memory/builds/20260405T223328Z-647b888/catalog.duckdb",
+  "qdrant_evidence_collection": "tsqbev_evidence",
+  "qdrant_memory_collection": "tsqbev_memories",
+  "mem0_qdrant_collection": "tsqbev_mem0",
+  "repo_sha": "647b888",
+  "fact_count": 65,
+  "event_count": 2649,
+  "evidence_count": 1301
+}

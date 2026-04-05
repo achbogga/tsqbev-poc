@@ -1,5 +1,5 @@
 # Research Brief
-_Generated: `2026-04-05T18:07:56.096008+00:00`_
+_Generated: `2026-04-05T22:36:15.597275+00:00`_
 
 ## Current State
 - Local incumbent: `carryover_carryover_carryover_carryover_carryover_carryover_recovery_v14_teacher_anchor_quality_focal_teacher_quality_query_boost_quality_rank_teacher_quality_plus_quality_rank_finegrid` with NDS `0.1833`, mAP `0.1814`, val total `10.6925` from [artifacts/research_v29_continuation_v1/research_loop/results.jsonl](artifacts/research_v29_continuation_v1/research_loop/results.jsonl).
@@ -16,7 +16,7 @@ _Generated: `2026-04-05T18:07:56.096008+00:00`_
 
 ## Open Blockers
 - Scale-up blocker: at least one scale gate remains unmet; do not spend 10x compute yet ([artifacts/research_v29_continuation_v1/research_loop/summary.json](artifacts/research_v29_continuation_v1/research_loop/summary.json)).
-- Repeated rabbit-hole signal: `incremental_progress` appeared `85` times.
+- Repeated rabbit-hole signal: `incremental_progress` appeared `86` times.
 - Repeated rabbit-hole signal: `schedule_checkpoint_drift` appeared `35` times.
 - Repeated rabbit-hole signal: `vehicle_emergence_failure` appeared `22` times.
 
@@ -30,6 +30,6 @@ _Generated: `2026-04-05T18:07:56.096008+00:00`_
 - Exact ratio-passing overfit evidence: [artifacts/gates/recovery_v14_teacher_anchor_quality_focal/overfit_gate/summary.json](artifacts/gates/recovery_v14_teacher_anchor_quality_focal/overfit_gate/summary.json).
 - Exact upstream evidence: [artifacts/bevfusion_repro/bevfusion_bbox_summary.json](artifacts/bevfusion_repro/bevfusion_bbox_summary.json).
 - Exact blocker evidence: [artifacts/research_v29_continuation_v1/research_loop/summary.json](artifacts/research_v29_continuation_v1/research_loop/summary.json).
-- Lexical evidence: `artifacts/research_v19_anchor_mix_teachercache_v2/research_loop/summary.json [126]` via [artifacts/research_v19_anchor_mix_teachercache_v2/research_loop/summary.json](artifacts/research_v19_anchor_mix_teachercache_v2/research_loop/summary.json).
-- Lexical evidence: `artifacts/autoresearch/invocation_001_20260402-223011/research_loop/summary.json [132]` via [artifacts/autoresearch/invocation_001_20260402-223011/research_loop/summary.json](artifacts/autoresearch/invocation_001_20260402-223011/research_loop/summary.json).
-- Lexical evidence: `artifacts/research_v23_teacher_quality_carry/research_loop/summary.json [135]` via [artifacts/research_v23_teacher_quality_carry/research_loop/summary.json](artifacts/research_v23_teacher_quality_carry/research_loop/summary.json).
+- Lexical evidence: `README.md [16]` via [README.md](README.md).
+- Lexical evidence: `docs/upstream-baselines.md [4]` via [docs/upstream-baselines.md](docs/upstream-baselines.md).
+- Lexical evidence: `docs/bevfusion-baseline-runbook.md [1]` via [docs/bevfusion-baseline-runbook.md](docs/bevfusion-baseline-runbook.md).

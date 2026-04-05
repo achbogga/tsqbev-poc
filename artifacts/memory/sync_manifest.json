@@ -1,26 +1,71 @@
 {
-  "generated_at_utc": "2026-04-05T18:07:54.730227+00:00",
-  "repo_sha": "0fa08e6",
+  "generated_at_utc": "2026-04-05T22:34:56.375570+00:00",
+  "build_id": "20260405T223328Z-647b888",
+  "build_dir": "/home/achbogga/projects/tsqbev-poc/.local/research-memory/builds/20260405T223328Z-647b888",
+  "repo_sha": "647b888",
   "repo_root": "/home/achbogga/projects/tsqbev-poc",
-  "catalog_path": "/home/achbogga/projects/tsqbev-poc/.local/research-memory/catalog.duckdb",
-  "event_count": 2630,
-  "evidence_count": 59455,
-  "fact_count": 8,
+  "catalog_path": "/home/achbogga/projects/tsqbev-poc/.local/research-memory/builds/20260405T223328Z-647b888/catalog.duckdb",
+  "event_count": 2649,
+  "evidence_count": 1301,
+  "fact_count": 65,
   "qdrant": {
     "enabled": false,
-    "mode": "server",
-    "reason": "UnexpectedResponse()",
+    "mode": null,
+    "reason": "disabled by configuration",
     "indexed_chunks": 0,
-    "embedder_provider": "hash"
+    "embedder_provider": "fastembed",
+    "evidence_collection": "tsqbev_evidence",
+    "memory_collection": "tsqbev_memories"
+  },
+  "reranker": {
+    "enabled": true,
+    "provider": "fastembed",
+    "reason": null,
+    "fallback_reason": "COHERE_API_KEY is not configured",
+    "configured_provider": "cohere",
+    "configured_model": "jinaai/jina-reranker-v2-base-multilingual",
+    "configured_cohere_model": "rerank-v4.0-pro"
   },
   "mem0": {
-    "enabled": true,
-    "reason": null,
-    "synced_now": 8,
+    "enabled": false,
+    "reason": "disabled by configuration",
+    "synced_now": 0,
     "spool": {
       "attempted": 0,
       "flushed": 0,
-      "remaining": 0
-    }
+      "remaining": 65
+    },
+    "collection_name": "tsqbev_mem0"
+  },
+  "knowledge_base": {
+    "knowledge_fact_count": 57,
+    "knowledge_pack_count": 7
+  },
+  "phase_timings_s": {
+    "collect_events": 13.3981,
+    "collect_chunks": 0.5813,
+    "derive_facts": 0.018,
+    "upsert_events": 46.0291,
+    "upsert_chunks": 14.3746,
+    "upsert_facts": 1.1253,
+    "qdrant_sync": 11.807,
+    "mem0_sync": 0.0194
+  },
+  "build_root": "/home/achbogga/projects/tsqbev-poc/.local/research-memory/builds/20260405T223328Z-647b888",
+  "qdrant_evidence_collection": "tsqbev_evidence",
+  "qdrant_memory_collection": "tsqbev_memories",
+  "mem0_qdrant_collection": "tsqbev_mem0",
+  "current_build": {
+    "build_id": "20260405T223328Z-647b888",
+    "generated_at_utc": "2026-04-05T22:34:56.375570+00:00",
+    "build_root": "/home/achbogga/projects/tsqbev-poc/.local/research-memory/builds/20260405T223328Z-647b888",
+    "catalog_path": "/home/achbogga/projects/tsqbev-poc/.local/research-memory/builds/20260405T223328Z-647b888/catalog.duckdb",
+    "qdrant_evidence_collection": "tsqbev_evidence",
+    "qdrant_memory_collection": "tsqbev_memories",
+    "mem0_qdrant_collection": "tsqbev_mem0",
+    "repo_sha": "647b888",
+    "fact_count": 65,
+    "event_count": 2649,
+    "evidence_count": 1301
   }
 }

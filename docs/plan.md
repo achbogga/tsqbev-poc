@@ -20,16 +20,17 @@ fusion reset stack built from public upstreams.
 
 ## Immediate Agenda
 
-The active short-horizon agenda is now tracked in [agenda-2026-04-04.md](./agenda-2026-04-04.md).
+The active public agenda is now tracked in [research-agenda.md](./research-agenda.md). The dated
+agenda notes remain useful as history, but the live agenda should be treated as the current source
+of truth.
 
 The current bounded next steps are:
 
-- detection: finish the current winner-line control run, then pivot to the `DINOv2` projector path
-  and `BEVFormer v2`-style perspective supervision if the line stalls
-- lane: isolated OpenLane V1 bootstrap, export, and evaluation sanity before any joint
-  detection+lane claims
+- detection: hold the trusted `v29` control, then only advance branches that target the
+  `DINOv3 + perspective supervision + teacher world-distillation` path
+- lane: keep lane isolated or staged until official detection non-regression is enforced
 - architecture: treat dense-BEV reproduction as a control and teacher path, while the primary
-  runtime direction becomes a foundation-teacher perspective-sparse student
+  runtime direction stays a foundation-teacher perspective-sparse student
 
 ## Reset Target Stack
 
@@ -38,7 +39,7 @@ support:
 
 - runtime perception core: `Sparse4D`-style sparse temporal aggregation
 - camera adaptation: `BEVFormer v2`-style perspective supervision
-- camera foundation priors: `DINOv2` first, `DINOv3` second
+- camera foundation priors: `DINOv3` first, `DINOv2` fallback
 - LiDAR grounding: `OpenPCDet` / `CenterPoint-PointPillar`
 - geometry and multimodal teacher ceiling: `OpenPCDet` / `BEVFusion`
 - lane / map head: `MapTRv2`-style vector output on the shared latent

@@ -124,6 +124,7 @@ class ResearchMemoryConfig(BaseModel):
     qdrant_path: Path = Field(default_factory=lambda: DEFAULT_MEMORY_ROOT / "qdrant")
     qdrant_evidence_collection: str = "tsqbev_evidence"
     qdrant_memory_collection: str = "tsqbev_memories"
+    qdrant_upsert_batch_size: int = 64
     mem0_enabled: bool = True
     mem0_user_id: str = "tsqbev-research-agent"
     mem0_qdrant_collection: str = "tsqbev_mem0"
@@ -202,6 +203,9 @@ class ResearchMemoryConfig(BaseModel):
             qdrant_mode=os.getenv("TSQBEV_QDRANT_MODE", "auto"),  # type: ignore[arg-type]
             qdrant_url=os.getenv("TSQBEV_QDRANT_URL", "http://127.0.0.1:6333"),
             qdrant_path=Path(os.getenv("TSQBEV_QDRANT_PATH", str(DEFAULT_MEMORY_ROOT / "qdrant"))),
+            qdrant_upsert_batch_size=int(
+                os.getenv("TSQBEV_QDRANT_UPSERT_BATCH_SIZE", "64")
+            ),
             mem0_enabled=_env_bool("TSQBEV_MEM0_ENABLED", True),
             mem0_user_id=os.getenv("TSQBEV_MEM0_USER_ID", "tsqbev-research-agent"),
             mem0_qdrant_collection=os.getenv("TSQBEV_MEM0_COLLECTION", "tsqbev_mem0"),
@@ -624,14 +628,22 @@ class ResearchCatalog:
     def close(self) -> None:
         self._conn.close()
 
+    def _executemany(self, sql: str, rows: list[tuple[Any, ...]]) -> int:
+        if not rows:
+            return 0
+        self._conn.execute("BEGIN TRANSACTION")
+        try:
+            self._conn.executemany(sql, rows)
+        except Exception:
+            self._conn.execute("ROLLBACK")
+            raise
+        self._conn.execute("COMMIT")
+        return len(rows)
+
     def upsert_events(self, events: Iterable[ResearchEvent]) -> int:
-        count = 0
+        rows: list[tuple[Any, ...]] = []
         for event in events:
-            self._conn.execute(
-                """
-                INSERT OR REPLACE INTO research_events
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
+            rows.append(
                 (
                     event.event_id,
                     event.event_type,
@@ -656,18 +668,20 @@ class ResearchCatalog:
                     event.val_total,
                     event.latency_ms,
                     _json_dumps(event.payload),
-                ),
+                )
             )
-            count += 1
-        return count
+        return self._executemany(
+            """
+            INSERT OR REPLACE INTO research_events
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            rows,
+        )
 
     def upsert_chunks(self, chunks: Iterable[EvidenceChunk]) -> int:
-        count = 0
+        rows: list[tuple[Any, ...]] = []
         for chunk in chunks:
-            self._conn.execute(
-                """
-                INSERT OR REPLACE INTO evidence_chunks VALUES (?, ?, ?, ?, ?, ?, ?)
-                """,
+            rows.append(
                 (
                     chunk.chunk_id,
                     chunk.source_path,
@@ -676,18 +690,19 @@ class ResearchCatalog:
                     chunk.text,
                     chunk.citation,
                     _json_dumps(chunk.payload),
-                ),
+                )
             )
-            count += 1
-        return count
+        return self._executemany(
+            """
+            INSERT OR REPLACE INTO evidence_chunks VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            rows,
+        )
 
     def upsert_facts(self, facts: Iterable[MemoryFact]) -> int:
-        count = 0
+        rows: list[tuple[Any, ...]] = []
         for fact in facts:
-            self._conn.execute(
-                """
-                INSERT OR REPLACE INTO memory_facts VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
+            rows.append(
                 (
                     fact.fact_id,
                     fact.kind,
@@ -700,10 +715,14 @@ class ResearchCatalog:
                     fact.git_sha,
                     fact.run_id,
                     _json_dumps(fact.payload),
-                ),
+                )
             )
-            count += 1
-        return count
+        return self._executemany(
+            """
+            INSERT OR REPLACE INTO memory_facts VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            rows,
+        )
 
     def record_sync(self, payload: dict[str, Any]) -> None:
         sync_id = _sha1(_json_dumps(payload))
@@ -1003,28 +1022,33 @@ class QdrantEvidenceIndex:
         self.ensure_collection(self.config.qdrant_evidence_collection)
         if not self.enabled or self._client is None:
             return 0
-        embeddings = self._embedder.embed_texts([chunk.text for chunk in chunks])
-        points = [
-            PointStruct(
-                id=_qdrant_point_id(chunk.chunk_id),
-                vector=embedding,
-                payload={
-                    "chunk_id": chunk.chunk_id,
-                    "source_path": chunk.source_path,
-                    "title": chunk.title,
-                    "text": chunk.text,
-                    "citation": chunk.citation,
-                    "kind": chunk.kind,
-                },
-            )
-            for chunk, embedding in zip(chunks, embeddings, strict=True)
-        ]
+        total_indexed = 0
+        batch_size = max(1, int(self.config.qdrant_upsert_batch_size))
         try:
-            self._client.upsert(
-                collection_name=self.config.qdrant_evidence_collection,
-                points=points,
-            )
-            return len(points)
+            for start in range(0, len(chunks), batch_size):
+                batch = chunks[start : start + batch_size]
+                embeddings = self._embedder.embed_texts([chunk.text for chunk in batch])
+                points = [
+                    PointStruct(
+                        id=_qdrant_point_id(chunk.chunk_id),
+                        vector=embedding,
+                        payload={
+                            "chunk_id": chunk.chunk_id,
+                            "source_path": chunk.source_path,
+                            "title": chunk.title,
+                            "text": chunk.text,
+                            "citation": chunk.citation,
+                            "kind": chunk.kind,
+                        },
+                    )
+                    for chunk, embedding in zip(batch, embeddings, strict=True)
+                ]
+                self._client.upsert(
+                    collection_name=self.config.qdrant_evidence_collection,
+                    points=points,
+                )
+                total_indexed += len(points)
+            return total_indexed
         except Exception as exc:
             self.reason = repr(exc)
             self.enabled = False
@@ -2069,6 +2093,7 @@ def sync_research_memory(
             "generated_at_utc": datetime.now(tz=UTC).isoformat(),
             "reason": "TSQBEV_MEMORY_ENABLED is disabled",
         }
+    runtime_cfg = _runtime_memory_config(cfg)
     cfg.memory_root.mkdir(parents=True, exist_ok=True)
     cfg.artifact_root.mkdir(parents=True, exist_ok=True)
     build_id = _build_id(repo_root)
@@ -2080,26 +2105,125 @@ def sync_research_memory(
     catalog_path = build_cfg.catalog_path
     catalog = _open_catalog_with_retry(catalog_path, read_only=False)
     try:
+        phase_timings_s: dict[str, float] = {}
+
+        phase_started = time.perf_counter()
         events = _collect_events(repo_root)
+        phase_timings_s["collect_events"] = round(time.perf_counter() - phase_started, 4)
+
+        phase_started = time.perf_counter()
         chunks = _collect_chunks(repo_root, build_cfg)
-        facts = _derive_memory_facts(events, repo_root) + _collect_knowledge_facts(repo_root)
+        phase_timings_s["collect_chunks"] = round(time.perf_counter() - phase_started, 4)
+
+        phase_started = time.perf_counter()
+        knowledge_facts = _collect_knowledge_facts(repo_root)
+        facts = _derive_memory_facts(events, repo_root) + knowledge_facts
+        phase_timings_s["derive_facts"] = round(time.perf_counter() - phase_started, 4)
+
+        phase_started = time.perf_counter()
         event_count = catalog.upsert_events(events)
+        phase_timings_s["upsert_events"] = round(time.perf_counter() - phase_started, 4)
+
+        phase_started = time.perf_counter()
         chunk_count = catalog.upsert_chunks(chunks)
+        phase_timings_s["upsert_chunks"] = round(time.perf_counter() - phase_started, 4)
+
+        phase_started = time.perf_counter()
         fact_count = catalog.upsert_facts(facts)
+        phase_timings_s["upsert_facts"] = round(time.perf_counter() - phase_started, 4)
 
-        index = QdrantEvidenceIndex(build_cfg)
-        indexed_chunks = index.upsert_chunks(chunks)
+        qdrant_summary = {
+            "enabled": False,
+            "mode": None,
+            "reason": "not_started",
+            "indexed_chunks": 0,
+            "embedder_provider": "hash",
+            "evidence_collection": runtime_cfg.qdrant_evidence_collection,
+            "memory_collection": runtime_cfg.qdrant_memory_collection,
+        }
+        phase_started = time.perf_counter()
+        try:
+            index = QdrantEvidenceIndex(build_cfg)
+            indexed_chunks = index.upsert_chunks(chunks)
+            qdrant_summary = {
+                "enabled": index.enabled,
+                "mode": index.mode,
+                "reason": index.reason,
+                "indexed_chunks": indexed_chunks,
+                "embedder_provider": index.embedder_provider,
+                "evidence_collection": (
+                    build_cfg.qdrant_evidence_collection
+                    if index.enabled and indexed_chunks > 0
+                    else runtime_cfg.qdrant_evidence_collection
+                ),
+                "memory_collection": (
+                    build_cfg.qdrant_memory_collection
+                    if index.enabled and indexed_chunks > 0
+                    else runtime_cfg.qdrant_memory_collection
+                ),
+            }
+            reranker_summary = {
+                "enabled": index._embedder.reranker_enabled,
+                "provider": index._embedder.reranker_provider,
+                "reason": index._embedder.reranker_reason,
+                "fallback_reason": index._embedder.reranker_fallback_reason,
+                "configured_provider": cfg.reranker_provider,
+                "configured_model": cfg.reranker_model,
+                "configured_cohere_model": cfg.cohere_reranker_model,
+            }
+        except Exception as exc:
+            qdrant_summary["reason"] = repr(exc)
+            reranker_summary = {
+                "enabled": False,
+                "provider": "none",
+                "reason": f"qdrant_sync_failed: {exc!r}",
+                "fallback_reason": None,
+                "configured_provider": cfg.reranker_provider,
+                "configured_model": cfg.reranker_model,
+                "configured_cohere_model": cfg.cohere_reranker_model,
+            }
+        phase_timings_s["qdrant_sync"] = round(time.perf_counter() - phase_started, 4)
 
-        mem0_backend = Mem0MemoryBackend(build_cfg)
-        synced_now = 0
-        if mem0_backend.enabled:
-            for fact in facts:
-                if mem0_backend.add_fact(fact):
-                    synced_now += 1
-            spool_result = _flush_mem0_spool(build_cfg, mem0_backend)
-        else:
+        mem0_summary = {
+            "enabled": False,
+            "reason": "not_started",
+            "synced_now": 0,
+            "spool": {"attempted": 0, "flushed": 0, "remaining": 0},
+            "collection_name": build_cfg.mem0_qdrant_collection,
+        }
+        phase_started = time.perf_counter()
+        try:
+            mem0_backend = Mem0MemoryBackend(build_cfg)
+            synced_now = 0
+            if mem0_backend.enabled:
+                for fact in facts:
+                    if mem0_backend.add_fact(fact):
+                        synced_now += 1
+                spool_result = _flush_mem0_spool(build_cfg, mem0_backend)
+            else:
+                _spool_pending_facts(build_cfg, facts)
+                spool_result = {"attempted": 0, "flushed": 0, "remaining": len(facts)}
+            mem0_summary = {
+                "enabled": mem0_backend.enabled,
+                "reason": mem0_backend.reason,
+                "synced_now": synced_now,
+                "spool": spool_result,
+                "collection_name": (
+                    build_cfg.mem0_qdrant_collection
+                    if mem0_backend.enabled
+                    else runtime_cfg.mem0_qdrant_collection
+                ),
+            }
+        except Exception as exc:
             _spool_pending_facts(build_cfg, facts)
-            spool_result = {"attempted": 0, "flushed": 0, "remaining": len(facts)}
+            mem0_summary = {
+                "enabled": False,
+                "reason": repr(exc),
+                "synced_now": 0,
+                "spool": {"attempted": 0, "flushed": 0, "remaining": len(facts)},
+                "collection_name": runtime_cfg.mem0_qdrant_collection,
+            }
+        phase_timings_s["mem0_sync"] = round(time.perf_counter() - phase_started, 4)
 
         summary = {
             "generated_at_utc": datetime.now(tz=UTC).isoformat(),
@@ -2111,31 +2235,14 @@ def sync_research_memory(
             "event_count": event_count,
             "evidence_count": chunk_count,
             "fact_count": fact_count,
-            "qdrant": {
-                "enabled": index.enabled,
-                "mode": index.mode,
-                "reason": index.reason,
-                "indexed_chunks": indexed_chunks,
-                "embedder_provider": index.embedder_provider,
-                "evidence_collection": build_cfg.qdrant_evidence_collection,
-                "memory_collection": build_cfg.qdrant_memory_collection,
+            "qdrant": qdrant_summary,
+            "reranker": reranker_summary,
+            "mem0": mem0_summary,
+            "knowledge_base": {
+                "knowledge_fact_count": len(knowledge_facts),
+                "knowledge_pack_count": len(list(repo_root.glob("research/knowledge/**/*.json"))),
             },
-            "reranker": {
-                "enabled": index._embedder.reranker_enabled,
-                "provider": index._embedder.reranker_provider,
-                "reason": index._embedder.reranker_reason,
-                "fallback_reason": index._embedder.reranker_fallback_reason,
-                "configured_provider": cfg.reranker_provider,
-                "configured_model": cfg.reranker_model,
-                "configured_cohere_model": cfg.cohere_reranker_model,
-            },
-            "mem0": {
-                "enabled": mem0_backend.enabled,
-                "reason": mem0_backend.reason,
-                "synced_now": synced_now,
-                "spool": spool_result,
-                "collection_name": build_cfg.mem0_qdrant_collection,
-            },
+            "phase_timings_s": phase_timings_s,
         }
         catalog.record_sync(summary)
         _write_json_atomic(build_dir / "sync_manifest.json", summary)

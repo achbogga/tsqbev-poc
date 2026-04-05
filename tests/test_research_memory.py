@@ -311,6 +311,60 @@ def test_sync_research_memory_promotes_current_build_manifest(tmp_path: Path) ->
     assert health["catalog"]["exists"] is True
 
 
+def test_sync_research_memory_promotes_even_when_semantic_backends_raise(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    import tsqbev.research_memory as research_memory
+
+    class _FakeEmbedder:
+        reranker_enabled = False
+        reranker_provider = "none"
+        reranker_reason = None
+        reranker_fallback_reason = None
+
+    class _BoomQdrant:
+        def __init__(self, config: ResearchMemoryConfig) -> None:
+            self.enabled = True
+            self.mode = "server"
+            self.reason = None
+            self.embedder_provider = "fastembed"
+            self._embedder = _FakeEmbedder()
+
+        def upsert_chunks(self, chunks: list[object]) -> int:
+            raise RuntimeError("qdrant boom")
+
+    class _BoomMem0:
+        def __init__(self, config: ResearchMemoryConfig) -> None:
+            raise RuntimeError("mem0 boom")
+
+    monkeypatch.setattr(research_memory, "QdrantEvidenceIndex", _BoomQdrant)
+    monkeypatch.setattr(research_memory, "Mem0MemoryBackend", _BoomMem0)
+
+    repo_root = _make_repo_fixture(tmp_path)
+    config = ResearchMemoryConfig(
+        memory_root=tmp_path / ".local" / "memory",
+        artifact_root=repo_root / "artifacts" / "memory",
+        reports_root=repo_root / "docs" / "reports",
+        report_log_root=repo_root / "docs" / "reports" / "log",
+        steering_path=repo_root / "docs" / "steering.md",
+        qdrant_enabled=True,
+        mem0_enabled=True,
+    )
+
+    summary = sync_research_memory(repo_root, config=config)
+
+    assert Path(summary["catalog_path"]).exists()
+    assert summary["current_build"]["catalog_path"].endswith("catalog.duckdb")
+    assert summary["qdrant"]["indexed_chunks"] == 0
+    assert "qdrant boom" in str(summary["qdrant"]["reason"])
+    assert "mem0 boom" in str(summary["mem0"]["reason"])
+    assert summary["mem0"]["spool"]["remaining"] == summary["fact_count"]
+    assert "upsert_events" in summary["phase_timings_s"]
+    assert "qdrant_sync" in summary["phase_timings_s"]
+    assert (config.artifact_root / "sync_manifest.json").exists()
+
+
 def test_evidence_source_files_exclude_results_jsonl(tmp_path: Path) -> None:
     repo_root = _make_repo_fixture(tmp_path)
 
@@ -515,6 +569,74 @@ def test_qdrant_index_degrades_cleanly_on_upsert_failure(monkeypatch) -> None:
     assert count == 0
     assert index.enabled is False
     assert index.reason is not None
+
+
+def test_qdrant_index_upserts_in_batches(monkeypatch) -> None:
+    import tsqbev.research_memory as research_memory
+
+    class _FakeCollections:
+        collections: list[object] = []
+
+    class _FakeClient:
+        def __init__(self) -> None:
+            self.calls: list[int] = []
+
+        def get_collections(self) -> _FakeCollections:
+            return _FakeCollections()
+
+        def create_collection(self, **kwargs: object) -> None:
+            return None
+
+        def upsert(self, **kwargs: object) -> None:
+            points = kwargs["points"]
+            self.calls.append(len(points))
+
+    fake_client = _FakeClient()
+
+    class _FakeEmbedder:
+        def __init__(self, config: ResearchMemoryConfig) -> None:
+            self.provider = "fastembed"
+            self.dimension = 3
+            self.reranker_enabled = False
+            self.reranker_provider = "none"
+            self.reranker_reason = None
+            self.reranker_fallback_reason = None
+
+        def embed_texts(self, texts: list[str]) -> list[list[float]]:
+            return [[1.0, 0.0, 0.0] for _ in texts]
+
+    monkeypatch.setattr(research_memory, "_http_ok", lambda _url: True)
+    monkeypatch.setattr(research_memory, "QdrantClient", lambda **kwargs: fake_client)
+    monkeypatch.setattr(research_memory, "_Embedder", _FakeEmbedder)
+
+    index = QdrantEvidenceIndex(
+        ResearchMemoryConfig(
+            qdrant_enabled=True,
+            qdrant_mode="server",
+            qdrant_upsert_batch_size=2,
+            mem0_enabled=False,
+        )
+    )
+
+    from tsqbev.research_memory import EvidenceChunk
+
+    count = index.upsert_chunks(
+        [
+            EvidenceChunk(
+                chunk_id=f"chunk-{idx}",
+                source_path="docs/plan.md",
+                kind="doc",
+                title=f"Plan {idx}",
+                text=f"evidence {idx}",
+                citation="docs/plan.md",
+                payload={},
+            )
+            for idx in range(5)
+        ]
+    )
+
+    assert count == 5
+    assert fake_client.calls == [2, 2, 1]
 
 
 def test_query_research_memory_returns_exact_facts(tmp_path: Path) -> None:
