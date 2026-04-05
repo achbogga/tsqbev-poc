@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import torch
@@ -10,6 +11,7 @@ from tsqbev.teacher_backends import TeacherProviderConfig
 from tsqbev.teacher_cache import TeacherCacheStore
 from tsqbev.train import (
     _make_detection_criterion,
+    _run_joint_public_official_eval,
     _teacher_anchor_schedule_value,
     fit_nuscenes,
     fit_openlane,
@@ -346,3 +348,74 @@ def test_fit_openlane_supports_warm_start_and_max_train_steps(
     assert loaded == [str(init_checkpoint)]
     assert result["train_steps"] == 1
     assert result["augmentation_mode"] == "moderate"
+
+
+def test_joint_public_official_eval_degrades_gracefully_on_openlane_failure(
+    monkeypatch,
+    small_config,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setattr("tsqbev.train.TSQBEVModel", lambda config: object())
+    monkeypatch.setattr(
+        "tsqbev.train.load_weights_into_model_from_checkpoint",
+        lambda model, checkpoint_path, map_location="cpu": None,
+    )
+
+    nuscenes_pred_path = tmp_path / "nuscenes.json"
+    nuscenes_pred_path.write_text("{}")
+    lane_pred_dir = tmp_path / "lane_preds"
+    lane_pred_dir.mkdir()
+    lane_test_list = tmp_path / "validation_test_list.txt"
+    lane_test_list.write_text("sample\n")
+
+    monkeypatch.setattr(
+        "tsqbev.train.export_nuscenes_predictions",
+        lambda **kwargs: nuscenes_pred_path,
+    )
+    monkeypatch.setattr(
+        "tsqbev.train.evaluate_nuscenes_predictions",
+        lambda **kwargs: {"nd_score": 0.25, "mean_ap": 0.2},
+    )
+    monkeypatch.setattr(
+        "tsqbev.train.export_openlane_predictions",
+        lambda **kwargs: lane_pred_dir,
+    )
+    monkeypatch.setattr(
+        "tsqbev.train.write_openlane_test_list",
+        lambda **kwargs: lane_test_list,
+    )
+
+    def _raise_openlane_failure(**kwargs: object) -> dict[str, float]:
+        raise RuntimeError("openlane evaluator missing dependency")
+
+    monkeypatch.setattr(
+        "tsqbev.train.evaluate_openlane_predictions",
+        _raise_openlane_failure,
+    )
+
+    metrics = _run_joint_public_official_eval(
+        checkpoint_path=tmp_path / "checkpoint.pt",
+        model_config=small_config,
+        device="cpu",
+        artifact_root=tmp_path / "artifacts",
+        epoch=5,
+        nuscenes_root=tmp_path / "nuscenes",
+        nuscenes_version="v1.0-mini",
+        nuscenes_split="mini_val",
+        openlane_root=tmp_path / "openlane",
+        openlane_subset="lane3d_300",
+        openlane_repo_root=tmp_path / "OpenLane",
+        score_threshold=0.2,
+        top_k=40,
+    )
+
+    assert metrics["nuscenes_eval_ok"] == 1.0
+    assert metrics["nuscenes_nds"] == 0.25
+    assert metrics["openlane_eval_ok"] == 0.0
+    assert metrics["openlane_f_score"] == 0.0
+
+    summary = json.loads(
+        (tmp_path / "artifacts" / "official_eval" / "epoch_005" / "summary.json").read_text()
+    )
+    assert summary["metrics"]["nuscenes_map"] == 0.2
+    assert "openlane" in summary["errors"]

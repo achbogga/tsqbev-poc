@@ -517,56 +517,74 @@ def _run_joint_public_official_eval(
     eval_root = artifact_root / "official_eval" / f"epoch_{epoch:03d}"
     det_output_dir = eval_root / "nuscenes"
     lane_output_dir = eval_root / "openlane"
-
-    det_result_path = export_nuscenes_predictions(
-        model=eval_model,
-        dataroot=nuscenes_root,
-        version=nuscenes_version,
-        split=nuscenes_split,
-        output_path=det_output_dir / "predictions.json",
-        score_threshold=score_threshold,
-        top_k=top_k,
-        device=device,
-    )
-    det_metrics = evaluate_nuscenes_predictions(
-        dataroot=nuscenes_root,
-        version=nuscenes_version,
-        split=nuscenes_split,
-        result_path=det_result_path,
-        output_dir=det_output_dir / "metrics",
-    )
-
-    lane_pred_dir = export_openlane_predictions(
-        model=eval_model,
-        dataroot=openlane_root,
-        output_dir=lane_output_dir / "predictions",
-        split="validation",
-        subset=openlane_subset,
-        score_threshold=0.5,
-        max_lanes=64,
-        device=device,
-    )
-    lane_test_list = write_openlane_test_list(
-        dataroot=openlane_root,
-        output_path=lane_output_dir / "validation_test_list.txt",
-        split="validation",
-        subset=openlane_subset,
-    )
-    lane_metrics = evaluate_openlane_predictions(
-        openlane_repo_root=openlane_repo_root,
-        dataset_dir=Path(openlane_root) / openlane_subset,
-        pred_dir=lane_pred_dir,
-        test_list=lane_test_list,
-    )
-
+    eval_root.mkdir(parents=True, exist_ok=True)
     metrics = {
-        "nuscenes_nds": float(cast(float, det_metrics.get("nd_score", 0.0))),
-        "nuscenes_map": float(cast(float, det_metrics.get("mean_ap", 0.0))),
-        "openlane_f_score": float(lane_metrics.get("f_score", 0.0)),
-        "openlane_recall": float(lane_metrics.get("recall", 0.0)),
-        "openlane_precision": float(lane_metrics.get("precision", 0.0)),
+        "nuscenes_nds": 0.0,
+        "nuscenes_map": 0.0,
+        "nuscenes_eval_ok": 0.0,
+        "openlane_f_score": 0.0,
+        "openlane_recall": 0.0,
+        "openlane_precision": 0.0,
+        "openlane_eval_ok": 0.0,
     }
-    (eval_root / "summary.json").write_text(json.dumps(metrics, indent=2))
+    errors: dict[str, str] = {}
+    summary_payload: dict[str, object] = {"metrics": metrics, "errors": errors}
+
+    try:
+        det_result_path = export_nuscenes_predictions(
+            model=eval_model,
+            dataroot=nuscenes_root,
+            version=nuscenes_version,
+            split=nuscenes_split,
+            output_path=det_output_dir / "predictions.json",
+            score_threshold=score_threshold,
+            top_k=top_k,
+            device=device,
+        )
+        det_metrics = evaluate_nuscenes_predictions(
+            dataroot=nuscenes_root,
+            version=nuscenes_version,
+            split=nuscenes_split,
+            result_path=det_result_path,
+            output_dir=det_output_dir / "metrics",
+        )
+        metrics["nuscenes_nds"] = float(cast(float, det_metrics.get("nd_score", 0.0)))
+        metrics["nuscenes_map"] = float(cast(float, det_metrics.get("mean_ap", 0.0)))
+        metrics["nuscenes_eval_ok"] = 1.0
+    except Exception as exc:
+        errors["nuscenes"] = repr(exc)
+
+    try:
+        lane_pred_dir = export_openlane_predictions(
+            model=eval_model,
+            dataroot=openlane_root,
+            output_dir=lane_output_dir / "predictions",
+            split="validation",
+            subset=openlane_subset,
+            score_threshold=0.5,
+            max_lanes=64,
+            device=device,
+        )
+        lane_test_list = write_openlane_test_list(
+            dataroot=openlane_root,
+            output_path=lane_output_dir / "validation_test_list.txt",
+            split="validation",
+            subset=openlane_subset,
+        )
+        lane_metrics = evaluate_openlane_predictions(
+            openlane_repo_root=openlane_repo_root,
+            dataset_dir=Path(openlane_root) / openlane_subset,
+            pred_dir=lane_pred_dir,
+            test_list=lane_test_list,
+        )
+        metrics["openlane_f_score"] = float(lane_metrics.get("f_score", 0.0))
+        metrics["openlane_recall"] = float(lane_metrics.get("recall", 0.0))
+        metrics["openlane_precision"] = float(lane_metrics.get("precision", 0.0))
+        metrics["openlane_eval_ok"] = 1.0
+    except Exception as exc:
+        errors["openlane"] = repr(exc)
+
+    (eval_root / "summary.json").write_text(json.dumps(summary_payload, indent=2))
     return metrics
 
 

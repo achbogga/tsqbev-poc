@@ -196,6 +196,12 @@ def test_train_joint_public_passes_lane_batch_multiplier(monkeypatch, tmp_path) 
     assert captured["official_eval_top_k"] == 40
 
 
+def test_make_parser_defaults_openlane_repo_root_to_local_checkout() -> None:
+    parser = cli_module._make_parser()
+    action = next(action for action in parser._actions if action.dest == "openlane_repo_root")
+    assert action.default == Path("/home/achbogga/projects/OpenLane")
+
+
 def test_maintenance_supervisor_dispatches_interval(monkeypatch, tmp_path) -> None:
     captured: dict[str, int | str] = {}
 

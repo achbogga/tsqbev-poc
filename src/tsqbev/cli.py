@@ -440,7 +440,11 @@ def _make_parser() -> argparse.ArgumentParser:
         choices=("score_topk", "class_balanced_round_robin"),
         default=None,
     )
-    parser.add_argument("--openlane-repo-root", type=Path, default=Path("/tmp/OpenLane"))
+    parser.add_argument(
+        "--openlane-repo-root",
+        type=Path,
+        default=Path("/home/achbogga/projects/OpenLane"),
+    )
     parser.add_argument(
         "--bevfusion-repo-root",
         type=Path,
