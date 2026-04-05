@@ -24,7 +24,7 @@ This checklist is the operating contract for the current repo reset. Work procee
 - [x] Add export sanity diagnostics to official nuScenes evaluation.
 - [x] Make joint periodic official evaluation fail soft instead of crashing training.
 - [x] Save `checkpoint_best_official.pt` when periodic official metrics improve.
-- [ ] Promote only `best_official.pt` in joint or detection runs when official metrics are available.
+- [x] Promote only `best_official.pt` in joint or detection runs when official metrics are available.
 - [ ] Add a direct report artifact that compares `loss-best` versus `official-best` checkpoints.
 
 ## Frontier Camera Branch
@@ -48,7 +48,7 @@ This checklist is the operating contract for the current repo reset. Work procee
 - [x] Keep the supervisor able to launch bounded runs with hosted planner and critic.
 - [ ] Relaunch the frontier supervisor after the memory upgrade so it plans from stronger retrieval.
 - [ ] Launch the next validated detection run from the fixed control plane.
-- [ ] Launch the next frontier camera pilot once the official DINOv3 weight-access path is resolved.
+- [x] Launch the next frontier camera pilot once the official DINOv3 weight-access path is resolved.
 
 ## External Blockers
 
@@ -65,3 +65,7 @@ This checklist is the operating contract for the current repo reset. Work procee
 - Current control-plane branch:
 - [research_supervisor.log](/home/achbogga/projects/tsqbev-poc/artifacts/autoresearch_frontier/research_supervisor.log)
 - [state.json](/home/achbogga/projects/tsqbev-poc/artifacts/autoresearch_frontier/state.json)
+
+- Current active frontier camera pilot:
+- screen `2757413.tsqbev_dinov3_vits16_local_v1_20260405`
+- artifacts root [foundation_v3_dinov3_vits16_local_v1](/home/achbogga/projects/tsqbev-poc/artifacts/foundation_v3_dinov3_vits16_local_v1)
