@@ -65,6 +65,19 @@ def test_build_sam2_prior_provider_requires_proposal_mode(tmp_path: Path) -> Non
     assert build_sam2_prior_provider(config) is None
 
 
+def test_build_sam2_prior_provider_is_backward_compatible_when_assets_missing() -> None:
+    config = ModelConfig.small().model_copy(
+        update={
+            "sam2_region_prior_mode": "proposal_boxes",
+            "sam2_repo_root": None,
+            "sam2_model_cfg": None,
+            "sam2_checkpoint": None,
+        }
+    )
+
+    assert build_sam2_prior_provider(config) is None
+
+
 def test_validate_local_sam2_assets_reports_ready(monkeypatch, tmp_path: Path) -> None:
     config = _sam2_config(tmp_path)
 

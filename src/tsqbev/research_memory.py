@@ -83,14 +83,14 @@ except ImportError:  # pragma: no cover
     pass
 QdrantClient = cast(Any, _QdrantClient)
 
-TextEmbedding: Any = None
+_TextEmbedding: Any = None
 try:  # pragma: no cover - optional runtime dependency.
     from fastembed import TextEmbedding as _TextEmbedding
 except ImportError:  # pragma: no cover
     _TextEmbedding = None
 TextEmbedding = _TextEmbedding
 
-TextCrossEncoder: Any = None
+_TextCrossEncoder: Any = None
 try:  # pragma: no cover - optional runtime dependency.
     from fastembed.rerank.cross_encoder import TextCrossEncoder as _TextCrossEncoder
 except ImportError:  # pragma: no cover

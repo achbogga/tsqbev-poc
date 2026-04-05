@@ -263,11 +263,11 @@ def build_sam2_prior_provider(
     if config.sam2_region_prior_mode != "proposal_boxes":
         raise ValueError(f"unsupported SAM2 region prior mode: {config.sam2_region_prior_mode}")
     if config.sam2_repo_root is None:
-        raise ValueError("sam2_region_prior_mode requires `sam2_repo_root`")
+        return None
     if config.sam2_model_cfg is None:
-        raise ValueError("sam2_region_prior_mode requires `sam2_model_cfg`")
+        return None
     if config.sam2_checkpoint is None:
-        raise ValueError("sam2_region_prior_mode requires `sam2_checkpoint`")
+        return None
     provider = SAM2PriorProvider(
         repo_root=Path(config.sam2_repo_root),
         model_cfg=config.sam2_model_cfg,
@@ -281,7 +281,15 @@ def build_sam2_prior_provider(
 
 
 def validate_local_sam2_assets(config: ModelConfig, *, device: str | None = None) -> dict[str, str]:
+    if config.sam2_region_prior_mode == "off":
+        raise ValueError("SAM2 region priors are disabled in the current config")
+    if config.sam2_repo_root is None:
+        raise ValueError("sam2_region_prior_mode requires `sam2_repo_root`")
+    if config.sam2_model_cfg is None:
+        raise ValueError("sam2_region_prior_mode requires `sam2_model_cfg`")
+    if config.sam2_checkpoint is None:
+        raise ValueError("sam2_region_prior_mode requires `sam2_checkpoint`")
     provider = build_sam2_prior_provider(config, device=device)
     if provider is None:
-        raise ValueError("SAM2 region priors are disabled in the current config")
+        raise ValueError("SAM2 prior provider failed to initialize")
     return provider.validate()
