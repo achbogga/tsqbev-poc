@@ -7,6 +7,7 @@ from tsqbev.research_memory import (
     QdrantEvidenceIndex,
     ResearchMemoryConfig,
     _artifact_files,
+    _collect_knowledge_facts,
     _Embedder,
     _semantic_rank_key,
     build_research_brief,
@@ -216,6 +217,48 @@ def _make_repo_fixture(tmp_path: Path) -> Path:
     _write(
         repo_root / "artifacts" / "memory" / "brief.json",
         json.dumps({"stale": True}, indent=2),
+    )
+    _write(
+        repo_root / "research" / "knowledge" / "mit_han_test.json",
+        json.dumps(
+            {
+                "collection": "mit_han_efficient_ml",
+                "entries": [
+                    {
+                        "id": "awq",
+                        "title": "AWQ",
+                        "year": 2024,
+                        "area": "llm_quantization",
+                        "technique_family": ["quantization", "system_co_design"],
+                        "primary_bottleneck": "weight bandwidth",
+                        "core_trick": (
+                            "Protect activation-salient weights during low-bit weight-only "
+                            "quantization instead of quantizing every channel uniformly."
+                        ),
+                        "apply_when": [
+                            (
+                                "weights dominate memory traffic and activations can stay "
+                                "higher precision"
+                            )
+                        ],
+                        "avoid_when": [
+                            (
+                                "activation quantization is the main bottleneck and "
+                                "weight-only compression is insufficient"
+                            )
+                        ],
+                        "tsqbev_actions": [
+                            "use for offline teacher compression before cluster-scale distillation"
+                        ],
+                        "sources": {
+                            "project": "https://hanlab.mit.edu/projects/tinyml",
+                            "code": "https://github.com/mit-han-lab/llm-awq",
+                        },
+                    }
+                ],
+            },
+            indent=2,
+        ),
     )
     return repo_root
 
@@ -507,3 +550,33 @@ def test_artifact_files_exclude_generated_memory_outputs(tmp_path: Path) -> None
     assert "docs/reports/current.md" not in files
     assert "artifacts/memory/brief.json" not in files
     assert "artifacts/bevfusion_repro/bevfusion_bbox_summary.json" in files
+    assert "research/knowledge/mit_han_test.json" in files
+
+
+def test_collect_knowledge_facts_ingests_structured_literature_notes(tmp_path: Path) -> None:
+    repo_root = _make_repo_fixture(tmp_path)
+
+    facts = _collect_knowledge_facts(repo_root)
+
+    assert any(fact.kind == "literature_note" for fact in facts)
+    assert any("AWQ" in fact.claim for fact in facts)
+
+
+def test_query_research_memory_returns_knowledge_facts(tmp_path: Path) -> None:
+    repo_root = _make_repo_fixture(tmp_path)
+    config = ResearchMemoryConfig(
+        memory_root=tmp_path / ".local" / "memory",
+        artifact_root=repo_root / "artifacts" / "memory",
+        reports_root=repo_root / "docs" / "reports",
+        report_log_root=repo_root / "docs" / "reports" / "log",
+        steering_path=repo_root / "docs" / "steering.md",
+        qdrant_enabled=False,
+        mem0_enabled=False,
+    )
+    sync_research_memory(repo_root, config=config)
+
+    result = query_research_memory(
+        "AWQ activation-salient weights", repo_root=repo_root, config=config
+    )
+
+    assert any("AWQ" in item["claim"] for item in result["exact_facts"])

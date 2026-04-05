@@ -16,6 +16,8 @@ The loop must be run with first-principles skepticism:
 - refresh the design space with primary papers, official repos, and official weights when
   progress stalls, especially for KD, teacher-student design, pretrained backbones, query design,
   multimodal fusion, and deployment tradeoffs
+- persist reusable literature reviews and technique cards under `research/knowledge/` so memory
+  sync can promote them into durable evidence and distilled facts
 - if a public upstream stack or teacher suite is materially better supported than the current
   custom sparse-query line, treat that reset as the main search direction
 

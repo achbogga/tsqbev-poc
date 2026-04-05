@@ -1,0 +1,721 @@
+{
+  "collection": "mit_han_efficient_ml",
+  "generated_on": "2026-04-05",
+  "scope": "Major public MIT HAN Lab efficient-ML project lines most relevant to edge deployment, autonomous driving, sparse kernels, efficient vision, quantization, and continuous systems research.",
+  "source_policy": "Primary sources only: official MIT HAN Lab project/topic pages, official code repositories, and official paper pages linked from those pages.",
+  "design_laws": [
+    "Optimize measured deployment targets, not abstract proxies. HAN Lab repeatedly shows that FLOPs, parameter count, and generic attention complexity are weak proxies unless they match the actual hardware bottleneck.",
+    "Search spaces matter as much as search algorithms. OFA, APQ, MCUNet, and SPVNAS all win by constraining the design space around what hardware can actually execute well before searching inside it.",
+    "Memory traffic and activations are often the true bottlenecks. TinyTL, MCUNet, SmoothQuant, AWQ, QServe, and StreamingLLM all improve efficiency by reducing activation/KV/cache pressure instead of only shrinking weights.",
+    "Algorithm-system co-design is a first-class requirement. TinyEngine, TorchSparse++, BEVFusion optimized BEV pooling, OmniServe, and Nunchaku all demonstrate that model-level improvements only become real when the kernel/runtime layer is aligned.",
+    "Use asymmetry, not uniformity. Mixed precision, heterogeneous sparsity, retrieval-vs-streaming heads, and different treatment of outlier channels consistently beat uniform global policies.",
+    "Preserve global context with lightweight local operators. EfficientViT, FlatFormer, StreamingLLM, DuoAttention, and Radial Attention each keep a small amount of global structure while making the bulk of computation cheap and regular."
+  ],
+  "entries": [
+    {
+      "id": "amc",
+      "title": "AMC: AutoML for Model Compression and Acceleration on Mobile Devices",
+      "year": 2018,
+      "area": "model_compression",
+      "technique_family": ["pruning", "rl_search", "hardware_aware_optimization"],
+      "primary_bottleneck": "layerwise redundancy mismatch vs real latency",
+      "core_trick": "Use an RL agent to choose layerwise pruning ratios under real deployment constraints instead of uniform width scaling.",
+      "intuition": "Different layers have different redundancy and different latency sensitivity. Compression policies should be learned against the actual objective, not guessed from global pruning percentages.",
+      "ablation_takeaways": [
+        "RL-searched pruning policies beat hand-crafted uniform compression at the same FLOPs or latency budget.",
+        "Searching for latency and searching for FLOPs produce different winners; objective mismatch wastes effort.",
+        "Fine-tuning after export is mandatory because the best structural policy still needs recovery training."
+      ],
+      "apply_when": [
+        "You already have a good dense baseline and need a deployment-grade pruning policy tied to measured hardware cost.",
+        "Different blocks in the network have visibly different redundancy or latency cost."
+      ],
+      "avoid_when": [
+        "The architecture family itself is wrong; pruning a poor backbone usually just preserves a bad inductive bias.",
+        "You cannot measure the real target hardware objective."
+      ],
+      "tsqbev_actions": [
+        "Use only after the new frontier student family stabilizes.",
+        "Prune shared BEV trunk and head blocks against Jetson/Orin latency rather than MACs."
+      ],
+      "sources": {
+        "project": null,
+        "paper_title": "AMC: AutoML for Model Compression and Acceleration on Mobile Devices",
+        "paper_url": "https://arxiv.org/abs/1802.03494",
+        "code": "https://github.com/mit-han-lab/amc"
+      }
+    },
+    {
+      "id": "haq",
+      "title": "HAQ: Hardware-Aware Automated Quantization",
+      "year": 2019,
+      "area": "quantization",
+      "technique_family": ["mixed_precision_quantization", "hardware_aware_optimization"],
+      "primary_bottleneck": "uniform bitwidth leaves accuracy or latency on the table",
+      "core_trick": "Assign per-layer bitwidths with a hardware-in-the-loop policy rather than forcing one precision everywhere.",
+      "intuition": "Different layers react differently to low precision, and different accelerators reward different precision mixes. Quantization should be non-uniform and hardware-conditioned.",
+      "ablation_takeaways": [
+        "Flexible per-layer bitwidth produces a better accuracy-latency and accuracy-model-size Pareto curve than fixed 8-bit or fixed low-bit baselines.",
+        "The hardware simulator or measured feedback changes the optimal assignment materially."
+      ],
+      "apply_when": [
+        "The target accelerator supports heterogeneous precision or mixed kernels.",
+        "You need a last-mile quantization policy after choosing the architecture."
+      ],
+      "avoid_when": [
+        "The runtime only supports one or two globally fixed precisions.",
+        "Kernel support for mixed precision is missing; then the policy cannot be realized."
+      ],
+      "tsqbev_actions": [
+        "Use for post-stabilization quantization of the student detection and lane heads.",
+        "Pair with Orin-specific latency measurements, not desktop GPU proxies."
+      ],
+      "sources": {
+        "project": null,
+        "paper_title": "HAQ: Hardware-Aware Automated Quantization with Mixed Precision",
+        "paper_url": "https://hanlab18.mit.edu/projects/haq/papers/haq_arxiv.pdf",
+        "code": "https://github.com/mit-han-lab/haq"
+      }
+    },
+    {
+      "id": "proxylessnas",
+      "title": "ProxylessNAS: Direct Neural Architecture Search on Target Task and Hardware",
+      "year": 2019,
+      "area": "neural_architecture_search",
+      "technique_family": ["nas", "differentiable_search", "hardware_aware_optimization"],
+      "primary_bottleneck": "proxy tasks and proxy hardware produce misleading architectures",
+      "core_trick": "Search directly on the target task and target hardware without using a smaller proxy network or proxy dataset.",
+      "intuition": "Proxy gaps compound. If the searched network is optimized for the wrong workload or device, the final architecture is often misaligned even if the search itself looks strong.",
+      "ablation_takeaways": [
+        "Direct target-hardware optimization changes the winning architecture relative to indirect or FLOPs-only search.",
+        "Removing the proxy gap is especially valuable when operator efficiency differs sharply by hardware."
+      ],
+      "apply_when": [
+        "Operator efficiency differs across GPU, DSP, MCU, or edge accelerators.",
+        "You can afford direct search or direct specialization on the real deployment target."
+      ],
+      "avoid_when": [
+        "You have no realistic access to target-hardware measurements.",
+        "The architecture family is still changing rapidly; search too early will overfit noise."
+      ],
+      "tsqbev_actions": [
+        "Use as the template for later Orin-specialized student search once the frontier student family is fixed.",
+        "Do not use before the DINOv3/SAM2/perspective-supervised student stops moving."
+      ],
+      "sources": {
+        "project": null,
+        "paper_title": "ProxylessNAS: Direct Neural Architecture Search on Target Task and Hardware",
+        "paper_url": "https://arxiv.org/abs/1812.00332",
+        "code": "https://github.com/mit-han-lab/proxylessnas"
+      }
+    },
+    {
+      "id": "once_for_all",
+      "title": "Once-for-All: Train One Network and Specialize it for Efficient Deployment",
+      "year": 2020,
+      "area": "neural_architecture_search",
+      "technique_family": ["nas", "specialization", "weight_sharing"],
+      "primary_bottleneck": "retraining one model per hardware target is too expensive",
+      "core_trick": "Train a supernet once, then specialize subnets for diverse hardware and constraints without retraining from scratch.",
+      "intuition": "The main cost in efficient deployment is repeatedly retraining near-duplicate architectures. A high-quality supernet shifts that cost upfront and turns deployment into specialization.",
+      "ablation_takeaways": [
+        "A good supernet plus specialization outperforms hand-designed mobile backbones across diverse hardware targets.",
+        "Subnet specialization matters; raw supernet samples are not the final answer."
+      ],
+      "apply_when": [
+        "You need many student variants for different budgets or hardware SKUs.",
+        "The base operator set is stable enough to support a meaningful supernet."
+      ],
+      "avoid_when": [
+        "The operator family is still changing or the architecture is not yet trusted.",
+        "You only need one deployment point; then simpler direct tuning may be faster."
+      ],
+      "tsqbev_actions": [
+        "Use after the new student family is fixed to produce Orin, desktop, and cluster-specialized variants.",
+        "Treat current repo presets as an eventual specialization target, not a pre-search commitment."
+      ],
+      "sources": {
+        "project": null,
+        "paper_title": "Once for All: Train One Network and Specialize it for Efficient Deployment",
+        "paper_url": "https://arxiv.org/pdf/1908.09791.pdf",
+        "code": "https://github.com/mit-han-lab/once-for-all"
+      }
+    },
+    {
+      "id": "apq",
+      "title": "APQ: Joint Search for Network Architecture, Pruning and Quantization Policy",
+      "year": 2020,
+      "area": "joint_optimization",
+      "technique_family": ["nas", "pruning", "quantization", "predictor_based_search"],
+      "primary_bottleneck": "sequential optimization of architecture, pruning, and quantization leaves globally suboptimal models",
+      "core_trick": "Jointly search architecture, pruning, and quantization while using an accuracy predictor to keep search cost manageable.",
+      "intuition": "Architecture, sparsity, and precision interact. Optimizing them one at a time bakes in bad choices that later stages can only partially repair.",
+      "ablation_takeaways": [
+        "Joint optimization beats sequential ProxylessNAS+AMC+HAQ style pipelines under the same deployment constraints.",
+        "A transferred quantization-aware accuracy predictor dramatically improves sample efficiency versus brute-force quantization-aware finetuning during search."
+      ],
+      "apply_when": [
+        "The student family is stable and you are ready for deployment-driven co-optimization.",
+        "You have enough measurements to train or validate an accuracy/latency predictor."
+      ],
+      "avoid_when": [
+        "The model is still fundamentally underperforming; joint search will optimize the wrong family faster.",
+        "You cannot trust your predictor or measurement loop."
+      ],
+      "tsqbev_actions": [
+        "This is the right long-term template for the final Orin student compiler loop.",
+        "Do not deploy APQ until official detection and lane metrics are stable on the new architecture."
+      ],
+      "sources": {
+        "project": "https://mitibmwatsonailab.mit.edu/research/blog/apq-joint-search-for-network-architecture-pruning-and-quantization-policy/",
+        "paper_title": "APQ: Joint Search for Network Architecture, Pruning and Quantization Policy",
+        "paper_url": "https://openaccess.thecvf.com/content_CVPR_2020/papers/Wang_APQ_Joint_Search_for_Network_Architecture_Pruning_and_Quantization_Policy_CVPR_2020_paper.pdf",
+        "code": "https://github.com/mit-han-lab/apq"
+      }
+    },
+    {
+      "id": "mcunet",
+      "title": "MCUNet",
+      "year": 2020,
+      "area": "tinyml",
+      "technique_family": ["nas", "system_co_design", "memory_optimization"],
+      "primary_bottleneck": "microcontroller SRAM and flash limits dominate deployment feasibility",
+      "core_trick": "Co-design TinyNAS and TinyEngine so the search space and runtime both respect activation memory and topology-level scheduling constraints.",
+      "intuition": "On tiny devices, the bottleneck is often peak activation memory, not just weights or MACs. Search without a runtime that reflects that bottleneck will systematically choose impossible models.",
+      "ablation_takeaways": [
+        "System-level memory scheduling expands the feasible model space, not just runtime speed.",
+        "Topology-aware scheduling and architecture search together outperform mobile backbones ported naively to MCUs."
+      ],
+      "apply_when": [
+        "Peak SRAM or activation staging is the dominant blocker.",
+        "You need end-to-end co-design between architecture and inference engine."
+      ],
+      "avoid_when": [
+        "You are still in a datacenter-style regime where compute dominates and memory is abundant.",
+        "Your runtime cannot expose memory scheduling choices."
+      ],
+      "tsqbev_actions": [
+        "Use as the mental model for future Orin auto-fit: activation budget and scheduling are first-class.",
+        "Apply its 'search space follows runtime feasibility' lesson to camera and BEV blocks."
+      ],
+      "sources": {
+        "project": "https://hanlab.mit.edu/projects/mcunet",
+        "paper_title": "MCUNet: Tiny Deep Learning on IoT Devices",
+        "paper_url": "https://arxiv.org/abs/2007.10319",
+        "code": "https://github.com/mit-han-lab/mcunet"
+      }
+    },
+    {
+      "id": "tinytl",
+      "title": "TinyTL",
+      "year": 2020,
+      "area": "on_device_training",
+      "technique_family": ["transfer_learning", "activation_memory_reduction"],
+      "primary_bottleneck": "activation storage, not trainable parameter count",
+      "core_trick": "Freeze weights, update biases and lite residual modules, and thereby avoid storing most intermediate activations during on-device adaptation.",
+      "intuition": "Trainable-parameter count is often the wrong proxy for fine-tuning memory. If you freeze the right tensors, you save activation storage directly and keep adaptation capacity with small residual modules.",
+      "ablation_takeaways": [
+        "Bias-only updates save much more memory than last-layer fine-tuning while retaining strong adaptation.",
+        "Small residual modules recover capacity with minimal memory overhead."
+      ],
+      "apply_when": [
+        "You need lightweight adaptation or task-specific tuning under tight memory constraints.",
+        "Shared trunk features are already strong and only modest adaptation is required."
+      ],
+      "avoid_when": [
+        "The backbone features are badly misaligned and need full representation changes.",
+        "You have enough memory for normal fine-tuning and the task gap is large."
+      ],
+      "tsqbev_actions": [
+        "Use for task adapters on the shared detection/lane trunk before considering full joint unfreeze.",
+        "Pair with LoRA/task adapters for staged multitask training."
+      ],
+      "sources": {
+        "project": "https://hanlab.mit.edu/projects/tinytl",
+        "paper_title": "TinyTL: Reduce Memory, Not Parameters for Efficient On-Device Learning",
+        "paper_url": "https://arxiv.org/abs/2007.11622",
+        "code": "https://hanlab.mit.edu/projects/tinytl"
+      }
+    },
+    {
+      "id": "pockengine",
+      "title": "PockEngine",
+      "year": 2023,
+      "area": "on_device_training",
+      "technique_family": ["sparse_finetuning", "runtime_co_design"],
+      "primary_bottleneck": "fine-tuning cost on small edge devices",
+      "core_trick": "Exploit sparse and efficient fine-tuning paths with an engine built specifically for resource-constrained adaptation.",
+      "intuition": "When the edge device cannot afford dense training, you need the runtime and update rule to agree on what stays sparse and what remains active.",
+      "ablation_takeaways": [
+        "Sparse fine-tuning only works if the runtime is designed to capitalize on that sparsity.",
+        "The practical win is smaller optimizer state, lower memory traffic, and reduced update bandwidth."
+      ],
+      "apply_when": [
+        "Edge fine-tuning or adaptation must happen on-device.",
+        "You can isolate a small set of trainable parameters or sparse updates."
+      ],
+      "avoid_when": [
+        "You need dense re-optimization of the entire network.",
+        "The adaptation budget is so small that offline distillation is simpler."
+      ],
+      "tsqbev_actions": [
+        "Use as reference for later lane-head or task-adapter personalization on edge hardware.",
+        "Not a near-term detector-quality lever."
+      ],
+      "sources": {
+        "project": "https://hanlab.mit.edu/topics/tinyml",
+        "paper_title": "PockEngine: Sparse and Efficient Fine-tuning in a Pocket",
+        "paper_url": null,
+        "code": "https://github.com/mit-han-lab/tinyml"
+      }
+    },
+    {
+      "id": "efficientvit",
+      "title": "EfficientViT",
+      "year": 2023,
+      "area": "efficient_vision_backbones",
+      "technique_family": ["new_architecture", "linear_attention", "dense_prediction"],
+      "primary_bottleneck": "quadratic/high-overhead high-resolution vision backbones",
+      "core_trick": "Replace heavy high-resolution attention with lightweight multi-scale linear attention plus local convolution to preserve global context and local detail using hardware-friendly operators.",
+      "intuition": "High-resolution dense prediction needs both global receptive field and local detail, but not necessarily expensive softmax attention everywhere. The right blend of linear attention and convolution is often enough and far more deployable.",
+      "ablation_takeaways": [
+        "Linear attention alone is insufficient; local feature extraction must be restored with convolution and multi-scale aggregation.",
+        "TensorRT-friendly operator choices matter as much as asymptotic complexity."
+      ],
+      "apply_when": [
+        "Camera perception is high-resolution and deployment latency matters.",
+        "You need a dense-prediction-ready visual backbone rather than a classification-only ViT."
+      ],
+      "avoid_when": [
+        "You only need a teacher representation and can afford a much larger frozen backbone.",
+        "The downstream task depends on very rich token interactions that the chosen linearization cannot preserve."
+      ],
+      "tsqbev_actions": [
+        "Use as the deployment-oriented fallback or student camera backbone if DINOv3 remains too heavy.",
+        "Borrow the linear-attention plus local-conv pattern for the camera-to-BEV projector."
+      ],
+      "sources": {
+        "project": "https://hanlab.mit.edu/projects/efficientvit",
+        "paper_title": "EfficientViT: Multi-Scale Linear Attention for High-Resolution Dense Prediction",
+        "paper_url": "https://arxiv.org/abs/2205.14756",
+        "code": "https://github.com/mit-han-lab/efficientvit"
+      }
+    },
+    {
+      "id": "efficientvit_sam",
+      "title": "EfficientViT-SAM",
+      "year": 2024,
+      "area": "efficient_foundation_models",
+      "technique_family": ["sam_acceleration", "distillation", "deployment"],
+      "primary_bottleneck": "SAM-quality region priors are too heavy for practical dense use",
+      "core_trick": "Accelerate Segment Anything with an EfficientViT-based vision stack that preserves zero-shot mask quality while making deployment practical.",
+      "intuition": "Foundation priors are only useful if they can be run often enough. A slightly adapted but much faster SAM-like prior can be more useful than a perfect but unusably slow one.",
+      "ablation_takeaways": [
+        "The performance-efficiency frontier can beat vanilla SAM-ViT-H when the backbone is redesigned for deployment rather than naively compressed.",
+        "Fast prior generation matters for downstream pipelines that consume many masks or regions."
+      ],
+      "apply_when": [
+        "You need dense masks or proposal regions repeatedly in the perception stack.",
+        "A standard SAM forward is too slow for the intended training or inference cadence."
+      ],
+      "avoid_when": [
+        "You only need occasional offline mask extraction and can afford the full teacher.",
+        "You need the exact behavior of upstream SAM for evaluation parity."
+      ],
+      "tsqbev_actions": [
+        "Use as the eventual deployable replacement for full SAM2 priors if region priors prove valuable.",
+        "Keep full SAM2 as the teacher path while evaluating whether fast priors are sufficient."
+      ],
+      "sources": {
+        "project": "https://hanlab.mit.edu/projects/efficientvit",
+        "paper_title": "EfficientViT-SAM",
+        "paper_url": "https://arxiv.org/abs/2402.05008",
+        "code": "https://github.com/mit-han-lab/efficientvit"
+      }
+    },
+    {
+      "id": "spvnas",
+      "title": "SPVNAS",
+      "year": 2020,
+      "area": "efficient_3d_perception",
+      "technique_family": ["3d_nas", "sparse_point_voxel"],
+      "primary_bottleneck": "3D point cloud backbones need architecture search tuned to sparse point-voxel computation",
+      "core_trick": "Search sparse point-voxel 3D architectures rather than transplanting 2D or dense 3D backbones directly.",
+      "intuition": "Sparse 3D workloads have different scaling laws and operator costs; 3D architecture search must understand sparse point-voxel structure directly.",
+      "ablation_takeaways": [
+        "Searched SPVNAS models beat manually designed point-voxel baselines at similar compute budgets.",
+        "Sparse point-voxel design is a better search substrate than pure dense or pure sparse extremes."
+      ],
+      "apply_when": [
+        "LiDAR or sparse BEV encoders are a primary performance/runtime bottleneck.",
+        "You need a searchable 3D backbone family rather than a one-off model."
+      ],
+      "avoid_when": [
+        "You already have a strong frozen LiDAR teacher and the student bottleneck is elsewhere.",
+        "Kernel/runtime support for sparse point-voxel ops is missing."
+      ],
+      "tsqbev_actions": [
+        "Use as a template for future searched LiDAR/BEV student backbones.",
+        "Pair with TorchSparse++ if we move beyond OpenPCDet teachers."
+      ],
+      "sources": {
+        "project": "https://github.com/mit-han-lab/spvnas",
+        "paper_title": "Searching Efficient 3D Architectures with Sparse Point-Voxel Convolution",
+        "paper_url": "https://arxiv.org/abs/2007.16100",
+        "code": "https://github.com/mit-han-lab/spvnas"
+      }
+    },
+    {
+      "id": "torchsparse_plus_plus",
+      "title": "TorchSparse++",
+      "year": 2023,
+      "area": "efficient_3d_systems",
+      "technique_family": ["sparse_kernels", "runtime_co_design"],
+      "primary_bottleneck": "irregular sparse point cloud kernels underutilize GPUs",
+      "core_trick": "Systematically optimize sparse dataflows, memory locality, and grouping strategies for point cloud convolutions instead of using one fixed sparse-conv execution strategy.",
+      "intuition": "Sparse workloads are not uniformly sparse; dataflow choice must adapt to locality and tensor shape. Kernel strategy is part of the model design, not a backend detail.",
+      "ablation_takeaways": [
+        "Adaptive grouping and locality-aware memory access materially improve sparse GPU efficiency.",
+        "The best sparse dataflow varies across layers and workloads."
+      ],
+      "apply_when": [
+        "Sparse LiDAR or voxel backbones are the main runtime bottleneck.",
+        "You need real GPU efficiency from sparse convs rather than nominal sparsity."
+      ],
+      "avoid_when": [
+        "The workload is dense enough that sparse overhead dominates.",
+        "The stack cannot tolerate custom sparse runtime kernels."
+      ],
+      "tsqbev_actions": [
+        "Use as the kernel/runtime reference if the new LiDAR student moves off generic spconv.",
+        "Feed its lessons into our future auto_vram_fit and kernel policy logic."
+      ],
+      "sources": {
+        "project": "https://github.com/mit-han-lab/torchsparse",
+        "paper_title": "TorchSparse: Efficient Training and Inference Framework for Sparse Convolution on GPUs",
+        "paper_url": "https://arxiv.org/abs/2202.09707",
+        "code": "https://github.com/mit-han-lab/torchsparse"
+      }
+    },
+    {
+      "id": "flatformer",
+      "title": "FlatFormer",
+      "year": 2023,
+      "area": "efficient_3d_perception",
+      "technique_family": ["point_transformer", "regularized_attention"],
+      "primary_bottleneck": "point transformers are accurate but too irregular and slow for edge deployment",
+      "core_trick": "Flatten windows into equal-size groups, alternate sorting axes, and trade some spatial purity for computational regularity.",
+      "intuition": "For sparse 3D attention, regularity can matter more than perfectly faithful local geometry. Slightly less natural grouping can produce much better hardware efficiency with limited accuracy cost.",
+      "ablation_takeaways": [
+        "Equal-size groups avoid expensive padding/structuring overhead that kills point-transformer latency.",
+        "Alternating axes and shifted windows recover enough cross-group context to stay accurate."
+      ],
+      "apply_when": [
+        "You want transformer-style LiDAR reasoning but sparse conv baselines are hard to beat on latency.",
+        "Attention irregularity is the main source of slowdown."
+      ],
+      "avoid_when": [
+        "Sparse convolution already wins decisively and transformer semantics are not needed.",
+        "The task needs exact fine-grained local neighborhoods more than regularized grouping."
+      ],
+      "tsqbev_actions": [
+        "Use as a template if we explore LiDAR-side sparse attention rather than only sparse conv.",
+        "Its grouping logic is relevant to camera-BEV latent cross-attention regularization."
+      ],
+      "sources": {
+        "project": "https://github.com/mit-han-lab/flatformer",
+        "paper_title": "FlatFormer: Flattened Window Attention for Efficient Point Cloud Transformer",
+        "paper_url": "https://arxiv.org/abs/2301.08739",
+        "code": "https://github.com/mit-han-lab/flatformer"
+      }
+    },
+    {
+      "id": "bevfusion",
+      "title": "BEVFusion",
+      "year": 2023,
+      "area": "autonomous_driving",
+      "technique_family": ["bev_fusion", "multitask", "optimized_view_transform"],
+      "primary_bottleneck": "point-level camera-lidar fusion discards semantic density and becomes inefficient for semantic tasks",
+      "core_trick": "Fuse modalities in a shared BEV space and fix the view-transform bottleneck with optimized BEV pooling.",
+      "intuition": "The representation space is the decision. Point-level fusion preserves geometry but wastes dense camera semantics; BEV-level fusion keeps both and aligns detection and map tasks naturally.",
+      "ablation_takeaways": [
+        "Shared BEV fusion outperforms point-level fusion for multi-task perception while staying simpler to extend across tasks.",
+        "Optimized BEV pooling is not a minor implementation detail; it is the difference between elegant theory and usable latency."
+      ],
+      "apply_when": [
+        "You need one multimodal representation for detection and map/lane tasks.",
+        "Camera semantics and LiDAR geometry both matter."
+      ],
+      "avoid_when": [
+        "You only have one modality and do not need shared BEV fusion.",
+        "The camera branch still lacks strong depth/view supervision and would inject noisy BEV features."
+      ],
+      "tsqbev_actions": [
+        "Keep as the reproduced upper-bound teacher and dense control arm.",
+        "Use its optimized pooling lesson when designing future camera-to-BEV code paths."
+      ],
+      "sources": {
+        "project": "https://github.com/mit-han-lab/bevfusion",
+        "paper_title": "BEVFusion: Multi-Task Multi-Sensor Fusion with Unified Bird's-Eye View Representation",
+        "paper_url": "https://arxiv.org/abs/2205.13542",
+        "code": "https://github.com/mit-han-lab/bevfusion"
+      }
+    },
+    {
+      "id": "smoothquant",
+      "title": "SmoothQuant",
+      "year": 2023,
+      "area": "llm_quantization",
+      "technique_family": ["post_training_quantization", "activation_weight_rebalancing"],
+      "primary_bottleneck": "activation outliers block full W8A8 quantization",
+      "core_trick": "Smooth activation outliers into weights with an equivalent transformation so activations become quantization-friendly.",
+      "intuition": "The hard part of activation quantization is often a small set of outlier channels. Moving that difficulty into weights, where quantization is easier to manage, unlocks stable low-precision inference.",
+      "ablation_takeaways": [
+        "The main win comes from redistributing difficulty between activations and weights, not from a fancy quantizer alone.",
+        "Layerwise smoothing strength matters; too much smoothing hurts weight quantization."
+      ],
+      "apply_when": [
+        "Activation quantization is required and outlier channels dominate error.",
+        "You want a strong PTQ baseline before more complex quantization schemes."
+      ],
+      "avoid_when": [
+        "Weights, not activations, are the main memory bottleneck and W-only quantization is enough.",
+        "The runtime cannot exploit low-precision activations."
+      ],
+      "tsqbev_actions": [
+        "Use on unrestricted LLM/VLM teachers and planner models, not the near-term BEV student.",
+        "Its outlier-rebalancing intuition is relevant to BEV feature distillation normalization."
+      ],
+      "sources": {
+        "project": "https://hanlab.mit.edu/projects/tinyml",
+        "paper_title": "SmoothQuant: Accurate and Efficient Post-Training Quantization for Large Language Models",
+        "paper_url": "https://arxiv.org/abs/2211.10438",
+        "code": "https://github.com/mit-han-lab/smoothquant"
+      }
+    },
+    {
+      "id": "awq",
+      "title": "AWQ",
+      "year": 2024,
+      "area": "llm_quantization",
+      "technique_family": ["weight_only_quantization", "channel_saliency", "system_co_design"],
+      "primary_bottleneck": "weight bandwidth and memory dominate LLM/VLM deployment",
+      "core_trick": "Identify activation-salient weights/channels and protect them during low-bit weight-only quantization.",
+      "intuition": "Uniform weight-only quantization fails because a small fraction of channels disproportionately affect activations. Preserving those channels buys back accuracy very cheaply.",
+      "ablation_takeaways": [
+        "Accurate weight-only quantization depends more on protecting salient channels than on globally increasing precision.",
+        "Kernel support is part of the method; the practical win comes from both the quantization recipe and the 4-bit runtime."
+      ],
+      "apply_when": [
+        "Weights dominate memory/bandwidth and activations can stay in higher precision.",
+        "You need a deployable low-bit teacher or local planner model."
+      ],
+      "avoid_when": [
+        "Activation quantization is required to hit the target budget.",
+        "The runtime lacks good W4 kernels."
+      ],
+      "tsqbev_actions": [
+        "Use to compress large local teacher/planner models, not the immediate camera student.",
+        "Reuse its saliency-protection idea when choosing which teacher channels to project into BEV."
+      ],
+      "sources": {
+        "project": "https://hanlab.mit.edu/projects/tinyml",
+        "paper_title": "AWQ: Activation-aware Weight Quantization for LLM Compression and Acceleration",
+        "paper_url": "https://arxiv.org/abs/2306.00978",
+        "code": "https://github.com/mit-han-lab/llm-awq"
+      }
+    },
+    {
+      "id": "qserve",
+      "title": "QServe / OmniServe",
+      "year": 2025,
+      "area": "llm_serving",
+      "technique_family": ["serving_system", "quantization", "kernel_co_design"],
+      "primary_bottleneck": "dequantization and KV traffic erase theoretical low-bit gains",
+      "core_trick": "Co-design W4A8KV4 quantization with a serving engine so quantized inference reduces real latency and cost instead of just model size.",
+      "intuition": "Quantization only wins if the system avoids paying the savings back in dequantization overhead, cache bandwidth, and fragmented kernels.",
+      "ablation_takeaways": [
+        "The serving engine matters as much as the quantization format.",
+        "KV precision and batching behavior materially affect the realized benefit."
+      ],
+      "apply_when": [
+        "You need high-throughput local reasoning or VLM serving on constrained GPUs.",
+        "Quantization is already decided and runtime overhead has become the bottleneck."
+      ],
+      "avoid_when": [
+        "The workload is dominated by training rather than serving.",
+        "You only need occasional single-sample inference and the engineering cost is unjustified."
+      ],
+      "tsqbev_actions": [
+        "Use for the planner/critic/control-plane model hosting path, not the perception student.",
+        "Adopt its 'algorithm must ship with the engine' lesson for future BEV runtime work."
+      ],
+      "sources": {
+        "project": "https://hanlab.mit.edu/projects/qserve",
+        "paper_title": "QServe: W4A8KV4 Quantization and System Co-design for Efficient LLM Serving",
+        "paper_url": "https://arxiv.org/abs/2405.04532",
+        "code": "https://github.com/mit-han-lab/omniserve"
+      }
+    },
+    {
+      "id": "streamingllm",
+      "title": "StreamingLLM",
+      "year": 2024,
+      "area": "long_context_inference",
+      "technique_family": ["kv_cache", "attention_sinks", "streaming_inference"],
+      "primary_bottleneck": "full KV cache memory makes long conversations unstable or expensive",
+      "core_trick": "Keep the most recent tokens plus a tiny set of attention sinks, and drop the rest of the KV cache.",
+      "intuition": "Softmax attention needs somewhere to park probability mass. Initial tokens naturally become sinks, so keeping them is a cheap way to stabilize streaming inference without pretending to preserve full memory.",
+      "ablation_takeaways": [
+        "Sliding windows alone fail beyond cache size; retaining attention sinks is the stabilizing ingredient.",
+        "This method improves streaming stability, not true long-term recall."
+      ],
+      "apply_when": [
+        "The task is genuinely streaming or recency-dominated.",
+        "You need KV cache control more than exact long-context reasoning."
+      ],
+      "avoid_when": [
+        "You need faithful access to distant middle-context content.",
+        "You are solving retrieval-heavy problems where dropped tokens must remain accessible."
+      ],
+      "tsqbev_actions": [
+        "Use for planner/critic context management and long-running agent memory windows.",
+        "Its sink-retention idea may inspire compact temporal memory tokens in the student."
+      ],
+      "sources": {
+        "project": null,
+        "paper_title": "Efficient Streaming Language Models with Attention Sinks",
+        "paper_url": "https://arxiv.org/abs/2309.17453",
+        "code": "https://github.com/mit-han-lab/streaming-llm"
+      }
+    },
+    {
+      "id": "duoattention",
+      "title": "DuoAttention",
+      "year": 2025,
+      "area": "long_context_inference",
+      "technique_family": ["head_specialization", "hybrid_attention"],
+      "primary_bottleneck": "not every attention head needs the same access pattern",
+      "core_trick": "Split heads into retrieval-style and streaming-style roles instead of forcing one attention policy everywhere.",
+      "intuition": "Heads specialize. A single global attention pattern wastes compute because some heads need global retrieval while others mainly stabilize local streaming behavior.",
+      "ablation_takeaways": [
+        "Heterogeneous head roles outperform uniform sparse or uniform dense policies.",
+        "Retrieval and streaming behavior should be assigned where the model already wants them, not imposed blindly."
+      ],
+      "apply_when": [
+        "Attention heads show divergent long-range vs local-use patterns.",
+        "You can route or specialize attention without rewriting the whole model."
+      ],
+      "avoid_when": [
+        "The model is too small or too homogeneous for head specialization to matter.",
+        "Kernel support for heterogeneous head behavior is missing."
+      ],
+      "tsqbev_actions": [
+        "Use as inspiration for latent cross-attention and temporal-memory head specialization in the student.",
+        "Relevant to future camera-to-BEV sparse attention rather than immediate deployment."
+      ],
+      "sources": {
+        "project": "https://hanlab.mit.edu/projects/duo-attention",
+        "paper_title": "DuoAttention: Efficient Long-Context LLM Inference with Retrieval and Streaming Heads",
+        "paper_url": "https://arxiv.org/abs/2410.10819",
+        "code": "https://github.com/mit-han-lab/duo-attention"
+      }
+    },
+    {
+      "id": "lserve",
+      "title": "LServe / OmniServe",
+      "year": 2025,
+      "area": "long_context_inference",
+      "technique_family": ["sparse_attention", "hierarchical_kv_management", "serving_system"],
+      "primary_bottleneck": "long-context LLM serving is dominated by attention and KV cost",
+      "core_trick": "Use unified sparse attention plus hierarchical KV cache management in a serving system built for long-sequence deployment.",
+      "intuition": "Long-context efficiency is a systems problem as much as an attention-pattern problem. Attention sparsity only pays off when cache management and batching are designed around it.",
+      "ablation_takeaways": [
+        "Hybrid sparse attention needs hierarchical cache management to translate into serving wins.",
+        "A unified engine can make long-context and quantized serving coexist rather than fragmenting the runtime."
+      ],
+      "apply_when": [
+        "Planner/critic models need much longer local context than naive KV caches can support.",
+        "You want one serving engine for multiple efficiency modes."
+      ],
+      "avoid_when": [
+        "The workload is short-context and quantization alone solves the cost problem.",
+        "The engineering budget does not justify a specialized serving stack."
+      ],
+      "tsqbev_actions": [
+        "Use for the long-term agent control plane, not the perception runtime.",
+        "Its hierarchical cache lesson maps cleanly to durable agent state and local memory windows."
+      ],
+      "sources": {
+        "project": null,
+        "paper_title": "LServe: Efficient Long-sequence LLM Serving with Unified Sparse Attention",
+        "paper_url": "https://openreview.net/pdf?id=KQ4pJFFqT1",
+        "code": "https://github.com/mit-han-lab/omniserve"
+      }
+    },
+    {
+      "id": "svdquant",
+      "title": "SVDQuant / Nunchaku",
+      "year": 2025,
+      "area": "diffusion_quantization",
+      "technique_family": ["quantization", "outlier_handling", "inference_engine"],
+      "primary_bottleneck": "diffusion-model outliers break naive 4-bit quantization",
+      "core_trick": "Absorb difficult outlier structure into low-rank components so the bulk of the model can be quantized to 4 bits, then serve it with a matching engine.",
+      "intuition": "Outliers are structured, not random. A small low-rank residual can capture them much more cleanly than simply raising precision everywhere.",
+      "ablation_takeaways": [
+        "Outlier handling plus a dedicated engine gives much larger wins than quantization alone.",
+        "A low-rank correction is a better use of budget than globally increasing precision."
+      ],
+      "apply_when": [
+        "A small fraction of channels/weights dominate quantization error.",
+        "You can support a hybrid low-rank plus low-bit runtime."
+      ],
+      "avoid_when": [
+        "The deployment stack cannot execute the hybrid representation efficiently.",
+        "The model is small enough that pure low-bit quantization already works."
+      ],
+      "tsqbev_actions": [
+        "Use for future teacher-side diffusion or VLM tools and for the planner/control plane if large image/video models become local dependencies.",
+        "Its structured-outlier treatment may transfer to camera feature projector compression."
+      ],
+      "sources": {
+        "project": "https://hanlab.mit.edu/categories/algorithm",
+        "paper_title": "SVDQuant: Absorbing Outliers by Low-Rank Components for 4-Bit Diffusion Models",
+        "paper_url": "https://arxiv.org/abs/2411.05007",
+        "code": "https://github.com/mit-han-lab/nunchaku"
+      }
+    },
+    {
+      "id": "radial_attention",
+      "title": "Radial Attention",
+      "year": 2025,
+      "area": "sparse_attention",
+      "technique_family": ["sparse_attention", "long_video_generation", "kernel_co_design"],
+      "primary_bottleneck": "dense attention becomes too expensive on long video sequences",
+      "core_trick": "Use an O(n log n) sparse attention pattern with energy decay to preserve useful interactions while reducing computation.",
+      "intuition": "For long structured sequences, the problem is not just sparsity but which interactions decay gracefully. A radial pattern exploits that many long-range interactions can be summarized with controlled decay instead of full dense pairing.",
+      "ablation_takeaways": [
+        "Sparse structure plus a compatible kernel stack can cut both training and inference cost by multiple times.",
+        "The attention pattern and the matmul kernel must be co-tuned; otherwise sparse patterns underperform dense baselines in practice."
+      ],
+      "apply_when": [
+        "Sequence length is the dominant cost driver and locality with decaying long-range structure is acceptable.",
+        "You can pair the sparse pattern with an optimized kernel."
+      ],
+      "avoid_when": [
+        "The task requires arbitrary token-token interactions without a meaningful decay prior.",
+        "The runtime cannot execute the sparse layout efficiently."
+      ],
+      "tsqbev_actions": [
+        "Use as inspiration for future sparse multi-view temporal attention in the camera branch.",
+        "Only pursue after the new student family is stable enough to justify custom sparse attention kernels."
+      ],
+      "sources": {
+        "project": "https://hanlab.mit.edu/projects/radial-attention",
+        "paper_title": "Radial Attention: O(nlogn) Sparse Attention with Energy Decay for Long Video Generation",
+        "paper_url": "https://arxiv.org/abs/2506.19852",
+        "code": "https://github.com/mit-han-lab/radial-attention"
+      }
+    }
+  ]
+}

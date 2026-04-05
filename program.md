@@ -19,6 +19,8 @@ These instructions are durable repo policy, not one-off chat guidance.
 - move fast with bounded changes; do not spend large effort on unfalsifiable ideas
 - browse primary papers, official repos, and official weights for unstable SOTA areas such as KD,
   pretrained backbones, query design, multimodal fusion, and deployment tradeoffs
+- write durable literature syntheses and technique databases under `research/knowledge/` so they
+  become queryable memory rather than one-off notes
 - treat KD as a broad menu, not a single method: logits, feature, `1x1` alignment, relational,
   dense output targets such as heatmaps / BEV maps / segmentation maps, online, mutual,
   self-distillation, and teacher-anchor transfer are all in scope

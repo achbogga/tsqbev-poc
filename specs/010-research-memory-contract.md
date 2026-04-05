@@ -17,6 +17,8 @@ chat context and makes the bounded loop operate from durable evidence.
 - `DuckDB` exact catalog for runs, summaries, gates, blockers, and promoted records.
 - `Qdrant` local evidence index for chunked docs, ledgers, scripts, specs, and machine-written
   summaries.
+- structured literature databases and technique cards under `research/knowledge/` must be indexed
+  as evidence and distilled into memory facts during sync.
 - `Mem0 OSS` distilled memory layer when its local services are healthy.
 - If `Mem0` is unavailable, memory writes must be spooled locally and flushed later.
 

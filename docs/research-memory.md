@@ -14,6 +14,9 @@ durable evidence instead of ephemeral chat context.
 This repo intentionally keeps the canonical truth in the filesystem. The memory databases are
 rebuildable from repo artifacts and docs.
 
+Research notes and structured literature databases under `research/knowledge/` are also indexed
+into the evidence layer and distilled into memory facts during `research-sync`.
+
 Optional hosted reranking is supported for stronger semantic evidence ordering:
 
 - local default: FastEmbed cross-encoder reranker
@@ -89,6 +92,8 @@ If those services are unavailable, the repo still works:
 
 - machine-readable sync state: [artifacts/memory/sync_manifest.json](../artifacts/memory/sync_manifest.json)
 - machine-readable brief: [artifacts/memory/brief.json](../artifacts/memory/brief.json)
+- structured literature database:
+  [research/knowledge/mit_han_efficient_ml_kb.json](../research/knowledge/mit_han_efficient_ml_kb.json)
 - PI-facing current report: [docs/reports/current.md](reports/current.md)
 - continuous supervisor report: [docs/reports/autoresearch.md](reports/autoresearch.md)
 - steering file consumed before runs: [docs/steering.md](steering.md)

@@ -55,6 +55,10 @@ the agent must consult:
 For efficiency and deployment-oriented work, prefer primary references from MIT HAN Lab and
 official NVIDIA deployment docs when they exist.
 
+When a literature review produces reusable technique cards or ablation guidance, store the durable
+result under `research/knowledge/` and sync it into the local memory stack instead of leaving it in
+chat-only form.
+
 The repo should prefer primary-source citations over secondary summaries. Novel repo-specific claims
 must cite the local artifact, code path, or paper draft in this repo.
 
@@ -150,6 +154,8 @@ The bounded research loop must:
 - compare teacher-off and teacher-on paths honestly
 - use web/literature review to refresh the design space when local progress stalls
 - treat the local research-memory stack as required context, not optional decoration
+- persist durable literature syntheses under `research/knowledge/` so future briefs and planners
+  can retrieve them directly
 - emit a machine-readable `boss_progress_verdict` after every invocation that compares the new
   promoted run against the previous mini incumbent and the best historical mini result
 - prefer hosted frontier reasoning models for planner and critic roles whenever credentials exist,

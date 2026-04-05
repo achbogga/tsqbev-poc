@@ -1153,6 +1153,8 @@ def _artifact_files(repo_root: Path) -> list[Path]:
         "docs/**/*.md",
         "docs/**/*.tex",
         "specs/**/*.md",
+        "research/knowledge/**/*.md",
+        "research/knowledge/**/*.json",
         "src/tsqbev/*.py",
         "research/scripts/*.py",
         "research/scripts/*.sh",
@@ -1561,6 +1563,75 @@ def _derive_memory_facts(events: list[ResearchEvent], repo_root: Path) -> list[M
     return facts
 
 
+def _collect_knowledge_facts(repo_root: Path) -> list[MemoryFact]:
+    facts: list[MemoryFact] = []
+    for path in sorted(repo_root.glob("research/knowledge/**/*.json")):
+        if not path.is_file():
+            continue
+        rel = _repo_rel(path, repo_root)
+        try:
+            payload = json.loads(path.read_text())
+        except json.JSONDecodeError:
+            continue
+        entries = payload.get("entries", [])
+        if not isinstance(entries, list):
+            continue
+        for entry in entries:
+            if not isinstance(entry, dict):
+                continue
+            entry_id = _as_opt_str(entry.get("id")) or _sha1(_json_dumps(entry))
+            title = _as_opt_str(entry.get("title")) or entry_id
+            core_trick = _as_opt_str(entry.get("core_trick"))
+            intuition = _as_opt_str(entry.get("intuition"))
+            summary = core_trick or intuition or title
+            apply_when = [
+                str(item).strip()
+                for item in cast(list[Any], entry.get("apply_when", []))
+                if str(item).strip()
+            ]
+            avoid_when = [
+                str(item).strip()
+                for item in cast(list[Any], entry.get("avoid_when", []))
+                if str(item).strip()
+            ]
+            claim = f"HAN Lab pattern `{title}`: {summary}."
+            if apply_when:
+                claim += f" Apply when: {apply_when[0]}."
+            if avoid_when:
+                claim += f" Avoid when: {avoid_when[0]}."
+            technique_family = entry.get("technique_family")
+            architecture_family: str | None
+            if isinstance(technique_family, list):
+                architecture_family = ",".join(str(item) for item in technique_family[:3])
+            else:
+                architecture_family = _as_opt_str(technique_family)
+            facts.append(
+                MemoryFact(
+                    fact_id=_sha1(f"knowledge:{rel}:{entry_id}"),
+                    kind="literature_note",
+                    claim=claim,
+                    confidence=0.9,
+                    source_refs=[rel],
+                    dataset=None,
+                    architecture_family=architecture_family,
+                    bottleneck=_as_opt_str(entry.get("primary_bottleneck")),
+                    git_sha=None,
+                    run_id=None,
+                    payload={
+                        "entry_id": entry_id,
+                        "title": title,
+                        "year": entry.get("year"),
+                        "area": entry.get("area"),
+                        "apply_when": apply_when,
+                        "avoid_when": avoid_when,
+                        "tsqbev_actions": entry.get("tsqbev_actions", []),
+                        "sources": entry.get("sources", {}),
+                    },
+                )
+            )
+    return facts
+
+
 def _as_opt_str(value: Any) -> str | None:
     if value is None:
         return None
@@ -1750,7 +1821,7 @@ def sync_research_memory(
     try:
         events = _collect_events(repo_root)
         chunks = _collect_chunks(repo_root, cfg)
-        facts = _derive_memory_facts(events, repo_root)
+        facts = _derive_memory_facts(events, repo_root) + _collect_knowledge_facts(repo_root)
         event_count = catalog.upsert_events(events)
         chunk_count = catalog.upsert_chunks(chunks)
         fact_count = catalog.upsert_facts(facts)
