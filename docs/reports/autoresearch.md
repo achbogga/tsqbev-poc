@@ -1,28 +1,27 @@
 # Autoresearch Supervisor
-_Generated: `2026-04-02T22:03:28.113858+00:00`_
+_Generated: `2026-04-05T03:11:29.725011+00:00`_
 
 ## Status
-- status: `waiting_external_run`
+- status: `running`
 - branch: `main`
-- repo sha: `fda66e5`
+- repo sha: `44d8fd1`
 - dataset root: `/home/achbogga/projects/research/nuscenes`
 - artifact root: `/home/achbogga/projects/tsqbev-poc/artifacts/autoresearch`
-- attempted invocations: `0`
-- completed invocations: `0`
+- attempted invocations: `1`
+- completed invocations: `1`
 - memory mode: `server`
 - memory embedder: `hash`
-- last invocation dir: `-`
-- last selected recipe: `-`
-- last NDS: `-`
-- last mAP: `-`
-- last publish status: `-`
-- last publish message: `-`
+- last invocation dir: `/home/achbogga/projects/tsqbev-poc/artifacts/autoresearch/invocation_001_20260405-021759`
+- last selected recipe: `carryover_recovery_v14_teacher_anchor_quality_focal`
+- last NDS: `0.1460367945505751`
+- last mAP: `0.1654273054908206`
+- last publish status: `published`
+- last publish message: `autoresearch: publish invocation_001_20260405-021759 (2026-04-05 03:11 UTC)`
 
 ## Notes
-- External `tsqbev research-loop` process detected; waiting instead of contending for the same GPU.
-- pid `1708596`: `SCREEN -dmS 155042.tsqbev_research_v21_teacher_region_aug bash -ic cd /home/achbogga/projects/tsqbev-poc && mkdir -p artifacts/research_v21_teacher_region_aug_v1 && uv run tsqbev research-loop --dataset-root /home/achbogga/projects/research/nuscenes --artifact-dir /home/achbogga/projects/tsqbev-poc/artifacts/research_v21_teacher_region_aug_v1 --device cuda --max-experiments 5 --teacher-cache-dir /home/achbogga/projects/tsqbev-poc/artifacts/teacher_cache/centerpoint_pointpillar_mini 2>&1 | tee /home/achbogga/projects/tsqbev-poc/artifacts/research_v21_teacher_region_aug_v1/research_loop_v21.log`
-- pid `1708598`: `bash -ic cd /home/achbogga/projects/tsqbev-poc && mkdir -p artifacts/research_v21_teacher_region_aug_v1 && uv run tsqbev research-loop --dataset-root /home/achbogga/projects/research/nuscenes --artifact-dir /home/achbogga/projects/tsqbev-poc/artifacts/research_v21_teacher_region_aug_v1 --device cuda --max-experiments 5 --teacher-cache-dir /home/achbogga/projects/tsqbev-poc/artifacts/teacher_cache/centerpoint_pointpillar_mini 2>&1 | tee /home/achbogga/projects/tsqbev-poc/artifacts/research_v21_teacher_region_aug_v1/research_loop_v21.log`
-- pid `1709019`: `uv run tsqbev research-loop --dataset-root /home/achbogga/projects/research/nuscenes --artifact-dir /home/achbogga/projects/tsqbev-poc/artifacts/research_v21_teacher_region_aug_v1 --device cuda --max-experiments 5 --teacher-cache-dir /home/achbogga/projects/tsqbev-poc/artifacts/teacher_cache/centerpoint_pointpillar_mini`
+- started invocation `invocation_001_20260405-021759` at `2026-04-05T02:20:00.908311+00:00`
+- wrote first-principles checkpoint to `artifacts/autoresearch/invocation_001_20260405-021759/first_principles_checkpoint.json` before launch
+- finished invocation `invocation_001_20260405-021759` with publish status `published`
 
 ## Pointers
 - current PI brief: [docs/reports/current.md](docs/reports/current.md)
