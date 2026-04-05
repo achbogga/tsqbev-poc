@@ -1,0 +1,332 @@
+{
+  "collection": "nvidia_frontier_autonomy_efficiency",
+  "generated_on": "2026-04-05",
+  "scope": "Official NVIDIA open-source repositories and official NVIDIA AV/efficiency pages most relevant to frontier autonomous driving, world modeling, deployment, and runtime optimization.",
+  "source_policy": "Primary sources only: official NVIDIA repositories, official developer pages, official model pages, and official NVIDIA news or documentation pages.",
+  "design_laws": [
+    "Use NVIDIA frontier models as unrestricted teachers, simulators, evaluators, or deployment substrate unless they are proven small and stable enough for the runtime student.",
+    "Do not confuse a world model, reasoning model, or simulator with the deployable perception trunk; each belongs at a different level of the stack.",
+    "Treat TensorRT and model optimization as a second-stage systems play after the metric frontier is technically sound."
+  ],
+  "entries": [
+    {
+      "id": "alpamayo_r1",
+      "title": "NVIDIA DRIVE Alpamayo-R1",
+      "year": 2025,
+      "area": "autonomous_driving_reasoning",
+      "technique_family": ["vla", "reasoning_model", "av_decision_support"],
+      "primary_bottleneck": "long_horizon_reasoning_and_planning",
+      "source_term": "NVIDIA DRIVE Alpamayo-R1",
+      "repo_aliases": ["alpamayo", "av reasoning vla"],
+      "core_trick": "Use a large open reasoning VLA to inject explicit chain-of-thought-style decision structure and scenario understanding into autonomous driving research and teacher workflows.",
+      "intuition": "Alpamayo is not the 3D detection trunk. Its value is scenario reasoning, edge-case analysis, and long-horizon teacher behavior that a small deployable perception model will never do directly.",
+      "ablation_takeaways": [
+        "Use it to mine supervision, critiques, or scenario annotations rather than replacing metric-grounded perception baselines.",
+        "Reasoning gains do not magically repair weak box geometry."
+      ],
+      "ablation_nuggets": [
+        "Use Alpamayo as a planner/critic teacher, not as the runtime detector.",
+        "Distill only the parts of behavior that can be operationalized into student supervision or evaluation."
+      ],
+      "apply_when": [
+        "you need richer AV reasoning, failure analysis, or long-horizon behavior critique",
+        "the teacher side is unconstrained and can afford large multimodal reasoning"
+      ],
+      "avoid_when": [
+        "you are solving raw 3D localization or calibration errors in the perception stack",
+        "you need a tight deployable runtime path right now"
+      ],
+      "integration_pattern": "Use as a research control-plane or teacher-side evaluator that critiques scenarios, proposes curricula, and labels planning-sensitive failures.",
+      "failure_modes": [
+        "treating language-side reasoning as a substitute for perception metrics",
+        "overfitting the research agenda to narrative explanations instead of measurable geometry"
+      ],
+      "teacher_role": "reasoning teacher and evaluator",
+      "student_role": "none",
+      "systems_role": "high-compute teacher/control-plane model",
+      "student_deployability": "low",
+      "codebases": [],
+      "checkpoints": [],
+      "evidence_strength": "medium",
+      "tsqbev_actions": [
+        "use Alpamayo to critique failure cases and generate richer planner-side research prompts",
+        "do not replace official detection gates with reasoning-model judgments"
+      ],
+      "sources": {
+        "project": "https://developer.nvidia.com/drive/alpamayo",
+        "announcement": "https://nvidianews.nvidia.com/news/alpamayo-autonomous-vehicle-development"
+      }
+    },
+    {
+      "id": "cosmos_reason2",
+      "title": "Cosmos-Reason2",
+      "year": 2026,
+      "area": "physical_ai_reasoning",
+      "technique_family": ["world_models", "reasoning_models", "physical_ai"],
+      "primary_bottleneck": "physical_common_sense_reasoning",
+      "source_term": "Cosmos-Reason2",
+      "repo_aliases": ["nvidia cosmos reasoning"],
+      "core_trick": "Provide physical common-sense reasoning models that generate long chain-of-thought embodied decisions grounded in world-state understanding.",
+      "intuition": "Reasoning models are valuable when we need stronger teacher critique, scenario interpretation, and post hoc explanation around physical AI behavior, not when we need a fast detector on the edge.",
+      "ablation_takeaways": [
+        "Best used as teacher/evaluator/control-plane reasoning rather than a direct runtime perception module."
+      ],
+      "ablation_nuggets": [
+        "Use to analyze failure cases and propose curriculum or synthetic scene generation targets.",
+        "Keep it off the critical student runtime path."
+      ],
+      "apply_when": [
+        "the research loop needs deeper physical reasoning for scenario analysis or dataset curation"
+      ],
+      "avoid_when": [
+        "you are trying to fix immediate detection-quality regressions"
+      ],
+      "integration_pattern": "Use in the control plane or offline analysis stack, paired with metric-grounded perception outputs.",
+      "failure_modes": [
+        "narrative overreach without measurable benefit",
+        "using reasoning as a substitute for official evaluation"
+      ],
+      "teacher_role": "reasoning teacher",
+      "student_role": "none",
+      "systems_role": "control-plane intelligence",
+      "student_deployability": "low",
+      "codebases": [
+        "https://github.com/nvidia-cosmos/cosmos-reason2"
+      ],
+      "checkpoints": [],
+      "evidence_strength": "medium",
+      "tsqbev_actions": [
+        "query Cosmos-Reason2-style ideas when the planner needs physical common-sense hypotheses or scenario critique"
+      ],
+      "sources": {
+        "code": "https://github.com/nvidia-cosmos/cosmos-reason2"
+      }
+    },
+    {
+      "id": "cosmos_predict2_5",
+      "title": "Cosmos-Predict2.5",
+      "year": 2026,
+      "area": "world_models",
+      "technique_family": ["world_foundation_models", "video_prediction", "physical_ai"],
+      "primary_bottleneck": "future_world_simulation",
+      "source_term": "Cosmos-Predict2.5",
+      "repo_aliases": ["nvidia cosmos predict"],
+      "core_trick": "Model future world evolution in video form so synthetic rollouts and physically plausible future predictions become available for training, curation, and evaluation.",
+      "intuition": "World prediction helps when we need synthetic variation, temporal stress tests, or future-state supervision. It is a teacher and simulator, not the detector itself.",
+      "ablation_takeaways": [
+        "The value is in simulation and future-state supervision, not direct replacement of perception modules."
+      ],
+      "ablation_nuggets": [
+        "Use to create failure-focused synthetic continuations or stress-test scenarios.",
+        "Do not put it in the runtime student path."
+      ],
+      "apply_when": [
+        "you need richer synthetic or future-conditioned supervision than the dataset currently provides"
+      ],
+      "avoid_when": [
+        "the active issue is a broken evaluation/export path rather than data coverage"
+      ],
+      "integration_pattern": "Use offline for scenario generation, hard-negative expansion, or future-conditioned curriculum design.",
+      "failure_modes": [
+        "simulation drift that does not map back to deployment-relevant sensor behavior",
+        "large synthetic data volume without curation discipline"
+      ],
+      "teacher_role": "world-model teacher",
+      "student_role": "none",
+      "systems_role": "offline data engine",
+      "student_deployability": "low",
+      "codebases": [
+        "https://github.com/nvidia-cosmos/cosmos-predict2.5"
+      ],
+      "checkpoints": [],
+      "evidence_strength": "medium",
+      "tsqbev_actions": [
+        "use for future-state synthetic augmentation only after the perception metric path is trustworthy"
+      ],
+      "sources": {
+        "code": "https://github.com/nvidia-cosmos/cosmos-predict2.5"
+      }
+    },
+    {
+      "id": "cosmos_transfer2_5",
+      "title": "Cosmos-Transfer2.5",
+      "year": 2026,
+      "area": "sim2real_world_transfer",
+      "technique_family": ["world_transfer", "sim2real", "physical_ai"],
+      "primary_bottleneck": "simulation_to_real_gap",
+      "source_term": "Cosmos-Transfer2.5",
+      "repo_aliases": ["nvidia cosmos transfer"],
+      "core_trick": "Translate between simulated and real-world visual domains while preserving control-relevant or physically meaningful structure.",
+      "intuition": "Transfer models are useful when synthetic data exists but its appearance or sensory statistics do not match the real data distribution well enough for training transfer.",
+      "ablation_takeaways": [
+        "The win is narrowing the sim-to-real appearance gap, not adding richer reasoning."
+      ],
+      "ablation_nuggets": [
+        "Use when simulation already exists and needs world-to-world transfer before training.",
+        "Keep geometry checks in place so transferred videos remain physically consistent."
+      ],
+      "apply_when": [
+        "simulated data is available but domain shift blocks its usefulness"
+      ],
+      "avoid_when": [
+        "real data is already sufficient and the bottleneck is model architecture or supervision"
+      ],
+      "integration_pattern": "Insert before synthetic data joins the main corpus; evaluate transferred outputs with strict consistency and relevance filters.",
+      "failure_modes": [
+        "appearance realism without correct dynamics",
+        "synthetic artifacts that confuse the student more than they help"
+      ],
+      "teacher_role": "data-augmentation engine",
+      "student_role": "none",
+      "systems_role": "offline simulation bridge",
+      "student_deployability": "low",
+      "codebases": [
+        "https://github.com/nvidia-cosmos/cosmos-transfer2.5"
+      ],
+      "checkpoints": [],
+      "evidence_strength": "medium",
+      "tsqbev_actions": [
+        "treat as a synthetic-data quality tool, not as a perception trunk component"
+      ],
+      "sources": {
+        "code": "https://github.com/nvidia-cosmos/cosmos-transfer2.5"
+      }
+    },
+    {
+      "id": "tensorrt_model_optimizer",
+      "title": "NVIDIA TensorRT Model Optimizer",
+      "year": 2026,
+      "area": "model_optimization",
+      "technique_family": ["quantization", "pruning", "distillation", "deployment_optimization"],
+      "primary_bottleneck": "deployment_efficiency",
+      "source_term": "Model Optimizer",
+      "repo_aliases": ["nvidia model optimizer", "tensorrt model optimizer"],
+      "core_trick": "Provide a unified optimization library for quantization, pruning, distillation, speculative decoding, and deployment-oriented model compression workflows.",
+      "intuition": "This is the systems layer that turns a proven model into a faster or cheaper one. It should follow a metric-credible model, not precede it.",
+      "ablation_takeaways": [
+        "Optimization framework gains matter only after the base model and evaluation path are technically sound."
+      ],
+      "ablation_nuggets": [
+        "Use for deployment hardening after the student frontier is real.",
+        "Keep it out of the critical path while architecture and supervision are still unstable."
+      ],
+      "apply_when": [
+        "the frontier recipe is stable enough to justify quantization or pruning work"
+      ],
+      "avoid_when": [
+        "you are still trying to discover the right student or teacher architecture"
+      ],
+      "integration_pattern": "Apply after the knowledge-first frontier model is selected; pair with official calibration and export sanity gates.",
+      "failure_modes": [
+        "premature optimization on a weak or broken model",
+        "optimizing latency while silently regressing official perception metrics"
+      ],
+      "teacher_role": "teacher compression option",
+      "student_role": "deployment optimization stage",
+      "systems_role": "primary deployment toolchain",
+      "student_deployability": "high",
+      "codebases": [
+        "https://github.com/NVIDIA/Model-Optimizer"
+      ],
+      "checkpoints": [],
+      "evidence_strength": "high",
+      "tsqbev_actions": [
+        "use only after the frontier student beats the current best control on official metrics"
+      ],
+      "sources": {
+        "code": "https://github.com/NVIDIA/Model-Optimizer"
+      }
+    },
+    {
+      "id": "tensorrt_llm",
+      "title": "TensorRT-LLM",
+      "year": 2026,
+      "area": "serving_and_kernels",
+      "technique_family": ["serving_systems", "kernels", "attention_optimization"],
+      "primary_bottleneck": "frontier_model_serving_efficiency",
+      "source_term": "TensorRT-LLM",
+      "repo_aliases": ["trt-llm"],
+      "core_trick": "Provide optimized inference kernels, runtimes, and serving patterns for large models, including sparse attention and long-context inference optimizations on NVIDIA hardware.",
+      "intuition": "TensorRT-LLM is not the perception student, but it is relevant to the research lab because the planner, critic, and giant teachers may need frontier serving efficiency.",
+      "ablation_takeaways": [
+        "Serving efficiency matters for large control-plane and teacher models, but it does not substitute for better supervision or perception design."
+      ],
+      "ablation_nuggets": [
+        "Use for planner/critic or giant teacher serving once the control plane needs higher throughput.",
+        "Keep it separate from the student perception runtime unless a clear migration path exists."
+      ],
+      "apply_when": [
+        "control-plane or large-teacher inference throughput is now limiting the research loop"
+      ],
+      "avoid_when": [
+        "the active bottleneck is still the student architecture or data path"
+      ],
+      "integration_pattern": "Treat as control-plane and teacher-serving substrate, not as the student AV perception runtime.",
+      "failure_modes": [
+        "sinking engineering effort into serving while the model itself is still weak",
+        "coupling the control plane too tightly to a specific hardware stack too early"
+      ],
+      "teacher_role": "large-teacher serving stack",
+      "student_role": "rare",
+      "systems_role": "frontier inference engine",
+      "student_deployability": "medium",
+      "codebases": [
+        "https://github.com/NVIDIA/TensorRT-LLM"
+      ],
+      "checkpoints": [],
+      "evidence_strength": "high",
+      "tsqbev_actions": [
+        "use for planner/critic or giant teacher serving before trying to transplant any of its kernel assumptions into the perception student"
+      ],
+      "sources": {
+        "code": "https://github.com/NVIDIA/TensorRT-LLM"
+      }
+    },
+    {
+      "id": "mambavision_nv",
+      "title": "MambaVision",
+      "year": 2025,
+      "area": "vision_backbones",
+      "technique_family": ["hybrid_backbone", "state_space_models", "vision_transformers"],
+      "primary_bottleneck": "efficient_high_capacity_vision_backbones",
+      "source_term": "MambaVision",
+      "repo_aliases": ["nvidia mamba vision", "hybrid mamba-transformer vision"],
+      "core_trick": "Combine Mamba-style sequence modeling with transformer components in a hybrid vision backbone to keep long-range capacity while preserving strong vision performance.",
+      "intuition": "This is a more realistic vision SSM option than blindly swapping every attention block for Mamba. Hybridization is the lesson: use SSMs where they help sequence efficiency while preserving transformer strengths where spatial detail matters.",
+      "ablation_takeaways": [
+        "Hybrid SSM-transformer designs are often safer than pure replacements when dense spatial structure still matters."
+      ],
+      "ablation_nuggets": [
+        "Treat as a later camera-student branch if DINOv3 and perspective supervision still overrun the deployment budget.",
+        "Do not replace the teacher with this just because it is newer."
+      ],
+      "apply_when": [
+        "you need a more efficient high-capacity vision backbone candidate after the frontier teacher-supervision path is proven"
+      ],
+      "avoid_when": [
+        "the current bottleneck is still weak cross-modal supervision rather than backbone efficiency"
+      ],
+      "integration_pattern": "Test as a later efficient camera student or teacher-lite branch, not before the DINOv3-based foundation path is understood.",
+      "failure_modes": [
+        "restarting architecture churn before the teacher-distillation path is stabilized",
+        "misplacing SSM blocks where explicit spatial alignment is still needed"
+      ],
+      "teacher_role": "teacher-lite or student candidate",
+      "student_role": "future efficient backbone candidate",
+      "systems_role": "runtime-oriented vision backbone option",
+      "student_deployability": "medium",
+      "codebases": [
+        "https://github.com/NVlabs/MambaVision"
+      ],
+      "checkpoints": [],
+      "evidence_strength": "medium",
+      "tsqbev_actions": [
+        "consider only after the DINOv3 teacher path and temporal-memory separation are validated"
+      ],
+      "sources": {
+        "paper": "https://arxiv.org/abs/2407.08083",
+        "code": "https://github.com/NVlabs/MambaVision"
+      }
+    }
+  ]
+}

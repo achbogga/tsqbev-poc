@@ -1,0 +1,283 @@
+{
+  "collection": "mit_han_frontier_systems",
+  "generated_on": "2026-04-05",
+  "scope": "Recent MIT HAN Lab frontier systems and attention-efficiency work that complements the older efficient-ML core pack. These entries focus on sparse attention, streaming, and long-context inference patterns relevant to control-plane serving and future student efficiency research.",
+  "source_policy": "Primary sources only: official MIT HAN Lab papers, repositories, and project pages.",
+  "design_laws": [
+    "Most of this pack applies first to the control plane, large teachers, or future student efficiency work, not the immediate perception baseline.",
+    "Kernel-level wins only matter after the architectural reason for using the attention pattern is clear.",
+    "Do not transplant long-context inference tricks into the perception stack without a matching bottleneck."
+  ],
+  "entries": [
+    {
+      "id": "quest",
+      "title": "Quest",
+      "year": 2024,
+      "area": "long_context_inference",
+      "technique_family": ["sparse_attention", "query_aware_pruning", "serving_systems"],
+      "primary_bottleneck": "long_context_attention_cost",
+      "source_term": "Quest",
+      "repo_aliases": ["query-aware sparsity"],
+      "core_trick": "Exploit query-aware sparsity to prune attention work adaptively during long-context inference.",
+      "intuition": "Quest is useful when queries clearly reveal which context regions matter and the system is bottlenecked by long-context inference cost, not by missing knowledge.",
+      "ablation_takeaways": [
+        "The win comes from pruning by relevance to the current query rather than using a static sparsity mask."
+      ],
+      "ablation_nuggets": [
+        "Use for long-context planner/critic serving if retrieval length becomes the new bottleneck."
+      ],
+      "apply_when": [
+        "control-plane or large-teacher inference is query-dependent and long-context bound"
+      ],
+      "avoid_when": [
+        "the active problem is multimodal alignment in perception, not long-context reasoning throughput"
+      ],
+      "integration_pattern": "Apply to planner/critic or giant teacher serving before attempting any perception-side attention rewrite.",
+      "failure_modes": [
+        "sparsifying context before the retrieval stack is even relevant enough",
+        "treating a serving optimization as a model-quality improvement"
+      ],
+      "teacher_role": "large-teacher serving optimization",
+      "student_role": "rarely immediate",
+      "systems_role": "control-plane efficiency",
+      "student_deployability": "low",
+      "codebases": [
+        "https://github.com/mit-han-lab/Quest"
+      ],
+      "checkpoints": [],
+      "evidence_strength": "high",
+      "tsqbev_actions": [
+        "reserve for planner/critic scaling, not for the current local perception frontier"
+      ],
+      "sources": {
+        "paper": "https://arxiv.org/abs/2406.10774",
+        "code": "https://github.com/mit-han-lab/Quest"
+      }
+    },
+    {
+      "id": "x_attention",
+      "title": "XAttention",
+      "year": 2025,
+      "area": "block_sparse_attention",
+      "technique_family": ["sparse_attention", "block_selection", "serving_systems"],
+      "primary_bottleneck": "long_context_attention_throughput",
+      "source_term": "XAttention",
+      "repo_aliases": ["antidiagonal sparse attention"],
+      "core_trick": "Score block importance with antidiagonal statistics so nonessential attention blocks can be pruned aggressively during long-context inference.",
+      "intuition": "XAttention is a fine-grained sparse attention mechanism for cases where block-level structure in the attention map is predictable enough to prune safely.",
+      "ablation_takeaways": [
+        "The antidiagonal block proxy is the key insight; the gain is not from generic sparsity alone."
+      ],
+      "ablation_nuggets": [
+        "Useful when a long-context serving stack needs more aggressive block pruning than simple cache tricks."
+      ],
+      "apply_when": [
+        "planner/critic or giant-teacher attention maps are structured enough for block-level pruning"
+      ],
+      "avoid_when": [
+        "the current bottleneck is still the perception student rather than the control plane"
+      ],
+      "integration_pattern": "Use as a later serving optimization layer after basic retrieval and reranking are already strong.",
+      "failure_modes": [
+        "spending kernel engineering budget before the architectural bottleneck is proven",
+        "pruning too aggressively when attention structure is not stable"
+      ],
+      "teacher_role": "large-teacher serving optimization",
+      "student_role": "unlikely near-term",
+      "systems_role": "advanced control-plane serving",
+      "student_deployability": "low",
+      "codebases": [
+        "https://github.com/mit-han-lab/x-attention"
+      ],
+      "checkpoints": [],
+      "evidence_strength": "high",
+      "tsqbev_actions": [
+        "use only after the knowledge stack and control plane justify sparse long-context serving work"
+      ],
+      "sources": {
+        "paper": "https://arxiv.org/abs/2503.16428",
+        "code": "https://github.com/mit-han-lab/x-attention"
+      }
+    },
+    {
+      "id": "block_sparse_attention_kernel",
+      "title": "Block-Sparse-Attention",
+      "year": 2025,
+      "area": "attention_kernels",
+      "technique_family": ["kernels", "sparse_attention", "mixed_patterns"],
+      "primary_bottleneck": "sparse_attention_kernel_efficiency",
+      "source_term": "Block-Sparse-Attention",
+      "repo_aliases": ["mixed sparse attention kernel"],
+      "core_trick": "Provide a sparse attention kernel that supports mixed sparsity patterns instead of forcing one rigid masking rule.",
+      "intuition": "A good sparse-attention idea is not enough; the kernel decides whether it becomes an actual system win. Mixed-pattern support matters when multiple sparse strategies coexist.",
+      "ablation_takeaways": [
+        "Kernel support is the difference between conceptual sparsity and practical throughput."
+      ],
+      "ablation_nuggets": [
+        "Use only after the attention pattern itself is justified by the model bottleneck."
+      ],
+      "apply_when": [
+        "a sparse attention design is already chosen and mixed mask patterns matter at runtime"
+      ],
+      "avoid_when": [
+        "you have not yet justified sparse attention architecturally"
+      ],
+      "integration_pattern": "Apply as a later kernel backend for long-context reasoning or giant-teacher inference, not as the first perception rewrite.",
+      "failure_modes": [
+        "kernel work before model-side justification",
+        "assuming the same sparse pattern fits both reasoning and perception"
+      ],
+      "teacher_role": "large-teacher kernel backend",
+      "student_role": "unlikely near-term",
+      "systems_role": "kernel substrate",
+      "student_deployability": "low",
+      "codebases": [
+        "https://github.com/mit-han-lab/Block-Sparse-Attention"
+      ],
+      "checkpoints": [],
+      "evidence_strength": "medium",
+      "tsqbev_actions": [
+        "consider only if the planner/critic or giant teachers move onto a sparse-attention serving stack"
+      ],
+      "sources": {
+        "code": "https://github.com/mit-han-lab/Block-Sparse-Attention"
+      }
+    },
+    {
+      "id": "flash_moba",
+      "title": "FlashMoBA",
+      "year": 2025,
+      "area": "attention_kernels",
+      "technique_family": ["sparse_attention", "kernels", "mixture_of_block_attention"],
+      "primary_bottleneck": "memory_efficient_long_sequence_attention",
+      "source_term": "FlashMoBA",
+      "repo_aliases": ["mixture of block attention kernel"],
+      "core_trick": "Make mixture-of-block attention memory efficient and practical by building it directly on top of optimized FlashAttention-style kernels.",
+      "intuition": "MoBA-style attention only matters if the implementation preserves the intended memory savings and throughput. FlashMoBA is the systems realization, not just the paper concept.",
+      "ablation_takeaways": [
+        "Kernel-level realization is essential for mixture-of-block attention to matter in practice."
+      ],
+      "ablation_nuggets": [
+        "Use after a mixture-of-block attention design is justified, not before."
+      ],
+      "apply_when": [
+        "a large reasoning or teacher stack already benefits from MoBA-style sparse patterns"
+      ],
+      "avoid_when": [
+        "there is no proven need for MoBA-like sparse attention in the current stack"
+      ],
+      "integration_pattern": "Late-stage serving/kernel optimization for giant teachers or control-plane reasoning models.",
+      "failure_modes": [
+        "premature kernel complexity",
+        "trying to solve a student-side supervision problem with an inference kernel"
+      ],
+      "teacher_role": "large-teacher kernel optimization",
+      "student_role": "very unlikely near-term",
+      "systems_role": "advanced sparse-attention kernel",
+      "student_deployability": "low",
+      "codebases": [
+        "https://github.com/mit-han-lab/flash-moba"
+      ],
+      "checkpoints": [],
+      "evidence_strength": "medium",
+      "tsqbev_actions": [
+        "keep in reserve for giant-teacher serving, not the current perception stack"
+      ],
+      "sources": {
+        "paper": "https://arxiv.org/abs/2511.11571",
+        "code": "https://github.com/mit-han-lab/flash-moba"
+      }
+    },
+    {
+      "id": "streaming_vlm",
+      "title": "StreamingVLM",
+      "year": 2025,
+      "area": "streaming_multimodal_reasoning",
+      "technique_family": ["streaming", "vlm", "video_understanding"],
+      "primary_bottleneck": "infinite_video_context_handling",
+      "source_term": "StreamingVLM",
+      "repo_aliases": ["streaming visual-language model"],
+      "core_trick": "Support real-time understanding over effectively unbounded video streams instead of treating every clip as a fixed offline batch.",
+      "intuition": "Streaming multimodal models matter when the control plane or teacher must reason continuously over video instead of resetting on short windows.",
+      "ablation_takeaways": [
+        "Streaming wins show up when context truly never stops; they are not free gains for short static clips."
+      ],
+      "ablation_nuggets": [
+        "Useful for future control-plane or teacher-side continuous video reasoning, not for the local student detector."
+      ],
+      "apply_when": [
+        "the research lab needs persistent video understanding over long streams"
+      ],
+      "avoid_when": [
+        "the active frontier is still per-frame or short-sequence 3D detection"
+      ],
+      "integration_pattern": "Use in the control plane or giant teacher stack when long video context becomes a real research bottleneck.",
+      "failure_modes": [
+        "overengineering streaming before the underlying perception model is strong",
+        "assuming streaming context automatically improves 3D metrics"
+      ],
+      "teacher_role": "teacher/control-plane streaming model",
+      "student_role": "none",
+      "systems_role": "streaming control-plane capability",
+      "student_deployability": "low",
+      "codebases": [
+        "https://github.com/mit-han-lab/streaming-vlm"
+      ],
+      "checkpoints": [],
+      "evidence_strength": "medium",
+      "tsqbev_actions": [
+        "defer until long-horizon video reasoning is the actual lab bottleneck"
+      ],
+      "sources": {
+        "paper": "https://arxiv.org/abs/2510.09608",
+        "code": "https://github.com/mit-han-lab/streaming-vlm"
+      }
+    },
+    {
+      "id": "spatten",
+      "title": "SpAtten",
+      "year": 2021,
+      "area": "hardware_sparse_attention",
+      "technique_family": ["sparse_attention", "hardware_architecture", "token_pruning"],
+      "primary_bottleneck": "attention_hardware_efficiency",
+      "source_term": "SpAtten",
+      "repo_aliases": ["cascade token and head pruning"],
+      "core_trick": "Jointly prune tokens and heads with hardware-aware sparse attention design so the attention path becomes feasible on efficient hardware.",
+      "intuition": "SpAtten is a reminder that sparse attention becomes truly useful only when the architecture and hardware story agree.",
+      "ablation_takeaways": [
+        "Pruning and hardware co-design matter together; one without the other underdelivers."
+      ],
+      "ablation_nuggets": [
+        "Use as design inspiration for deployment-aware attention, not as a drop-in perception fix."
+      ],
+      "apply_when": [
+        "hardware-aware sparse attention is a real deployment requirement"
+      ],
+      "avoid_when": [
+        "the stack has not yet proven which attention path deserves hardware specialization"
+      ],
+      "integration_pattern": "Deployment-stage inspiration for sparse attention hardware co-design, after the architectural frontier is settled.",
+      "failure_modes": [
+        "hardware work before model-level proof",
+        "overfitting attention design to a hardware assumption too early"
+      ],
+      "teacher_role": "none",
+      "student_role": "later deployment specialization hint",
+      "systems_role": "hardware-aware attention design",
+      "student_deployability": "medium",
+      "codebases": [
+        "https://github.com/mit-han-lab/spatten"
+      ],
+      "checkpoints": [],
+      "evidence_strength": "medium",
+      "tsqbev_actions": [
+        "keep as a later deployment specialization reference, not as an immediate student-side experiment"
+      ],
+      "sources": {
+        "paper": "https://arxiv.org/abs/2012.09852",
+        "code": "https://github.com/mit-han-lab/spatten",
+        "project": "https://hanlab.mit.edu/projects/spatten"
+      }
+    }
+  ]
+}

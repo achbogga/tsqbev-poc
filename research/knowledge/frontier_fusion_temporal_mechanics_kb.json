@@ -1,0 +1,210 @@
+{
+  "collection": "frontier_fusion_temporal_mechanics",
+  "generated_on": "2026-04-05",
+  "scope": "Source-backed fusion and temporal-modeling mechanics for multimodal perception systems, with emphasis on when to use gated fusion, latent bottlenecks, deformable cross-attention, and selective state-space memory.",
+  "source_policy": "Primary sources only: official papers, official repositories, and official project/model pages.",
+  "design_laws": [
+    "Use cross-attention when the problem is alignment to external evidence; use state-space memory when the problem is long-horizon temporal carry.",
+    "Gating belongs on fusion paths that need trust calibration; it is not a replacement for a temporal memory model.",
+    "Latent bottlenecks are useful only if they preserve the world information the downstream geometry bridge actually needs."
+  ],
+  "entries": [
+    {
+      "id": "gated_cross_attention",
+      "title": "Gated Cross-Attention",
+      "year": 2022,
+      "area": "multimodal_fusion",
+      "technique_family": ["cross_attention", "gated_fusion", "multimodal_alignment"],
+      "primary_bottleneck": "external_signal_selection",
+      "source_term": "GATED XATTN-DENSE (Flamingo)",
+      "repo_aliases": ["gated cross-attention", "selective fusion gate"],
+      "core_trick": "Use a multiplicative or residual gate on cross-attention updates so the model can decide whether and how strongly to fuse external information into the current token stream.",
+      "intuition": "Gated cross-attention is a lookup-and-trust mechanism. It helps when the model must decide whether to read from another modality or memory source right now instead of blindly fusing everything.",
+      "ablation_takeaways": [
+        "The gain comes from selective fusion, not just adding another attention block.",
+        "Gating helps most when external information is valuable but uneven in reliability or relevance."
+      ],
+      "ablation_nuggets": [
+        "Use it for camera-to-BEV or proposal-to-region fusion where external evidence is informative but noisy.",
+        "Do not confuse gated fusion with temporal memory; it solves a different problem."
+      ],
+      "apply_when": [
+        "you need explicit cross-modal alignment between query tokens and external visual or geometric evidence",
+        "the system benefits from learning when to trust camera, LiDAR, region-prior, or teacher cues"
+      ],
+      "avoid_when": [
+        "the main bottleneck is long-horizon temporal carry rather than source selection",
+        "you already know one modality should always dominate and the gate only adds unnecessary degrees of freedom"
+      ],
+      "integration_pattern": "Use gated cross-attention in spatial fusion blocks, especially camera-to-world or proposal-to-region fusion, then hand the fused state to a separate temporal memory mechanism.",
+      "failure_modes": [
+        "using gating as a substitute for missing geometric supervision",
+        "letting the gate saturate so one modality collapses or the fusion path effectively turns off"
+      ],
+      "teacher_role": "teacher-to-student fusion target or region-prior fusion template",
+      "student_role": "student fusion block for selective external evidence use",
+      "systems_role": "training and runtime fusion primitive",
+      "student_deployability": "high",
+      "codebases": [],
+      "checkpoints": [],
+      "evidence_strength": "medium",
+      "tsqbev_actions": [
+        "use gated cross-attention for camera feature fusion and teacher-region prior injection",
+        "treat it as a spatial fusion mechanism, then pair it with a separate temporal memory design"
+      ],
+      "sources": {
+        "paper": "https://arxiv.org/abs/2204.14198"
+      }
+    },
+    {
+      "id": "deformable_cross_attention",
+      "title": "Deformable Cross-Attention",
+      "year": 2020,
+      "area": "sparse_spatial_reasoning",
+      "technique_family": ["deformable_attention", "sparse_cross_attention", "multiscale_fusion"],
+      "primary_bottleneck": "dense_spatial_attention_cost",
+      "source_term": "Multi-Scale Deformable Attention",
+      "repo_aliases": ["deformable cross-attention", "sparse spatial attention"],
+      "core_trick": "Restrict cross-attention to a small set of learned sampling locations instead of attending densely to every token or feature cell.",
+      "intuition": "If a query only needs a few spatially meaningful neighborhoods, learned sparse sampling is better than full dense attention. It preserves alignment while cutting compute and noise.",
+      "ablation_takeaways": [
+        "Sparse learned sampling beats naive dense attention when the target structure is localized.",
+        "The benefit is largest when multiscale features matter and the model can learn where to sample."
+      ],
+      "ablation_nuggets": [
+        "Use this for BEV or proposal queries that only need a few multi-view or multiscale glimpses.",
+        "Pair with perspective supervision so the learned sampling stays geometrically meaningful."
+      ],
+      "apply_when": [
+        "cross-view or camera-to-world attention is too dense and expensive",
+        "queries should focus on a few spatial support regions rather than the full feature map"
+      ],
+      "avoid_when": [
+        "you have no reliable spatial prior and learned sparse sampling collapses arbitrarily",
+        "the task needs uniform global aggregation more than localized evidence"
+      ],
+      "integration_pattern": "Use as the sparse spatial retrieval layer inside camera-to-BEV or query-to-image fusion, then send the fused state into the temporal model.",
+      "failure_modes": [
+        "sampling points drift without geometric supervision",
+        "too few samples hurt small or thin structures that need more support"
+      ],
+      "teacher_role": "teacher fusion template",
+      "student_role": "primary sparse spatial fusion primitive",
+      "systems_role": "runtime-efficient spatial attention",
+      "student_deployability": "high",
+      "codebases": [
+        "https://github.com/fundamentalvision/Deformable-DETR"
+      ],
+      "checkpoints": [],
+      "evidence_strength": "high",
+      "tsqbev_actions": [
+        "prefer deformable cross-attention over dense cross-attention for multi-view sparse fusion",
+        "combine with perspective supervision instead of relying on sampling alone"
+      ],
+      "sources": {
+        "paper": "https://arxiv.org/abs/2010.04159",
+        "code": "https://github.com/fundamentalvision/Deformable-DETR"
+      }
+    },
+    {
+      "id": "q_former_latent_queries",
+      "title": "Q-Former Latent Query Bottleneck",
+      "year": 2023,
+      "area": "latent_fusion_interface",
+      "technique_family": ["latent_queries", "cross_attention", "foundation_model_adaptation"],
+      "primary_bottleneck": "foundation_feature_interface_cost",
+      "source_term": "Q-Former",
+      "repo_aliases": ["latent queries", "latent cross-attention bottleneck"],
+      "core_trick": "Use a small learned query set to extract only the most relevant information from a large frozen foundation backbone, creating a compact downstream interface.",
+      "intuition": "Latent queries are a compression interface, not just a smaller transformer. They are useful when the foundation encoder is strong but too expensive or too verbose to expose directly to the downstream model.",
+      "ablation_takeaways": [
+        "A latent bottleneck helps when the foundation encoder is strong and the downstream module only needs a compact task-specific summary.",
+        "Too aggressive a bottleneck destroys precisely the dense spatial cues needed for geometry-heavy tasks."
+      ],
+      "ablation_nuggets": [
+        "Use latent queries to compress DINOv3 features before expensive fusion, not to erase geometry.",
+        "Retain multi-view structure or attach view-aware queries if the downstream task is 3D."
+      ],
+      "apply_when": [
+        "foundation camera features are strong but too expensive to pass through directly",
+        "you need a compact queryable interface between a frozen backbone and a geometry-aware downstream head"
+      ],
+      "avoid_when": [
+        "the downstream task needs dense correspondence that a tiny latent bottleneck cannot preserve",
+        "you have not yet proven that the foundation features are useful at all"
+      ],
+      "integration_pattern": "Insert a view-aware latent query bottleneck between the DINOv3 backbone and the sparse/BEV fusion path, then supervise the bridge with perspective and teacher BEV targets.",
+      "failure_modes": [
+        "compressing away the fine-grained cues required for 3D localization",
+        "using a generic latent summary that mixes views and destroys calibration structure"
+      ],
+      "teacher_role": "foundation-feature adapter",
+      "student_role": "lightweight foundation bridge",
+      "systems_role": "compute-reduction interface",
+      "student_deployability": "medium",
+      "codebases": [
+        "https://github.com/salesforce/LAVIS"
+      ],
+      "checkpoints": [],
+      "evidence_strength": "high",
+      "tsqbev_actions": [
+        "test view-aware latent queries as a compression layer between DINOv3 and the sparse student",
+        "do not deploy a latent bottleneck without explicit geometry and perspective supervision"
+      ],
+      "sources": {
+        "paper": "https://arxiv.org/abs/2301.12597",
+        "code": "https://github.com/salesforce/LAVIS"
+      }
+    },
+    {
+      "id": "selective_ssm_temporal_memory",
+      "title": "Selective SSM Temporal Memory",
+      "year": 2024,
+      "area": "temporal_modeling",
+      "technique_family": ["state_space_models", "temporal_memory", "streaming_inference"],
+      "primary_bottleneck": "long_horizon_temporal_modeling",
+      "source_term": "Mamba",
+      "repo_aliases": ["ssm", "mamba temporal memory"],
+      "core_trick": "Carry forward a learned internal state over time with selective input-dependent updates instead of repeatedly attending over the full history.",
+      "intuition": "Selective SSMs solve the temporal carry problem. They are about what state survives and evolves over time, not about which external source to read from at a given moment.",
+      "ablation_takeaways": [
+        "The win comes from linear-time sequence handling and persistent state, not from acting like another cross-attention module.",
+        "SSMs work best when they are asked to remember and evolve state, not to replace spatial alignment machinery wholesale."
+      ],
+      "ablation_nuggets": [
+        "Use SSMs to replace temporal attention first, not spatial fusion attention.",
+        "Keep spatial fusion explicit and let the SSM carry the fused world state forward."
+      ],
+      "apply_when": [
+        "temporal sequence length or streaming latency dominates the model cost",
+        "you already have a decent per-frame or per-step fusion state and need a better way to carry it over time"
+      ],
+      "avoid_when": [
+        "the real bottleneck is spatial or cross-modal alignment, not temporal carry",
+        "you are trying to use an SSM to compensate for missing world grounding or fusion supervision"
+      ],
+      "integration_pattern": "Use gated or deformable cross-attention for spatial fusion, then swap temporal self-attention or queue processing for a selective SSM block.",
+      "failure_modes": [
+        "replacing the wrong attention block and losing spatial precision",
+        "state drift over long horizons if the fused inputs are poor or uncalibrated"
+      ],
+      "teacher_role": "possible teacher-side temporal backbone",
+      "student_role": "high-ROI temporal module once spatial fusion is stable",
+      "systems_role": "streaming temporal memory optimization",
+      "student_deployability": "high",
+      "codebases": [
+        "https://github.com/state-spaces/mamba"
+      ],
+      "checkpoints": [],
+      "evidence_strength": "high",
+      "tsqbev_actions": [
+        "replace temporal attention after the spatial fusion path is fixed, not before",
+        "keep a clean separation: cross-attention for fusion, SSM for temporal carry"
+      ],
+      "sources": {
+        "paper": "https://arxiv.org/abs/2312.00752",
+        "code": "https://github.com/state-spaces/mamba"
+      }
+    }
+  ]
+}
