@@ -222,6 +222,17 @@ def _extract_json_object(text: str) -> dict[str, Any]:
     return json.loads(text[start : end + 1])
 
 
+def _as_str_list(value: Any) -> list[str]:
+    if value is None:
+        return []
+    if isinstance(value, str):
+        stripped = value.strip()
+        return [stripped] if stripped else []
+    if isinstance(value, list):
+        return [str(item) for item in value]
+    return [str(value)]
+
+
 def _heuristic_planner(brief: dict[str, Any]) -> PlannerDecision:
     current_state = brief.get("current_state", [])
     state_text = "\n".join(str(item) for item in current_state if isinstance(item, str)).lower()
@@ -299,12 +310,12 @@ def _planner_decision_from_brief(brief: dict[str, Any]) -> PlannerDecision:
             model=model,
             active_bottleneck=str(payload["active_bottleneck"]),
             objective=str(payload["objective"]),
-            priority_tags=[str(item) for item in payload.get("priority_tags", [])],
-            suppress_tags=[str(item) for item in payload.get("suppress_tags", [])],
+            priority_tags=_as_str_list(payload.get("priority_tags", [])),
+            suppress_tags=_as_str_list(payload.get("suppress_tags", [])),
             force_priority_only=bool(payload.get("force_priority_only", False)),
             token_burn_score=int(payload.get("token_burn_score", 0)),
-            rationale=[str(item) for item in payload.get("rationale", [])],
-            kill_conditions=[str(item) for item in payload.get("kill_conditions", [])],
+            rationale=_as_str_list(payload.get("rationale", [])),
+            kill_conditions=_as_str_list(payload.get("kill_conditions", [])),
         )
     except Exception:
         return _heuristic_planner(brief)
@@ -325,12 +336,8 @@ def _critic_decision_from_planner(
     )
     try:
         payload = _openai_reasoner(prompt, model=model)
-        priority_tags = [
-            str(item) for item in payload.get("priority_tags", planner.priority_tags)
-        ]
-        suppress_tags = [
-            str(item) for item in payload.get("suppress_tags", planner.suppress_tags)
-        ]
+        priority_tags = _as_str_list(payload.get("priority_tags", planner.priority_tags))
+        suppress_tags = _as_str_list(payload.get("suppress_tags", planner.suppress_tags))
         supervisor_policy = {
             "priority_tags": priority_tags,
             "suppress_tags": suppress_tags,
@@ -342,7 +349,7 @@ def _critic_decision_from_planner(
             provider="openai",
             model=model,
             approved=bool(payload.get("approved", True)),
-            rationale=[str(item) for item in payload.get("rationale", [])],
+            rationale=_as_str_list(payload.get("rationale", [])),
             supervisor_policy=supervisor_policy,
         )
     except Exception:
@@ -521,6 +528,7 @@ def run_research_supervisor(
     planner_provider: str | None = None
     critic_provider: str | None = None
     pre_run_sync_enabled = _env_bool("TSQBEV_SUPERVISOR_PRE_RUN_SYNC", False)
+    run_on_reject = _env_bool("TSQBEV_SUPERVISOR_RUN_ON_REJECT", True)
     memory_cfg = ResearchMemoryConfig.from_env()
 
     while max_invocations is None or attempted_invocations < max_invocations:
@@ -682,7 +690,7 @@ def run_research_supervisor(
             f"planner provider `{planner_decision.provider}` selected bottleneck "
             f"`{planner_decision.active_bottleneck}`",
         ]
-        if not critic_decision.approved:
+        if not critic_decision.approved and not run_on_reject:
             notes.append("critic rejected the planner proposal; skipping execution")
             invocation_status = "rejected"
             summary = {
@@ -737,6 +745,17 @@ def run_research_supervisor(
             )
             time.sleep(sleep_seconds)
             continue
+        if not critic_decision.approved and run_on_reject:
+            notes.append(
+                "critic rejected the planner proposal, but fallback execution is enabled; "
+                "running the bounded loop with the critic policy instead of idling the GPU"
+            )
+            invocation_status = "fallback_execution"
+            print(
+                f"[supervisor] invocation {attempted_invocations}: critic rejected proposal; "
+                "executing fallback policy",
+                flush=True,
+            )
         try:
             print(
                 f"[supervisor] invocation {attempted_invocations}: launching bounded loop",
