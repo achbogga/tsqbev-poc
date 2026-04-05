@@ -89,9 +89,9 @@ def test_load_model_checkpoint_ignores_legacy_lane_attention_projection_mismatch
 
 def test_load_model_checkpoint_merges_missing_fields_from_default_config(tmp_path) -> None:
     checkpoint_config = ModelConfig.rtx5000_nuscenes_dinov3_teacher().model_dump()
-    checkpoint_config["sam2_repo_root"] = None
-    checkpoint_config["sam2_model_cfg"] = None
-    checkpoint_config["sam2_checkpoint"] = None
+    del checkpoint_config["sam2_repo_root"]
+    del checkpoint_config["sam2_model_cfg"]
+    del checkpoint_config["sam2_checkpoint"]
     default_config = ModelConfig.rtx5000_nuscenes_dinov3_teacher()
     model = TSQBEVModel(default_config)
     checkpoint_path = tmp_path / "dinov3_missing_sam2.pt"

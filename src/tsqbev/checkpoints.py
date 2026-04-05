@@ -85,9 +85,7 @@ def load_model_from_checkpoint(
             merged_config = default_config.model_dump()
             if not isinstance(config_data, dict):
                 raise TypeError("checkpoint model_config must be a dict")
-            for key, value in config_data.items():
-                if value is not None:
-                    merged_config[key] = value
+            merged_config.update(config_data)
             config = ModelConfig.model_validate(merged_config)
     model = TSQBEVModel(config)
     state_dict = payload.get("model_state_dict", payload)
