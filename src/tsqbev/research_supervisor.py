@@ -22,6 +22,7 @@ from tsqbev.research import run_bounded_research_loop
 from tsqbev.research_guard import ensure_research_loop_enabled
 from tsqbev.research_memory import (
     REPO_ROOT,
+    ResearchMemoryConfig,
     check_research_memory_health,
     current_git_sha,
     safe_build_research_brief,
@@ -113,6 +114,13 @@ def _append_jsonl(path: Path, row: dict[str, Any]) -> None:
     with path.open("a", encoding="utf-8") as handle:
         handle.write(json.dumps(row, default=str))
         handle.write("\n")
+
+
+def _env_bool(name: str, default: bool) -> bool:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    return raw.strip().lower() not in {"0", "false", "off", "no"}
 
 
 def _timestamp_tag() -> str:
@@ -512,8 +520,11 @@ def run_research_supervisor(
     last_publish_message: str | None = None
     planner_provider: str | None = None
     critic_provider: str | None = None
+    pre_run_sync_enabled = _env_bool("TSQBEV_SUPERVISOR_PRE_RUN_SYNC", False)
+    memory_cfg = ResearchMemoryConfig.from_env()
 
     while max_invocations is None or attempted_invocations < max_invocations:
+        print("[supervisor] heartbeat: checking memory health", flush=True)
         memory_health = check_research_memory_health(REPO_ROOT)
         memory_mode = None
         memory_embedder = None
@@ -595,11 +606,64 @@ def run_research_supervisor(
             supervisor_root / f"invocation_{attempted_invocations:03d}_{_timestamp_tag()}"
         )
         last_invocation_dir = invocation_root
-        safe_sync_research_memory(REPO_ROOT)
+        pre_run_notes = [
+            f"starting invocation `{invocation_root.name}`",
+            (
+                "using existing memory catalog for pre-run planning"
+                if not pre_run_sync_enabled
+                else "performing explicit pre-run memory sync"
+            ),
+        ]
+        pre_run_state = SupervisorState(
+            status="pre_run_brief",
+            generated_at_utc=datetime.now(tz=UTC).isoformat(),
+            repo_sha=current_git_sha(REPO_ROOT),
+            current_branch=_git_current_branch(REPO_ROOT),
+            dataset_root=str(dataset_root),
+            artifact_root=str(supervisor_root),
+            attempted_invocations=attempted_invocations,
+            completed_invocations=completed_invocations,
+            last_invocation_dir=str(last_invocation_dir) if last_invocation_dir else None,
+            last_selected_recipe=last_selected_recipe,
+            last_nds=last_nds,
+            last_map=last_map,
+            last_publish_status=last_publish_status,
+            last_publish_message=last_publish_message,
+            memory_mode=memory_mode,
+            memory_embedder=memory_embedder,
+            planner_provider=planner_provider,
+            critic_provider=critic_provider,
+            notes=pre_run_notes,
+        )
+        _write_supervisor_outputs(
+            pre_run_state,
+            artifact_root=supervisor_root,
+            report_path=DEFAULT_SUPERVISOR_REPORT,
+        )
+        print(
+            f"[supervisor] invocation {attempted_invocations}: "
+            f"pre-run sync {'on' if pre_run_sync_enabled else 'off'}",
+            flush=True,
+        )
+        if pre_run_sync_enabled or not memory_cfg.catalog_path.exists():
+            safe_sync_research_memory(REPO_ROOT, config=memory_cfg)
+            print(
+                f"[supervisor] invocation {attempted_invocations}: memory sync complete",
+                flush=True,
+            )
         pre_run_brief = safe_build_research_brief(REPO_ROOT, persist_log=False)
+        print(
+            f"[supervisor] invocation {attempted_invocations}: built pre-run brief",
+            flush=True,
+        )
         checkpoint_path = _write_first_principles_checkpoint(invocation_root, pre_run_brief)
         planner_decision = _planner_decision_from_brief(pre_run_brief)
         critic_decision = _critic_decision_from_planner(pre_run_brief, planner_decision)
+        print(
+            f"[supervisor] invocation {attempted_invocations}: planner={planner_decision.provider} "
+            f"critic={critic_decision.provider} approved={critic_decision.approved}",
+            flush=True,
+        )
         planner_provider = planner_decision.provider
         critic_provider = critic_decision.provider
         (invocation_root / "planner_decision.json").write_text(
@@ -674,6 +738,10 @@ def run_research_supervisor(
             time.sleep(sleep_seconds)
             continue
         try:
+            print(
+                f"[supervisor] invocation {attempted_invocations}: launching bounded loop",
+                flush=True,
+            )
             summary = run_bounded_research_loop(
                 dataroot=dataset_root,
                 artifact_dir=invocation_root,
@@ -690,6 +758,10 @@ def run_research_supervisor(
                     last_map = float(evaluation.get("mean_ap", 0.0))
                 last_selected_recipe = str(selected_record.get("recipe"))
             completed_invocations += 1
+            print(
+                f"[supervisor] invocation {attempted_invocations}: bounded loop complete",
+                flush=True,
+            )
         except Exception as exc:
             summary = {
                 "status": "crash",
@@ -698,9 +770,17 @@ def run_research_supervisor(
             }
             invocation_status = "crash"
             notes.append(f"invocation crashed: `{exc!r}`")
+            print(
+                f"[supervisor] invocation {attempted_invocations}: crash {exc!r}",
+                flush=True,
+            )
 
-        safe_sync_research_memory(REPO_ROOT)
+        safe_sync_research_memory(REPO_ROOT, config=memory_cfg)
         safe_build_research_brief(REPO_ROOT, persist_log=True)
+        print(
+            f"[supervisor] invocation {attempted_invocations}: post-run memory sync complete",
+            flush=True,
+        )
 
         if git_publish:
             publish_result = _git_publish_generated(
