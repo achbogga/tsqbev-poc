@@ -33,6 +33,9 @@ uv run tsqbev train-nuscenes \
   --early-stop-patience 8 \
   --early-stop-min-delta 0.02 \
   --early-stop-min-epochs 12 \
+  --official-eval-every-epochs 5 \
+  --official-eval-score-threshold 0.20 \
+  --official-eval-top-k 40 \
   --loss-mode quality_focal \
   --teacher-anchor-quality-class-weight 0.45 \
   --teacher-region-objectness-weight 0.12 \

@@ -85,6 +85,9 @@ def test_resolve_config_supports_dinov3_teacher_preset() -> None:
     assert config.image_backbone == "dinov3_vits16"
     assert config.freeze_image_backbone is True
     assert config.auto_vram_fit is True
+    assert config.sam2_repo_root == "/home/achbogga/projects/sam2"
+    assert config.sam2_model_cfg == "configs/sam2.1/sam2.1_hiera_b+.yaml"
+    assert config.sam2_checkpoint.endswith("sam2.1_hiera_base_plus.pt")
     assert config.sam2_region_prior_mode == "proposal_boxes"
 
 
@@ -321,6 +324,128 @@ def test_train_nuscenes_passes_official_eval_controls(monkeypatch, tmp_path) -> 
     assert captured["official_eval_every_epochs"] == 5
     assert captured["official_eval_score_threshold"] == 0.2
     assert captured["official_eval_top_k"] == 40
+
+
+def test_check_sam2_assets_validates_local_paths(monkeypatch, tmp_path) -> None:
+    captured: dict[str, object] = {}
+
+    def fake_parser() -> argparse.ArgumentParser:
+        class _Parser:
+            def parse_args(self_inner) -> SimpleNamespace:
+                return SimpleNamespace(
+                    command="check-sam2-assets",
+                    dataset_root=tmp_path / "nuscenes",
+                    lane_dataset_root=tmp_path / "openlane",
+                    artifact_dir=tmp_path / "artifacts",
+                    preset="rtx5000-nuscenes-dinov3-teacher",
+                    image_backbone=None,
+                    pretrained_image_backbone=None,
+                    freeze_image_backbone=None,
+                    foundation_repo_root=None,
+                    foundation_weights=None,
+                    activation_checkpointing=None,
+                    auto_vram_fit=None,
+                    attention_backend=None,
+                    sam2_repo_root=None,
+                    sam2_model_cfg=None,
+                    sam2_checkpoint=None,
+                    sam2_region_prior_mode=None,
+                    sam2_region_prior_weight=None,
+                    teacher_seed_mode=None,
+                    teacher_seed_selection_mode=None,
+                    version="v1.0-mini",
+                    train_split="mini_train",
+                    split="mini_val",
+                    subset="lane3d_300",
+                    epochs=36,
+                    max_train_steps=None,
+                    lr=1e-4,
+                    weight_decay=0.0,
+                    augmentation_mode="off",
+                    optimizer_schedule=None,
+                    grad_clip_norm=None,
+                    keep_best_checkpoint=True,
+                    teacher_distillation=True,
+                    loss_mode="quality_focal",
+                    hard_negative_ratio=3,
+                    hard_negative_cap=96,
+                    teacher_anchor_class_weight=0.5,
+                    teacher_anchor_quality_class_weight=0.45,
+                    teacher_anchor_objectness_weight=0.5,
+                    teacher_region_objectness_weight=0.12,
+                    teacher_region_class_weight=0.12,
+                    teacher_region_radius_m=4.0,
+                    lane_batch_multiplier=1.0,
+                    official_eval_every_epochs=5,
+                    official_eval_score_threshold=0.2,
+                    official_eval_top_k=40,
+                    teacher_anchor_final_class_weight=None,
+                    teacher_anchor_final_objectness_weight=None,
+                    teacher_anchor_bootstrap_epochs=0,
+                    teacher_anchor_decay_epochs=0,
+                    early_stop_patience=6,
+                    early_stop_min_delta=0.02,
+                    early_stop_min_epochs=10,
+                    grad_accum_steps=8,
+                    batch_size=1,
+                    num_workers=4,
+                    device="cpu",
+                    seed=1337,
+                    max_train_samples=None,
+                    max_val_samples=None,
+                    teacher_kind=None,
+                    teacher_cache_dir=None,
+                    teacher_checkpoint=None,
+                    score_threshold=0.25,
+                    score_threshold_candidates=None,
+                    top_k=300,
+                    top_k_candidates=None,
+                    subset_size=32,
+                    max_audit_samples=None,
+                    scene_name=None,
+                    max_experiments=5,
+                    max_invocations=None,
+                    sleep_seconds=30,
+                    wait_poll_seconds=20,
+                    interval_hours=24,
+                    git_publish=True,
+                    git_remote="origin",
+                    git_branch=None,
+                    openlane_repo_root=tmp_path / "OpenLane",
+                    bevfusion_repo_root=tmp_path / "bevfusion",
+                    docker_image_tag="tsqbev-bevfusion-official:latest",
+                    num_gpus=1,
+                    output_path=tmp_path / "predictions.json",
+                    output_dir=tmp_path / "artifacts",
+                    result_json=None,
+                    query=None,
+                    limit=8,
+                    archive_key=None,
+                    extract_openlanev2=True,
+                    overwrite_download=False,
+                    include_lane3d_1000=False,
+                    include_scene=False,
+                    include_cipo=False,
+                    force_reextract=False,
+                    max_openlane_train_samples=None,
+                    max_openlane_val_samples=None,
+                )
+
+        return _Parser()  # type: ignore[return-value]
+
+    monkeypatch.setattr(cli_module, "_make_parser", fake_parser)
+
+    def fake_validate(config, device=None):
+        captured["repo_root"] = config.sam2_repo_root
+        captured["checkpoint"] = config.sam2_checkpoint
+        captured["device"] = device
+        return {"status": "ready"}
+
+    monkeypatch.setattr(cli_module, "validate_local_sam2_assets", fake_validate)
+    cli_module.main()
+    assert captured["repo_root"] == "/home/achbogga/projects/sam2"
+    assert str(captured["checkpoint"]).endswith("sam2.1_hiera_base_plus.pt")
+    assert captured["device"] == "cpu"
 
 
 def test_make_parser_defaults_openlane_repo_root_to_local_checkout() -> None:

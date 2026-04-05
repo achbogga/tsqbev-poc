@@ -85,3 +85,30 @@ def test_load_model_checkpoint_ignores_legacy_lane_attention_projection_mismatch
     restored_model, loaded_payload = load_model_from_checkpoint(checkpoint_path)
     assert isinstance(restored_model, TSQBEVModel)
     assert loaded_payload["epoch"] == 1
+
+
+def test_load_model_checkpoint_merges_missing_fields_from_default_config(tmp_path) -> None:
+    checkpoint_config = ModelConfig.rtx5000_nuscenes_dinov3_teacher().model_dump()
+    checkpoint_config["sam2_repo_root"] = None
+    checkpoint_config["sam2_model_cfg"] = None
+    checkpoint_config["sam2_checkpoint"] = None
+    default_config = ModelConfig.rtx5000_nuscenes_dinov3_teacher()
+    model = TSQBEVModel(default_config)
+    checkpoint_path = tmp_path / "dinov3_missing_sam2.pt"
+
+    payload = {
+        "epoch": 1,
+        "model_config": checkpoint_config,
+        "model_state_dict": model.state_dict(),
+        "history": [],
+    }
+    torch.save(payload, checkpoint_path)
+
+    restored_model, _ = load_model_from_checkpoint(
+        checkpoint_path,
+        default_config=default_config,
+    )
+
+    assert restored_model.config.sam2_repo_root == default_config.sam2_repo_root
+    assert restored_model.config.sam2_model_cfg == default_config.sam2_model_cfg
+    assert restored_model.config.sam2_checkpoint == default_config.sam2_checkpoint

@@ -16,6 +16,8 @@ fi
 
 cd "$REPO_ROOT"
 rm -f "$ARTIFACT_ROOT/STOP"
+export TSQBEV_SUPERVISOR_PRE_RUN_SYNC="${TSQBEV_SUPERVISOR_PRE_RUN_SYNC:-0}"
+export TSQBEV_SUPERVISOR_RUN_ON_REJECT="${TSQBEV_SUPERVISOR_RUN_ON_REJECT:-1}"
 uv run tsqbev research-supervisor \
   --dataset-root "$DATASET_ROOT" \
   --artifact-dir "$ARTIFACT_ROOT" \

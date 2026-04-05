@@ -230,6 +230,7 @@ class ModelConfig(BaseModel):
             pretrained_image_backbone=True,
             freeze_image_backbone=True,
             foundation_repo_root="/home/achbogga/projects/dinov3",
+            foundation_weights="/home/achbogga/projects/research/dinov3_weights/dinov3_vits16_pretrain_lvd1689m-08c60483.pth",
             foundation_intermediate_layers=(8, 11),
             foundation_patch_multiple=16,
             activation_checkpointing=True,
@@ -250,6 +251,9 @@ class ModelConfig(BaseModel):
             num_depth_bins=6,
             map_input_dim=128,
             pillar=PillarConfig(q_lidar=96),
+            sam2_repo_root="/home/achbogga/projects/sam2",
+            sam2_model_cfg="configs/sam2.1/sam2.1_hiera_b+.yaml",
+            sam2_checkpoint="/home/achbogga/projects/research/sam2_weights/sam2.1_hiera_base_plus.pt",
             sam2_region_prior_mode="proposal_boxes",
             sam2_region_prior_weight=0.05,
         )

@@ -47,6 +47,7 @@ from tsqbev.contracts import (
 )
 from tsqbev.geometry import normalize_grid, project_points
 from tsqbev.lidar import LidarSeedEncoder
+from tsqbev.sam2_priors import build_sam2_prior_provider
 from tsqbev.seeding import LearnedGlobalSeeds, ProposalRayInitializer, TriSourceQueryRouter
 from tsqbev.teacher_seed import TeacherSeedEncoder, select_teacher_seed_indices
 
@@ -74,6 +75,21 @@ def _resize_to_multiple(images: Tensor, multiple: int) -> Tensor:
         size=(target_height, target_width),
         mode="bilinear",
         align_corners=False,
+    )
+
+
+def _merge_map_priors(
+    base: MapPriorBatch | None,
+    extra: MapPriorBatch | None,
+) -> MapPriorBatch | None:
+    if base is None:
+        return extra
+    if extra is None:
+        return base
+    return MapPriorBatch(
+        tokens=torch.cat((base.tokens, extra.tokens), dim=1),
+        coords_xy=torch.cat((base.coords_xy, extra.coords_xy), dim=1),
+        valid_mask=torch.cat((base.valid_mask, extra.valid_mask), dim=1),
     )
 
 
@@ -675,6 +691,7 @@ class TSQBEVCore(nn.Module):
         self.temporal = TemporalStateUpdater(config)
         self.object_head = ObjectHead(config)
         self.lane_head = LaneHead(config)
+        self.sam2_prior_provider = build_sam2_prior_provider(config)
 
     def forward(
         self,
@@ -696,12 +713,15 @@ class TSQBEVCore(nn.Module):
     ) -> dict[str, Tensor | QuerySeedBank | TemporalState]:
         features = self.backbone(images)
         image_height, image_width = images.shape[-2:]
+        proposals = (
+            camera_proposals
+            if camera_proposals is not None
+            else self.proposal_head(features[0], image_height, image_width)
+        )
+        if self.sam2_prior_provider is not None:
+            sam2_map_priors = self.sam2_prior_provider.build_map_priors(images, proposals)
+            map_priors = _merge_map_priors(map_priors, sam2_map_priors)
         if proposal_queries is None or proposal_refs is None or proposal_scores is None:
-            proposals = (
-                camera_proposals
-                if camera_proposals is not None
-                else self.proposal_head(features[0], image_height, image_width)
-            )
             proposal_queries, proposal_refs, proposal_scores = self.proposal_init(
                 proposals,
                 intrinsics,

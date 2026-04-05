@@ -53,6 +53,7 @@ from tsqbev.research_memory import (
 from tsqbev.research_supervisor import run_research_supervisor
 from tsqbev.reset_stack import recommended_reset_plan, render_reset_plan_markdown, upstream_registry
 from tsqbev.runtime import benchmark_forward, run_eval_step, run_train_step
+from tsqbev.sam2_priors import validate_local_sam2_assets
 from tsqbev.synthetic import make_synthetic_batch
 from tsqbev.teacher_audit import audit_nuscenes_teacher_cache
 from tsqbev.teacher_backends import TeacherProviderConfig
@@ -395,6 +396,7 @@ def _make_parser() -> argparse.ArgumentParser:
             "list-openlanev2-archives",
             "download-openlanev2",
             "prepare-openlanev1",
+            "check-sam2-assets",
             "memory-up",
             "memory-health",
             "memory-down",
@@ -719,6 +721,10 @@ def main() -> None:
             include_cipo=args.include_cipo,
             force_reextract=args.force_reextract,
         )
+        return
+    if args.command == "check-sam2-assets":
+        config = _resolve_config(args)
+        print(validate_local_sam2_assets(config, device=args.device))
         return
     if args.command == "memory-up":
         memory_service_report("up")
