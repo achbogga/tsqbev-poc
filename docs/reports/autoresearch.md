@@ -1,29 +1,30 @@
 # Autoresearch Supervisor
-_Generated: `2026-04-05T15:39:46.793857+00:00`_
+_Generated: `2026-04-05T17:52:42.062374+00:00`_
 
 ## Status
-- status: `running`
+- status: `pre_run_brief`
 - branch: `main`
-- repo sha: `9116379`
+- repo sha: `8160b52`
 - dataset root: `/home/achbogga/projects/research/nuscenes`
-- artifact root: `/home/achbogga/projects/tsqbev-poc/artifacts/autoresearch`
-- attempted invocations: `14`
-- completed invocations: `14`
+- artifact root: `/home/achbogga/projects/tsqbev-poc/artifacts/autoresearch_frontier`
+- attempted invocations: `1`
+- completed invocations: `0`
 - memory mode: `server`
 - memory embedder: `hash`
-- last invocation dir: `/home/achbogga/projects/tsqbev-poc/artifacts/autoresearch/invocation_014_20260405-143819`
-- last selected recipe: `carryover_recovery_v14_teacher_anchor_quality_focal_teacher_region`
-- last NDS: `0.14675980845776593`
-- last mAP: `0.17187927620753524`
-- last publish status: `published`
-- last publish message: `autoresearch: publish invocation_014_20260405-143819 (2026-04-05 15:39 UTC)`
+- planner provider: `unknown`
+- critic provider: `unknown`
+- last invocation dir: `/home/achbogga/projects/tsqbev-poc/artifacts/autoresearch_frontier/invocation_001_20260405-175242`
+- last selected recipe: `-`
+- last NDS: `-`
+- last mAP: `-`
+- last publish status: `-`
+- last publish message: `-`
 
 ## Notes
-- started invocation `invocation_014_20260405-143819` at `2026-04-05T14:42:29.275823+00:00`
-- wrote first-principles checkpoint to `artifacts/autoresearch/invocation_014_20260405-143819/first_principles_checkpoint.json` before launch
-- finished invocation `invocation_014_20260405-143819` with publish status `published`
+- starting invocation `invocation_001_20260405-175242`
+- using existing memory catalog for pre-run planning
 
 ## Pointers
 - current PI brief: [docs/reports/current.md](docs/reports/current.md)
-- supervisor ledger: [artifacts/autoresearch/ledger.jsonl](artifacts/autoresearch/ledger.jsonl)
-- supervisor stop file: `artifacts/autoresearch/STOP`
+- supervisor ledger: [artifacts/autoresearch_frontier/ledger.jsonl](artifacts/autoresearch_frontier/ledger.jsonl)
+- supervisor stop file: `artifacts/autoresearch_frontier/STOP`
