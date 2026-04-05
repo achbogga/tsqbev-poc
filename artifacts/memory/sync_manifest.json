@@ -1,10 +1,10 @@
 {
-  "generated_at_utc": "2026-04-05T08:41:05.895343+00:00",
-  "repo_sha": "ae583c5",
+  "generated_at_utc": "2026-04-05T09:37:40.756346+00:00",
+  "repo_sha": "d1c903a",
   "repo_root": "/home/achbogga/projects/tsqbev-poc",
   "catalog_path": "/home/achbogga/projects/tsqbev-poc/.local/research-memory/catalog.duckdb",
-  "event_count": 1913,
-  "evidence_count": 42598,
+  "event_count": 1997,
+  "evidence_count": 44571,
   "fact_count": 8,
   "qdrant": {
     "enabled": false,
