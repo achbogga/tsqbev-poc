@@ -1177,7 +1177,7 @@ def _split_host_port(url: str, default_port: int) -> tuple[str, int]:
     return host or "127.0.0.1", int(port or default_port)
 
 
-def _artifact_files(repo_root: Path) -> list[Path]:
+def _event_source_files(repo_root: Path) -> list[Path]:
     paths: list[Path] = []
     candidates = [
         repo_root / "README.md",
@@ -1209,6 +1209,45 @@ def _artifact_files(repo_root: Path) -> list[Path]:
         if any(rel.startswith(prefix) for prefix in GENERATED_MEMORY_PREFIXES):
             continue
         if candidate.is_file() and candidate not in paths and candidate.stat().st_size <= 2_000_000:
+            paths.append(candidate)
+    return sorted(paths)
+
+
+def _artifact_files(repo_root: Path) -> list[Path]:
+    """Backward-compatible alias for tests and callers that expect the old name."""
+
+    return _event_source_files(repo_root)
+
+
+def _evidence_source_files(repo_root: Path) -> list[Path]:
+    paths: list[Path] = []
+    candidates = [
+        repo_root / "README.md",
+        repo_root / "program.md",
+        repo_root / "AGENTS.md",
+        repo_root / "docs" / "plan.md",
+        repo_root / "docs" / "steering.md",
+    ]
+    for pattern in (
+        "docs/**/*.md",
+        "docs/**/*.tex",
+        "specs/**/*.md",
+        "research/knowledge/**/*.md",
+        "research/knowledge/**/*.json",
+        "src/tsqbev/*.py",
+        "research/scripts/*.py",
+        "research/scripts/*.sh",
+        "artifacts/**/summary.json",
+        "artifacts/**/*_summary.json",
+        "artifacts/**/metrics_summary.json",
+        "artifacts/**/calibration_summary.json",
+    ):
+        candidates.extend(repo_root.glob(pattern))
+    for candidate in candidates:
+        rel = _repo_rel(candidate, repo_root)
+        if any(rel.startswith(prefix) for prefix in GENERATED_MEMORY_PREFIXES):
+            continue
+        if candidate.is_file() and candidate not in paths and candidate.stat().st_size <= 750_000:
             paths.append(candidate)
     return sorted(paths)
 
@@ -1401,7 +1440,7 @@ def _parse_summary_json(path: Path, repo_root: Path) -> list[ResearchEvent]:
 
 def _collect_events(repo_root: Path) -> list[ResearchEvent]:
     events: list[ResearchEvent] = []
-    for path in _artifact_files(repo_root):
+    for path in _event_source_files(repo_root):
         if path.name == "results.jsonl":
             events.extend(_parse_results_jsonl(path, repo_root))
         elif path.name == "summary.json" or path.name.endswith("_summary.json"):
@@ -1411,7 +1450,7 @@ def _collect_events(repo_root: Path) -> list[ResearchEvent]:
 
 def _collect_chunks(repo_root: Path, config: ResearchMemoryConfig) -> list[EvidenceChunk]:
     chunks: list[EvidenceChunk] = []
-    for path in _artifact_files(repo_root):
+    for path in _evidence_source_files(repo_root):
         if path.suffix.lower() not in {".md", ".py", ".sh", ".tex", ".json", ".jsonl", ".tsv"}:
             continue
         if _repo_rel(path, repo_root) in LOW_VALUE_EVIDENCE_SOURCES:

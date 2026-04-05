@@ -9,6 +9,7 @@ from tsqbev.research_memory import (
     _artifact_files,
     _collect_knowledge_facts,
     _Embedder,
+    _evidence_source_files,
     _semantic_rank_key,
     build_research_brief,
     check_research_memory_health,
@@ -308,6 +309,19 @@ def test_sync_research_memory_promotes_current_build_manifest(tmp_path: Path) ->
     assert config.current_build_link.is_symlink()
     assert health["current_build"] is not None
     assert health["catalog"]["exists"] is True
+
+
+def test_evidence_source_files_exclude_results_jsonl(tmp_path: Path) -> None:
+    repo_root = _make_repo_fixture(tmp_path)
+
+    event_files = {path.relative_to(repo_root).as_posix() for path in _artifact_files(repo_root)}
+    evidence_files = {
+        path.relative_to(repo_root).as_posix() for path in _evidence_source_files(repo_root)
+    }
+
+    assert "artifacts/research_v3/research_loop/results.jsonl" in event_files
+    assert "artifacts/research_v3/research_loop/results.jsonl" not in evidence_files
+    assert "artifacts/research_v3/research_loop/summary.json" in evidence_files
 
 
 def test_build_research_brief_uses_indexed_state(tmp_path: Path) -> None:
