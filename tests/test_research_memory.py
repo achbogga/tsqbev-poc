@@ -11,6 +11,7 @@ from tsqbev.research_memory import (
     _Embedder,
     _semantic_rank_key,
     build_research_brief,
+    check_research_memory_health,
     query_research_memory,
     sync_research_memory,
 )
@@ -280,8 +281,33 @@ def test_sync_research_memory_writes_catalog_and_manifest(tmp_path: Path) -> Non
     assert summary["event_count"] >= 3
     assert summary["evidence_count"] > 0
     assert summary["fact_count"] >= 3
-    assert (config.catalog_path).exists()
+    assert summary["build_id"]
+    assert Path(summary["catalog_path"]).exists()
+    assert "builds" in summary["catalog_path"]
     assert (config.artifact_root / "sync_manifest.json").exists()
+
+
+def test_sync_research_memory_promotes_current_build_manifest(tmp_path: Path) -> None:
+    repo_root = _make_repo_fixture(tmp_path)
+    config = ResearchMemoryConfig(
+        memory_root=tmp_path / ".local" / "memory",
+        artifact_root=repo_root / "artifacts" / "memory",
+        reports_root=repo_root / "docs" / "reports",
+        report_log_root=repo_root / "docs" / "reports" / "log",
+        steering_path=repo_root / "docs" / "steering.md",
+        qdrant_enabled=False,
+        mem0_enabled=False,
+    )
+
+    summary = sync_research_memory(repo_root, config=config)
+    health = check_research_memory_health(repo_root, config=config)
+
+    assert summary["current_build"]["catalog_path"].endswith("catalog.duckdb")
+    assert config.current_build_manifest_path.exists()
+    assert config.artifact_current_build_manifest_path.exists()
+    assert config.current_build_link.is_symlink()
+    assert health["current_build"] is not None
+    assert health["catalog"]["exists"] is True
 
 
 def test_build_research_brief_uses_indexed_state(tmp_path: Path) -> None:
@@ -381,6 +407,55 @@ def test_embedder_can_use_optional_cohere_reranker(monkeypatch) -> None:
     )
     assert reranked[0]["text"] == "doc b"
     assert reranked[0]["rerank_score"] == 0.9
+
+
+def test_embedder_falls_back_to_fastembed_when_cohere_runtime_fails(monkeypatch) -> None:
+    import tsqbev.research_memory as research_memory
+
+    class _FailingClient:
+        def __init__(self, **kwargs: object) -> None:
+            self.kwargs = kwargs
+
+        def rerank(
+            self,
+            *,
+            model: str,
+            query: str,
+            documents: list[str],
+            top_n: int,
+        ) -> object:
+            raise RuntimeError("rate limited")
+
+    class _FakeCrossEncoder:
+        def __init__(self, model_name: str) -> None:
+            self.model_name = model_name
+
+        def rerank(self, query: str, texts: list[str]) -> list[tuple[int, float]]:
+            assert query == "why is scale-up blocked?"
+            assert texts == ["doc a", "doc b"]
+            return [(1, 0.8), (0, 0.1)]
+
+    monkeypatch.setattr(research_memory, "CohereClientV2", _FailingClient)
+    monkeypatch.setattr(research_memory, "TextCrossEncoder", _FakeCrossEncoder)
+
+    embedder = _Embedder(
+        ResearchMemoryConfig(
+            reranker_enabled=True,
+            reranker_provider="cohere",
+            cohere_api_key="test-key",
+            qdrant_enabled=False,
+            mem0_enabled=False,
+        )
+    )
+
+    reranked = embedder.rerank(
+        "why is scale-up blocked?",
+        [{"text": "doc a"}, {"text": "doc b"}],
+    )
+
+    assert embedder.reranker_provider == "fastembed"
+    assert "fell back to fastembed" in str(embedder.reranker_reason)
+    assert reranked[0]["text"] == "doc b"
 
 
 def test_qdrant_index_degrades_cleanly_on_upsert_failure(monkeypatch) -> None:

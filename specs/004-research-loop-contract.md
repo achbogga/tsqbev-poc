@@ -18,6 +18,8 @@ The loop must be run with first-principles skepticism:
   multimodal fusion, and deployment tradeoffs
 - persist reusable literature reviews and technique cards under `research/knowledge/` so memory
   sync can promote them into durable evidence and distilled facts
+- mirror important official papers, repos, and checkpoints into the local research asset store when
+  they become active dependencies for a research direction
 - if a public upstream stack or teacher suite is materially better supported than the current
   custom sparse-query line, treat that reset as the main search direction
 

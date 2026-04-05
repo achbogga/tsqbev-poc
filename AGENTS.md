@@ -59,6 +59,10 @@ When a literature review produces reusable technique cards or ablation guidance,
 result under `research/knowledge/` and sync it into the local memory stack instead of leaving it in
 chat-only form.
 
+When official papers, repos, or checkpoints are important to an active research direction, mirror
+them into the local research asset store and keep a generated manifest under
+`artifacts/knowledge_assets/` so the evidence remains quickly retrievable.
+
 The repo should prefer primary-source citations over secondary summaries. Novel repo-specific claims
 must cite the local artifact, code path, or paper draft in this repo.
 

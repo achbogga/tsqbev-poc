@@ -24,6 +24,7 @@ import json
 import math
 import os
 import re
+import shutil
 import socket
 import subprocess
 import time
@@ -46,6 +47,7 @@ DEFAULT_REPORTS_ROOT = REPO_ROOT / "docs" / "reports"
 DEFAULT_REPORT_LOG_ROOT = DEFAULT_REPORTS_ROOT / "log"
 DEFAULT_STEERING_PATH = REPO_ROOT / "docs" / "steering.md"
 DEFAULT_DOCKER_COMPOSE = REPO_ROOT / "research" / "memory" / "docker-compose.yaml"
+DEFAULT_RESEARCH_ASSET_ROOT = REPO_ROOT.parent / "research_assets"
 GENERATED_MEMORY_PREFIXES = (
     "docs/reports/",
     "artifacts/memory/",
@@ -97,12 +99,12 @@ except ImportError:  # pragma: no cover
     _TextCrossEncoder = None
 TextCrossEncoder = _TextCrossEncoder
 
-CohereClientV2: Any = None
+_CohereClientV2: Any = None
 try:  # pragma: no cover - optional runtime dependency.
     from cohere import ClientV2 as _CohereClientV2
 except ImportError:  # pragma: no cover
     _CohereClientV2 = None
-CohereClientV2 = _CohereClientV2
+CohereClientV2: Any = _CohereClientV2
 
 
 class ResearchMemoryConfig(BaseModel):
@@ -115,6 +117,7 @@ class ResearchMemoryConfig(BaseModel):
     report_log_root: Path = Field(default_factory=lambda: DEFAULT_REPORT_LOG_ROOT)
     steering_path: Path = Field(default_factory=lambda: DEFAULT_STEERING_PATH)
     docker_compose_path: Path = Field(default_factory=lambda: DEFAULT_DOCKER_COMPOSE)
+    research_asset_root: Path = Field(default_factory=lambda: DEFAULT_RESEARCH_ASSET_ROOT)
     qdrant_enabled: bool = True
     qdrant_mode: Literal["auto", "server", "local"] = "auto"
     qdrant_url: str = "http://127.0.0.1:6333"
@@ -130,7 +133,7 @@ class ResearchMemoryConfig(BaseModel):
     embedder_provider: Literal["auto", "fastembed", "hash"] = "auto"
     embedder_model: str = "jinaai/jina-embeddings-v3"
     reranker_enabled: bool = True
-    reranker_provider: Literal["auto", "fastembed", "cohere"] = "auto"
+    reranker_provider: Literal["auto", "fastembed", "cohere"] = "cohere"
     reranker_model: str = "jinaai/jina-reranker-v2-base-multilingual"
     cohere_reranker_model: str = "rerank-v4.0-pro"
     cohere_api_key: str | None = None
@@ -138,14 +141,37 @@ class ResearchMemoryConfig(BaseModel):
     chunk_chars: int = 1200
     chunk_overlap_chars: int = 160
     evidence_top_k: int = 8
+    catalog_override_path: Path | None = None
 
     @property
     def catalog_path(self) -> Path:
+        if self.catalog_override_path is not None:
+            return self.catalog_override_path
         return self.memory_root / "catalog.duckdb"
+
+    @property
+    def builds_root(self) -> Path:
+        return self.memory_root / "builds"
 
     @property
     def mem0_spool_path(self) -> Path:
         return self.memory_root / "mem0_spool.jsonl"
+
+    @property
+    def promoted_manifest_path(self) -> Path:
+        return self.artifact_root / "sync_manifest.json"
+
+    @property
+    def current_build_manifest_path(self) -> Path:
+        return self.memory_root / "current_build.json"
+
+    @property
+    def artifact_current_build_manifest_path(self) -> Path:
+        return self.artifact_root / "current_build.json"
+
+    @property
+    def current_build_link(self) -> Path:
+        return self.memory_root / "current"
 
     @classmethod
     def from_env(cls) -> ResearchMemoryConfig:
@@ -169,6 +195,9 @@ class ResearchMemoryConfig(BaseModel):
             docker_compose_path=Path(
                 os.getenv("TSQBEV_MEMORY_DOCKER_COMPOSE", str(DEFAULT_DOCKER_COMPOSE))
             ),
+            research_asset_root=Path(
+                os.getenv("TSQBEV_RESEARCH_ASSET_ROOT", str(DEFAULT_RESEARCH_ASSET_ROOT))
+            ),
             qdrant_enabled=_env_bool("TSQBEV_QDRANT_ENABLED", True),
             qdrant_mode=os.getenv("TSQBEV_QDRANT_MODE", "auto"),  # type: ignore[arg-type]
             qdrant_url=os.getenv("TSQBEV_QDRANT_URL", "http://127.0.0.1:6333"),
@@ -188,7 +217,7 @@ class ResearchMemoryConfig(BaseModel):
             ),
             reranker_enabled=_env_bool("TSQBEV_MEMORY_RERANKER_ENABLED", True),
             reranker_provider=os.getenv(
-                "TSQBEV_MEMORY_RERANKER_PROVIDER", "auto"
+                "TSQBEV_MEMORY_RERANKER_PROVIDER", "cohere"
             ),  # type: ignore[arg-type]
             reranker_model=os.getenv(
                 "TSQBEV_MEMORY_RERANKER_MODEL",
@@ -384,6 +413,7 @@ class _Embedder:
         self.dimension = 256
         self.reranker_provider = "none"
         self.reranker_reason: str | None = None
+        self.reranker_fallback_reason: str | None = None
         self._fastembed_model: Any | None = None
         if config.embedder_provider in {"auto", "fastembed"} and TextEmbedding is not None:
             try:
@@ -411,18 +441,17 @@ class _Embedder:
                     except Exception as exc:
                         self.reranker_reason = repr(exc)
                         self._cohere_client = None
-            if (
-                self._cohere_client is None
-                and config.reranker_provider in {"auto", "fastembed"}
-                and TextCrossEncoder is not None
-            ):
+            if TextCrossEncoder is not None:
                 try:
                     self._reranker = TextCrossEncoder(model_name=config.reranker_model)
-                    self.reranker_provider = "fastembed"
-                    self.reranker_reason = None
+                    if self._cohere_client is None:
+                        self.reranker_provider = "fastembed"
+                        if self.reranker_reason is not None:
+                            self.reranker_fallback_reason = self.reranker_reason
+                        self.reranker_reason = None
                 except Exception as exc:
-                    self._reranker = None
-                    self.reranker_reason = repr(exc)
+                    if self._reranker is None:
+                        self.reranker_reason = repr(exc)
             elif self._cohere_client is None and self.reranker_provider == "none":
                 self.reranker_reason = self.reranker_reason or "no reranker backend available"
 
@@ -456,7 +485,15 @@ class _Embedder:
                 )
                 results = list(getattr(response, "results", []))
             except Exception:
-                return candidates
+                if self._reranker is None:
+                    return candidates
+                try:
+                    results = list(self._reranker.rerank(query, texts))
+                    self.reranker_provider = "fastembed"
+                    self.reranker_reason = "cohere runtime failure; fell back to fastembed"
+                    self.reranker_fallback_reason = self.reranker_reason
+                except Exception:
+                    return candidates
         elif self._reranker is not None:
             try:
                 results = list(self._reranker.rerank(query, texts))
@@ -1576,6 +1613,10 @@ def _collect_knowledge_facts(repo_root: Path) -> list[MemoryFact]:
         entries = payload.get("entries", [])
         if not isinstance(entries, list):
             continue
+        collection_name = _as_opt_str(payload.get("collection")) or "knowledge_base"
+        collection_label = "HAN Lab pattern"
+        if "mit_han" not in collection_name.lower():
+            collection_label = "Research technique"
         for entry in entries:
             if not isinstance(entry, dict):
                 continue
@@ -1594,7 +1635,7 @@ def _collect_knowledge_facts(repo_root: Path) -> list[MemoryFact]:
                 for item in cast(list[Any], entry.get("avoid_when", []))
                 if str(item).strip()
             ]
-            claim = f"HAN Lab pattern `{title}`: {summary}."
+            claim = f"{collection_label} `{title}`: {summary}."
             if apply_when:
                 claim += f" Apply when: {apply_when[0]}."
             if avoid_when:
@@ -1622,8 +1663,21 @@ def _collect_knowledge_facts(repo_root: Path) -> list[MemoryFact]:
                         "title": title,
                         "year": entry.get("year"),
                         "area": entry.get("area"),
+                        "collection": collection_name,
+                        "source_term": entry.get("source_term"),
+                        "repo_aliases": entry.get("repo_aliases", []),
                         "apply_when": apply_when,
                         "avoid_when": avoid_when,
+                        "integration_pattern": entry.get("integration_pattern"),
+                        "failure_modes": entry.get("failure_modes", []),
+                        "ablation_nuggets": entry.get("ablation_nuggets", []),
+                        "teacher_role": entry.get("teacher_role"),
+                        "student_role": entry.get("student_role"),
+                        "systems_role": entry.get("systems_role"),
+                        "student_deployability": entry.get("student_deployability"),
+                        "codebases": entry.get("codebases", []),
+                        "checkpoints": entry.get("checkpoints", []),
+                        "evidence_strength": entry.get("evidence_strength"),
                         "tsqbev_actions": entry.get("tsqbev_actions", []),
                         "sources": entry.get("sources", {}),
                     },
@@ -1801,6 +1855,155 @@ def _limit_distinct_sources(items: list[dict[str, Any]], limit: int) -> list[dic
     return selected
 
 
+def _now_build_id() -> str:
+    return datetime.now(tz=UTC).strftime("%Y%m%d-%H%M%S")
+
+
+def _write_json(path: Path, payload: dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload, indent=2, default=str))
+
+
+def _read_json(path: Path) -> dict[str, Any] | None:
+    if not path.exists():
+        return None
+    try:
+        payload = json.loads(path.read_text())
+    except json.JSONDecodeError:
+        return None
+    return payload if isinstance(payload, dict) else None
+
+
+def _replace_symlink(link_path: Path, target: Path) -> None:
+    link_path.parent.mkdir(parents=True, exist_ok=True)
+    tmp_link = link_path.with_name(f"{link_path.name}.tmp")
+    if tmp_link.exists() or tmp_link.is_symlink():
+        tmp_link.unlink()
+    tmp_link.symlink_to(target)
+    tmp_link.replace(link_path)
+
+
+def _load_current_build_manifest(config: ResearchMemoryConfig) -> dict[str, Any] | None:
+    for path in (config.artifact_current_build_manifest_path, config.current_build_manifest_path):
+        payload = _read_json(path)
+        if payload is not None:
+            return payload
+    return None
+
+
+def _runtime_memory_config(config: ResearchMemoryConfig) -> ResearchMemoryConfig:
+    manifest = _load_current_build_manifest(config)
+    if manifest is None:
+        return config
+    updates: dict[str, Any] = {}
+    catalog_path = manifest.get("catalog_path")
+    if isinstance(catalog_path, str) and catalog_path.strip():
+        updates["catalog_override_path"] = Path(catalog_path)
+    for field in (
+        "qdrant_evidence_collection",
+        "qdrant_memory_collection",
+        "mem0_qdrant_collection",
+    ):
+        value = manifest.get(field)
+        if isinstance(value, str) and value.strip():
+            updates[field] = value
+    if not updates:
+        return config
+    return config.model_copy(update=updates)
+
+
+def _build_memory_config(
+    config: ResearchMemoryConfig,
+    *,
+    build_id: str,
+    build_root: Path,
+) -> ResearchMemoryConfig:
+    return config.model_copy(
+        update={
+            "catalog_override_path": build_root / "catalog.duckdb",
+            "qdrant_evidence_collection": f"{config.qdrant_evidence_collection}_{build_id}",
+            "qdrant_memory_collection": f"{config.qdrant_memory_collection}_{build_id}",
+            "mem0_qdrant_collection": f"{config.mem0_qdrant_collection}_{build_id}",
+        }
+    )
+
+
+def _promote_memory_build(
+    config: ResearchMemoryConfig,
+    *,
+    build_root: Path,
+    summary: dict[str, Any],
+) -> dict[str, Any]:
+    manifest = {
+        "build_id": summary["build_id"],
+        "generated_at_utc": summary["generated_at_utc"],
+        "build_root": str(build_root),
+        "catalog_path": str(build_root / "catalog.duckdb"),
+        "qdrant_evidence_collection": summary["qdrant"]["evidence_collection"],
+        "qdrant_memory_collection": summary["qdrant"]["memory_collection"],
+        "mem0_qdrant_collection": summary["mem0"]["collection_name"],
+        "repo_sha": summary["repo_sha"],
+        "fact_count": summary["fact_count"],
+        "event_count": summary["event_count"],
+        "evidence_count": summary["evidence_count"],
+    }
+    _write_json(config.current_build_manifest_path, manifest)
+    _write_json(config.artifact_current_build_manifest_path, manifest)
+    _replace_symlink(config.current_build_link, build_root)
+    _replace_symlink(config.memory_root / "catalog.duckdb", build_root / "catalog.duckdb")
+    return manifest
+
+
+def _write_json_atomic(path: Path, payload: dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp_path = path.with_suffix(path.suffix + ".tmp")
+    tmp_path.write_text(json.dumps(payload, indent=2, default=str))
+    tmp_path.replace(path)
+
+
+def _active_catalog_path(config: ResearchMemoryConfig) -> Path:
+    for manifest_path in (config.promoted_manifest_path,):
+        if manifest_path.exists():
+            try:
+                payload = json.loads(manifest_path.read_text())
+            except json.JSONDecodeError:
+                payload = None
+            if isinstance(payload, dict):
+                catalog_path = _as_opt_str(payload.get("catalog_path"))
+                if catalog_path is not None:
+                    candidate = Path(catalog_path)
+                    if candidate.exists():
+                        return candidate
+    return config.catalog_path
+
+
+def _build_id(repo_root: Path) -> str:
+    sha = current_git_sha(repo_root) or "nogit"
+    timestamp = datetime.now(tz=UTC).strftime("%Y%m%dT%H%M%SZ")
+    return f"{timestamp}-{sha[:8]}"
+
+
+def _prune_old_memory_builds(config: ResearchMemoryConfig, *, keep: int = 6) -> None:
+    builds_root = config.builds_root
+    if not builds_root.exists():
+        return
+    active_manifest = _load_current_build_manifest(config)
+    active_build_root = None
+    if isinstance(active_manifest, dict):
+        build_root = _as_opt_str(active_manifest.get("build_root"))
+        if build_root is not None:
+            active_build_root = Path(build_root)
+    build_dirs = sorted(
+        [path for path in builds_root.iterdir() if path.is_dir()],
+        key=lambda path: path.stat().st_mtime,
+        reverse=True,
+    )
+    for build_dir in build_dirs[keep:]:
+        if active_build_root is not None and build_dir == active_build_root:
+            continue
+        shutil.rmtree(build_dir, ignore_errors=True)
+
+
 def sync_research_memory(
     repo_root: Path = REPO_ROOT,
     *,
@@ -1817,34 +2020,43 @@ def sync_research_memory(
         }
     cfg.memory_root.mkdir(parents=True, exist_ok=True)
     cfg.artifact_root.mkdir(parents=True, exist_ok=True)
-    catalog = _open_catalog_with_retry(cfg.catalog_path, read_only=False)
+    build_id = _build_id(repo_root)
+    build_dir = cfg.builds_root / build_id
+    if build_dir.exists():
+        shutil.rmtree(build_dir)
+    build_dir.mkdir(parents=True, exist_ok=True)
+    build_cfg = _build_memory_config(cfg, build_id=build_id, build_root=build_dir)
+    catalog_path = build_cfg.catalog_path
+    catalog = _open_catalog_with_retry(catalog_path, read_only=False)
     try:
         events = _collect_events(repo_root)
-        chunks = _collect_chunks(repo_root, cfg)
+        chunks = _collect_chunks(repo_root, build_cfg)
         facts = _derive_memory_facts(events, repo_root) + _collect_knowledge_facts(repo_root)
         event_count = catalog.upsert_events(events)
         chunk_count = catalog.upsert_chunks(chunks)
         fact_count = catalog.upsert_facts(facts)
 
-        index = QdrantEvidenceIndex(cfg)
+        index = QdrantEvidenceIndex(build_cfg)
         indexed_chunks = index.upsert_chunks(chunks)
 
-        mem0_backend = Mem0MemoryBackend(cfg)
+        mem0_backend = Mem0MemoryBackend(build_cfg)
         synced_now = 0
         if mem0_backend.enabled:
             for fact in facts:
                 if mem0_backend.add_fact(fact):
                     synced_now += 1
-            spool_result = _flush_mem0_spool(cfg, mem0_backend)
+            spool_result = _flush_mem0_spool(build_cfg, mem0_backend)
         else:
-            _spool_pending_facts(cfg, facts)
+            _spool_pending_facts(build_cfg, facts)
             spool_result = {"attempted": 0, "flushed": 0, "remaining": len(facts)}
 
         summary = {
             "generated_at_utc": datetime.now(tz=UTC).isoformat(),
+            "build_id": build_id,
+            "build_dir": str(build_dir),
             "repo_sha": current_git_sha(repo_root),
             "repo_root": str(repo_root),
-            "catalog_path": str(cfg.catalog_path),
+            "catalog_path": str(catalog_path),
             "event_count": event_count,
             "evidence_count": chunk_count,
             "fact_count": fact_count,
@@ -1854,19 +2066,34 @@ def sync_research_memory(
                 "reason": index.reason,
                 "indexed_chunks": indexed_chunks,
                 "embedder_provider": index.embedder_provider,
+                "evidence_collection": build_cfg.qdrant_evidence_collection,
+                "memory_collection": build_cfg.qdrant_memory_collection,
+            },
+            "reranker": {
+                "enabled": index._embedder.reranker_enabled,
+                "provider": index._embedder.reranker_provider,
+                "reason": index._embedder.reranker_reason,
+                "fallback_reason": index._embedder.reranker_fallback_reason,
+                "configured_provider": cfg.reranker_provider,
+                "configured_model": cfg.reranker_model,
+                "configured_cohere_model": cfg.cohere_reranker_model,
             },
             "mem0": {
                 "enabled": mem0_backend.enabled,
                 "reason": mem0_backend.reason,
                 "synced_now": synced_now,
                 "spool": spool_result,
+                "collection_name": build_cfg.mem0_qdrant_collection,
             },
         }
         catalog.record_sync(summary)
-        (cfg.artifact_root / "sync_manifest.json").write_text(
-            json.dumps(summary, indent=2, default=str)
-        )
-        return summary
+        _write_json_atomic(build_dir / "sync_manifest.json", summary)
+        current_build = _promote_memory_build(cfg, build_root=build_dir, summary=summary)
+        promoted_summary = dict(summary)
+        promoted_summary["current_build"] = current_build
+        _write_json_atomic(cfg.promoted_manifest_path, promoted_summary)
+        _prune_old_memory_builds(cfg)
+        return promoted_summary
     finally:
         catalog.close()
 
@@ -1894,7 +2121,8 @@ def build_research_brief(
             evidence_refs=[],
         )
         return brief
-    catalog = _open_catalog_with_retry(cfg.catalog_path, read_only=True)
+    runtime_cfg = _runtime_memory_config(cfg)
+    catalog = _open_catalog_with_retry(_active_catalog_path(runtime_cfg), read_only=True)
     try:
         incumbent = catalog.current_incumbent()
         overfit_frontier = catalog.best_overfit_frontier()
@@ -1907,17 +2135,18 @@ def build_research_brief(
         upstream = catalog.latest_upstream_baseline()
         repeated = catalog.repeated_rabbit_holes()
         lexical = catalog.lexical_evidence(
-            "current incumbent scale blocker bevfusion baseline", limit=cfg.evidence_top_k
+            "current incumbent scale blocker bevfusion baseline",
+            limit=runtime_cfg.evidence_top_k,
         )
-        index = QdrantEvidenceIndex(cfg)
+        index = QdrantEvidenceIndex(runtime_cfg)
         semantic = index.search(
             "current incumbent scale blocker BEVFusion baseline and next steps",
-            limit=cfg.evidence_top_k,
+            limit=runtime_cfg.evidence_top_k,
         )
-        mem0_backend = Mem0MemoryBackend(cfg)
+        mem0_backend = Mem0MemoryBackend(runtime_cfg)
         memories = mem0_backend.search(
             "current incumbent, scale blocker, and next best steps",
-            limit=min(4, cfg.evidence_top_k),
+            limit=min(4, runtime_cfg.evidence_top_k),
         )
 
         current_state: list[str] = []
@@ -2158,7 +2387,8 @@ def query_research_memory(
             "mem0_results": [],
             "status": "disabled",
         }
-    catalog = _open_catalog_with_retry(cfg.catalog_path, read_only=True)
+    runtime_cfg = _runtime_memory_config(cfg)
+    catalog = _open_catalog_with_retry(_active_catalog_path(runtime_cfg), read_only=True)
     try:
         lexical = catalog.lexical_evidence(query, limit=limit)
         fact_rows = catalog._conn.execute(
@@ -2186,8 +2416,8 @@ def query_research_memory(
             reverse=True,
         )
         facts = facts_scored[:limit]
-        semantic = QdrantEvidenceIndex(cfg).search(query, limit=limit)
-        mem0_results = Mem0MemoryBackend(cfg).search(query, limit=limit)
+        semantic = QdrantEvidenceIndex(runtime_cfg).search(query, limit=limit)
+        mem0_results = Mem0MemoryBackend(runtime_cfg).search(query, limit=limit)
         return {
             "query": query,
             "exact_facts": facts,
@@ -2213,41 +2443,47 @@ def check_research_memory_health(
             "status": "disabled",
             "reason": "TSQBEV_MEMORY_ENABLED is disabled",
         }
-    qdrant = QdrantEvidenceIndex(cfg)
-    mem0_backend = Mem0MemoryBackend(cfg)
+    runtime_cfg = _runtime_memory_config(cfg)
+    qdrant = QdrantEvidenceIndex(runtime_cfg)
+    mem0_backend = Mem0MemoryBackend(runtime_cfg)
+    current_build = _load_current_build_manifest(cfg)
     return {
         "repo_root": str(repo_root),
         "hostname": socket.gethostname(),
         "catalog": {
             "installed": duckdb is not None,
-            "path": str(cfg.catalog_path),
-            "exists": cfg.catalog_path.exists(),
+            "path": str(_active_catalog_path(runtime_cfg)),
+            "exists": _active_catalog_path(runtime_cfg).exists(),
         },
         "qdrant": {
             "enabled": qdrant.enabled,
             "mode": qdrant.mode,
             "reason": qdrant.reason,
-            "url": cfg.qdrant_url,
-            "path": str(cfg.qdrant_path),
+            "url": runtime_cfg.qdrant_url,
+            "path": str(runtime_cfg.qdrant_path),
             "embedder_provider": qdrant.embedder_provider,
+            "evidence_collection": runtime_cfg.qdrant_evidence_collection,
+            "memory_collection": runtime_cfg.qdrant_memory_collection,
         },
         "reranker": {
             "enabled": qdrant._embedder.reranker_enabled,
             "provider": qdrant._embedder.reranker_provider,
             "reason": qdrant._embedder.reranker_reason,
-            "configured_provider": cfg.reranker_provider,
-            "configured_model": cfg.reranker_model,
-            "configured_cohere_model": cfg.cohere_reranker_model,
+            "fallback_reason": qdrant._embedder.reranker_fallback_reason,
+            "configured_provider": runtime_cfg.reranker_provider,
+            "configured_model": runtime_cfg.reranker_model,
+            "configured_cohere_model": runtime_cfg.cohere_reranker_model,
         },
         "mem0": {
             "enabled": mem0_backend.enabled,
             "reason": mem0_backend.reason,
-            "spool_path": str(cfg.mem0_spool_path),
-            "spool_exists": cfg.mem0_spool_path.exists(),
+            "spool_path": str(runtime_cfg.mem0_spool_path),
+            "spool_exists": runtime_cfg.mem0_spool_path.exists(),
+            "collection_name": runtime_cfg.mem0_qdrant_collection,
         },
         "ollama": {
-            "url": cfg.mem0_ollama_base_url,
-            "healthy": _http_ok(cfg.mem0_ollama_base_url),
+            "url": runtime_cfg.mem0_ollama_base_url,
+            "healthy": _http_ok(runtime_cfg.mem0_ollama_base_url),
         },
         "docker_compose": {
             "path": str(cfg.docker_compose_path),
@@ -2257,6 +2493,11 @@ def check_research_memory_health(
             "current": str(cfg.reports_root / "current.md"),
             "exists": (cfg.reports_root / "current.md").exists(),
         },
+        "promoted_manifest": {
+            "path": str(cfg.promoted_manifest_path),
+            "exists": cfg.promoted_manifest_path.exists(),
+        },
+        "current_build": current_build,
     }
 
 

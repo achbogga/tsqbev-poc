@@ -1,0 +1,362 @@
+{
+  "collection": "frontier_vision_foundations",
+  "generated_on": "2026-04-05",
+  "scope": "Frontier vision and BEV perception techniques most relevant to TSQBEV's teacher/student reset, with direct notes on how to apply them in multimodal autonomous driving.",
+  "source_policy": "Primary sources only: official paper pages, official code repositories, and official checkpoint/model pages.",
+  "design_laws": [
+    "Use the strongest unrestricted teacher available, but keep the student's projection and fusion path regular enough to distill and deploy.",
+    "Foundation backbones help only when the downstream bridge is adapted to geometry, depth, and perspective rather than used as raw frozen image tokens.",
+    "Shared BEV or sparse world-state representations must be supervised where the task bottleneck lives: geometry, quality ranking, region occupancy, or vector structure."
+  ],
+  "entries": [
+    {
+      "id": "dinov3",
+      "title": "DINOv3",
+      "year": 2025,
+      "area": "foundation_vision",
+      "technique_family": ["foundation_backbone", "self_supervision", "dense_features"],
+      "primary_bottleneck": "camera_feature_quality",
+      "source_term": "DINOv3",
+      "repo_aliases": ["frontier camera backbone"],
+      "core_trick": "Train a large-scale self-supervised vision backbone whose intermediate features remain strong for dense downstream transfer without task-specific pretraining.",
+      "intuition": "A strong camera teacher should give the student semantically richer multi-view evidence before BEV fusion, but only if the projector preserves geometry-relevant structure instead of flattening everything into generic classification features.",
+      "ablation_takeaways": [
+        "The gain comes from dense transferable features, not from blindly replacing every downstream block with a huge ViT.",
+        "Projection and downstream adaptation matter; frozen foundation features without a perspective/BEV bridge often underperform their apparent pretraining strength."
+      ],
+      "ablation_nuggets": [
+        "Prefer linear or light adapter projection into the student camera branch before BEV or sparse-world fusion.",
+        "Start with frozen or lightly adapted features; only unfreeze after the bridge and supervision are stable."
+      ],
+      "apply_when": [
+        "camera semantics and long-tail recognition are limiting the student more than raw LiDAR geometry",
+        "the teacher is unconstrained and can afford heavier image computation than the deployable student"
+      ],
+      "avoid_when": [
+        "the camera branch is already bandwidth-bound and no projection/adaptation budget is available",
+        "you cannot supervise the geometry bridge and expect generic image features to solve 3D localization alone"
+      ],
+      "integration_pattern": "Use as frozen or lightly adapted multi-view camera feature extractor, then project into the BEV/sparse fusion interface and distill teacher quality or BEV signals into the student.",
+      "failure_modes": [
+        "feature richness that does not translate into better 3D boxes because the perspective-to-world bridge is weak",
+        "GPU memory blow-up if the projector and view stack are not checkpointed"
+      ],
+      "teacher_role": "primary camera teacher backbone",
+      "student_role": "lightly adapted camera feature source or teacher-only backbone",
+      "systems_role": "high compute teacher path",
+      "student_deployability": "medium",
+      "codebases": [
+        "https://github.com/facebookresearch/dinov3"
+      ],
+      "checkpoints": [
+        "https://ai.meta.com/resources/models-and-libraries/dinov3-downloads/"
+      ],
+      "evidence_strength": "high",
+      "tsqbev_actions": [
+        "project DINOv3 multi-view features into the camera branch before BEV/sparse fusion",
+        "pair with perspective supervision or BEV-space distillation rather than raw feature concatenation"
+      ],
+      "sources": {
+        "project": "https://ai.meta.com/resources/models-and-libraries/dinov3-downloads/",
+        "code": "https://github.com/facebookresearch/dinov3"
+      }
+    },
+    {
+      "id": "sam2_1",
+      "title": "SAM 2.1",
+      "year": 2024,
+      "area": "foundation_segmentation",
+      "technique_family": ["foundation_segmentation", "region_priors", "memory"],
+      "primary_bottleneck": "region_supervision",
+      "source_term": "SAM 2.1 memory-conditioned promptable segmentation",
+      "repo_aliases": ["gram anchoring", "sam memory anchoring"],
+      "core_trick": "Use a strong memory-conditioned segmentation model to turn boxes, prompts, or sparse hints into dense object or region support that can supervise proposal priors and foreground structure.",
+      "intuition": "SAM 2.1 is valuable here as a dense region prior generator and teacher, not as a direct replacement for BEV detection. Its best use is to preserve object support and boundaries that our student ranking and region losses currently lose.",
+      "ablation_takeaways": [
+        "Dense priors are most useful when they regularize object support, occupancy, or foreground regions around teacher hypotheses.",
+        "The model is too heavy and too generic to be treated as the deployable perception trunk."
+      ],
+      "ablation_nuggets": [
+        "Use proposal boxes or teacher boxes to prompt SAM and extract masks or support maps.",
+        "Supervise region objectness or occupancy rather than trying to backpropagate through a full SAM runtime in the student loop."
+      ],
+      "apply_when": [
+        "ranking and object support are the bottleneck and box-only supervision is too sparse",
+        "the teacher can afford heavy dense region inference offline or asynchronously"
+      ],
+      "avoid_when": [
+        "you need the final deployable student to run a full SAM stack online",
+        "the issue is raw geometry calibration rather than region support"
+      ],
+      "integration_pattern": "Generate region priors or support masks from teacher proposals and use them for offline cache, region-objectness targets, or proposal filtering.",
+      "failure_modes": [
+        "masks that look good in image space but are not consistent across multi-view geometry",
+        "high preprocessing cost if every sample requires full dense prompting online"
+      ],
+      "teacher_role": "dense region and mask prior teacher",
+      "student_role": "offline supervision source only",
+      "systems_role": "asynchronous preprocessing teacher",
+      "student_deployability": "low",
+      "codebases": [
+        "https://github.com/facebookresearch/sam2"
+      ],
+      "checkpoints": [
+        "https://github.com/facebookresearch/sam2#download-checkpoints"
+      ],
+      "evidence_strength": "high",
+      "tsqbev_actions": [
+        "turn teacher boxes into SAM 2.1 region priors cached alongside detection samples",
+        "use region priors for teacher-region objectness and occupancy losses, not as a direct runtime trunk"
+      ],
+      "sources": {
+        "paper": "https://arxiv.org/abs/2408.00714",
+        "code": "https://github.com/facebookresearch/sam2",
+        "checkpoints": "https://github.com/facebookresearch/sam2#download-checkpoints"
+      }
+    },
+    {
+      "id": "bevformer_v2",
+      "title": "BEVFormer v2",
+      "year": 2025,
+      "area": "bev_perception",
+      "technique_family": ["perspective_supervision", "bev_transformer", "camera_only_3d"],
+      "primary_bottleneck": "camera_to_world_bridge",
+      "source_term": "Perspective Supervision",
+      "repo_aliases": ["perspective supervision for BEV"],
+      "core_trick": "Adapt strong image backbones to BEV recognition by supervising them in the native perspective space before or alongside BEV aggregation.",
+      "intuition": "Camera foundation models are trained in image space. Perspective supervision reduces the gap between strong 2D semantics and the geometry-sensitive BEV task by explicitly teaching the bridge where the 3D cues live.",
+      "ablation_takeaways": [
+        "Perspective-space supervision is one of the highest-ROI additions when a stronger image backbone does not automatically improve BEV quality.",
+        "The gain is larger when the backbone is strong but the BEV bridge is the actual bottleneck."
+      ],
+      "ablation_nuggets": [
+        "Add perspective losses before expecting BEV metrics to reflect the extra image backbone capacity.",
+        "Use it to stabilize DINOv3 projection rather than as a standalone architecture switch."
+      ],
+      "apply_when": [
+        "camera backbone quality is strong but BEV 3D precision remains weak",
+        "multi-view sparse attention needs a geometry-aware training signal"
+      ],
+      "avoid_when": [
+        "the main bottleneck is LiDAR box quality or export calibration rather than image-to-world adaptation",
+        "the student cannot afford any additional image-space supervision budget"
+      ],
+      "integration_pattern": "Attach perspective losses to projected multi-view foundation features before BEV/sparse-world fusion.",
+      "failure_modes": [
+        "extra image-space loss that helps 2D features but not 3D metrics because the fusion head is still bottlenecked",
+        "training instability if perspective and BEV losses are not balanced"
+      ],
+      "teacher_role": "teacher-side supervision template",
+      "student_role": "bridge regularizer",
+      "systems_role": "training-only supervision",
+      "student_deployability": "high",
+      "codebases": [
+        "https://github.com/fundamentalvision/BEVFormer"
+      ],
+      "checkpoints": [],
+      "evidence_strength": "high",
+      "tsqbev_actions": [
+        "add perspective supervision to the DINOv3 camera branch before sparse/BEV fusion",
+        "treat it as the main adaptation mechanism for frontier image backbones"
+      ],
+      "sources": {
+        "paper": "https://openaccess.thecvf.com/content/CVPR2023/papers/Yang_BEVFormer_v2_Adapting_Modern_Image_Backbones_to_Birds-Eye-View_Recognition_via_CVPR_2023_paper.pdf",
+        "code": "https://github.com/fundamentalvision/BEVFormer"
+      }
+    },
+    {
+      "id": "sparse4d",
+      "title": "Sparse4D",
+      "year": 2024,
+      "area": "sparse_bev_perception",
+      "technique_family": ["sparse_queries", "temporal_perception", "multiview_attention"],
+      "primary_bottleneck": "sparse_world_modeling",
+      "source_term": "Sparse4D",
+      "repo_aliases": ["sparse temporal student"],
+      "core_trick": "Use sparse temporally propagated object/world tokens instead of dense BEV everywhere, while keeping temporal memory and sparse attention centered on likely objects.",
+      "intuition": "This is the right student family when dense BEV is too expensive for deployment, but only if the sparse tokens inherit enough teacher quality and geometric context.",
+      "ablation_takeaways": [
+        "Sparse tokens win when they preserve the right objects; they fail when ranking and source-mix collapse destroy recall.",
+        "Temporal carry and sparse attention are useful only after the token set itself is reliable."
+      ],
+      "ablation_nuggets": [
+        "Attach stronger teacher-quality and region supervision before iterating on token routing details.",
+        "Use official-metric checkpointing, not just loss, because sparse failures can hide behind plausible training curves."
+      ],
+      "apply_when": [
+        "student deployment constraints rule out dense BEV everywhere",
+        "the teacher can provide high-quality sparse targets or BEV-space distillation signals"
+      ],
+      "avoid_when": [
+        "the token proposals are still untrustworthy and no teacher signal preserves them",
+        "you are trying to use sparse queries as a substitute for missing camera geometry adaptation"
+      ],
+      "integration_pattern": "Keep Sparse4D-style student state, but supervise it with DINOv3+perspective and teacher BEV/quality priors.",
+      "failure_modes": [
+        "source-mix collapse to one modality or proposal family",
+        "token budget optimizations that reduce recall faster than they improve latency"
+      ],
+      "teacher_role": "teacher target interface",
+      "student_role": "primary deployable student family",
+      "systems_role": "runtime-efficient student",
+      "student_deployability": "high",
+      "codebases": [
+        "https://github.com/HorizonRobotics/Sparse4D"
+      ],
+      "checkpoints": [],
+      "evidence_strength": "high",
+      "tsqbev_actions": [
+        "keep sparse temporal student as the deployable target while upgrading its supervision and camera features",
+        "stop local token tweaks unless official metrics improve against the v28 control"
+      ],
+      "sources": {
+        "paper": "https://arxiv.org/abs/2211.12413",
+        "code": "https://github.com/HorizonRobotics/Sparse4D"
+      }
+    },
+    {
+      "id": "distillbev",
+      "title": "DistillBEV",
+      "year": 2023,
+      "area": "cross_modal_distillation",
+      "technique_family": ["bev_distillation", "cross_modal_distillation"],
+      "primary_bottleneck": "camera_student_supervision",
+      "source_term": "DistillBEV",
+      "repo_aliases": ["camera-from-lidar BEV distillation"],
+      "core_trick": "Distill strong LiDAR teacher knowledge into a camera BEV student using BEV-aligned supervision instead of only box-level labels.",
+      "intuition": "When the camera student has semantics but weak geometry, a LiDAR teacher can teach it the BEV structure directly, reducing the need to rediscover geometry from sparse labels.",
+      "ablation_takeaways": [
+        "BEV-space supervision is materially stronger than box-only supervision when modality gaps are large.",
+        "Teacher signal must target the student's bottleneck representation, not just final boxes."
+      ],
+      "ablation_nuggets": [
+        "Use teacher BEV or region maps when box/ranking supervision alone plateaus.",
+        "Do not pay the cost unless the student actually exposes a BEV-aligned or world-aligned supervision interface."
+      ],
+      "apply_when": [
+        "camera branch quality is limited by missing geometric supervision",
+        "a strong LiDAR teacher is already available"
+      ],
+      "avoid_when": [
+        "the student has no stable BEV/world representation to receive the distillation signal",
+        "teacher and student coordinate systems are mismatched or noisy"
+      ],
+      "integration_pattern": "Distill from unrestricted LiDAR or multimodal teacher into BEV/world-aligned student features or quality maps.",
+      "failure_modes": [
+        "teacher maps that are strong but geometrically misaligned with the student raster or token space",
+        "teacher supervision dominating weak student optimization and causing collapse"
+      ],
+      "teacher_role": "primary cross-modal teacher template",
+      "student_role": "camera or sparse student supervision target",
+      "systems_role": "training-only distillation",
+      "student_deployability": "high",
+      "codebases": [],
+      "checkpoints": [],
+      "evidence_strength": "high",
+      "tsqbev_actions": [
+        "add BEV/world-space teacher supervision if DINOv3 plus ranking fixes still trail the v28 control",
+        "prioritize distilling quality maps and region occupancy before more local sparse-token tuning"
+      ],
+      "sources": {
+        "paper": "https://openaccess.thecvf.com/content/ICCV2023/html/Wang_DistillBEV_Boosting_Multi-Camera_3D_Object_Detection_with_Cross-Modal_Knowledge_Distillation_ICCV_2023_paper.html"
+      }
+    },
+    {
+      "id": "unidistill",
+      "title": "UniDistill",
+      "year": 2023,
+      "area": "cross_modal_distillation",
+      "technique_family": ["universal_distillation", "bev_distillation", "cross_modal_distillation"],
+      "primary_bottleneck": "modality_gap",
+      "source_term": "UniDistill",
+      "repo_aliases": ["universal cross-modality KD"],
+      "core_trick": "Use a unified BEV-centric distillation framework so multiple teacher modalities can supervise the same downstream 3D student.",
+      "intuition": "The important lesson is not just that distillation helps; it is that a BEV/world-aligned teacher space can unify supervision across camera, LiDAR, and multimodal teachers.",
+      "ablation_takeaways": [
+        "Cross-modality distillation lifts both mAP and NDS when the teacher and student align in BEV.",
+        "The student benefits most when the distillation target is universal and not over-specialized to one upstream architecture."
+      ],
+      "ablation_nuggets": [
+        "Use UniDistill-style targets when multiple teachers should supervise one student interface.",
+        "Prefer world/BEV targets over architecture-specific hidden-state mimicry."
+      ],
+      "apply_when": [
+        "teacher family diversity is a strength and you want one student to absorb it",
+        "you need one distillation interface that survives teacher swaps"
+      ],
+      "avoid_when": [
+        "the student has no shared BEV/world target space",
+        "teacher signals disagree badly and you have no quality filter"
+      ],
+      "integration_pattern": "Distill strong LiDAR and multimodal teachers into one BEV/sparse student interface with teacher-quality filtering.",
+      "failure_modes": [
+        "averaging incompatible teacher priors",
+        "hidden-state distillation that overfits to teacher architecture quirks instead of the task"
+      ],
+      "teacher_role": "multi-teacher distillation template",
+      "student_role": "unified supervision target",
+      "systems_role": "training-only alignment",
+      "student_deployability": "high",
+      "codebases": [],
+      "checkpoints": [],
+      "evidence_strength": "high",
+      "tsqbev_actions": [
+        "treat UniDistill as the template if we use CenterPoint, BEVFusion, and SAM-derived priors together",
+        "distill teacher consensus into one student BEV/world supervision space"
+      ],
+      "sources": {
+        "paper": "https://openaccess.thecvf.com/content/CVPR2023/html/Zhou_UniDistill_A_Universal_Cross-Modality_Knowledge_Distillation_Framework_for_3D_Object_CVPR_2023_paper.html"
+      }
+    },
+    {
+      "id": "maptrv2",
+      "title": "MapTRv2",
+      "year": 2024,
+      "area": "vector_map_learning",
+      "technique_family": ["lane_vectorization", "map_learning", "multitask_bev"],
+      "primary_bottleneck": "lane_head_design",
+      "source_term": "MapTRv2",
+      "repo_aliases": ["vector lane/map head"],
+      "core_trick": "Represent lane and map outputs as vectorized elements on top of a shared BEV representation rather than as only raster segmentation.",
+      "intuition": "Lane learning should not just be another raster loss pulling on detection. A vector head isolates the map task better and gives more controllable multitask boundaries.",
+      "ablation_takeaways": [
+        "Vector-map supervision is better aligned with downstream map structure than raw dense lane masks alone.",
+        "Shared BEV helps only when task boundaries and checkpoint selection are explicit."
+      ],
+      "ablation_nuggets": [
+        "Start lane learning on a frozen or lightly adapted shared trunk before full joint finetuning.",
+        "Use vector metrics and detection non-regression gates together."
+      ],
+      "apply_when": [
+        "lane integration is important but naive raster multitask training is destabilizing detection",
+        "the shared representation is already world-aligned"
+      ],
+      "avoid_when": [
+        "the trunk is too unstable to share across detection and lane tasks",
+        "you only have weak raster labels and no usable vector supervision"
+      ],
+      "integration_pattern": "Stage lane integration with a MapTRv2-style head over a stable detection trunk or shared BEV/student world state.",
+      "failure_modes": [
+        "multitask interference when lane loss drives trunk drift faster than checkpointing can detect it",
+        "lane improvements that hide a broken detection export"
+      ],
+      "teacher_role": "lane/map control arm",
+      "student_role": "staged auxiliary head",
+      "systems_role": "multitask boundary design",
+      "student_deployability": "medium",
+      "codebases": [
+        "https://github.com/hustvl/MapTR"
+      ],
+      "checkpoints": [],
+      "evidence_strength": "high",
+      "tsqbev_actions": [
+        "replace naive lane-only shared-loss coupling with staged MapTRv2-style vector supervision",
+        "only promote joint checkpoints when detection stays inside a strict non-regression band"
+      ],
+      "sources": {
+        "paper": "https://arxiv.org/abs/2308.05736",
+        "code": "https://github.com/hustvl/MapTR"
+      }
+    }
+  ]
+}

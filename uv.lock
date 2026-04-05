@@ -3253,6 +3253,7 @@ name = "tsqbev-poc"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
+    { name = "cohere" },
     { name = "duckdb" },
     { name = "einops" },
     { name = "fastembed", marker = "python_full_version < '3.13' and sys_platform == 'linux'" },
@@ -3273,7 +3274,6 @@ dependencies = [
 
 [package.optional-dependencies]
 data = [
-    { name = "cohere" },
     { name = "mem0ai" },
     { name = "nuscenes-devkit" },
     { name = "ollama" },
@@ -3296,7 +3296,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "cohere", marker = "extra == 'data'", specifier = ">=5.18.0,<6.0.0" },
+    { name = "cohere", specifier = ">=5.18.0,<6.0.0" },
     { name = "duckdb", specifier = ">=1.2.2,<2.0.0" },
     { name = "einops", specifier = ">=0.8.0,<0.9.0" },
     { name = "fastembed", marker = "python_full_version < '3.13' and sys_platform == 'linux'", specifier = ">=0.7.4,<1.0.0" },

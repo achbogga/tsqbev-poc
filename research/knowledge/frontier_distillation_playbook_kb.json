@@ -1,0 +1,201 @@
+{
+  "collection": "frontier_distillation_playbook",
+  "generated_on": "2026-04-05",
+  "scope": "Source-backed distillation techniques and engineering lessons relevant to TSQBEV's teacher/student regime.",
+  "source_policy": "Primary sources only: official paper pages and official code repositories when available.",
+  "design_laws": [
+    "Distill where the student is weak, not where the teacher is merely expressive.",
+    "Teacher-free and peer-based distillation help only when optimization noise is the main problem; they do not replace missing geometry or world supervision.",
+    "Output and quality-map distillation are usually higher ROI than architecture-specific hidden-state copying when the student family is different from the teacher."
+  ],
+  "entries": [
+    {
+      "id": "byot",
+      "title": "Be Your Own Teacher",
+      "year": 2019,
+      "area": "self_distillation",
+      "technique_family": ["self_distillation", "teacher_free_distillation"],
+      "primary_bottleneck": "optimization_regularization",
+      "source_term": "Be Your Own Teacher",
+      "repo_aliases": ["self distillation"],
+      "core_trick": "Use deeper or later representations of the same network to teach shallower or earlier submodules during training.",
+      "intuition": "Self-distillation is a regularizer that stabilizes optimization and representation learning. It helps when the model already knows what to learn but not how to organize it efficiently.",
+      "ablation_takeaways": [
+        "Self-distillation improves generalization when the student architecture is already reasonable.",
+        "It is not the right first move when the missing signal is external geometry or multimodal teacher knowledge."
+      ],
+      "ablation_nuggets": [
+        "Apply it after the main teacher supervision path is working, not before.",
+        "Use it to stabilize the student head or intermediate world features, not as a substitute for teacher BEV distillation."
+      ],
+      "apply_when": [
+        "the student is close to working but overfits or optimizes noisily",
+        "you want a cheap extra regularizer without another external teacher"
+      ],
+      "avoid_when": [
+        "the model lacks strong external supervision or world grounding",
+        "the student is underpowered and already capacity-limited"
+      ],
+      "integration_pattern": "Use on the student's own multiscale or late-vs-early features after external teacher supervision is stable.",
+      "failure_modes": [
+        "wasting budget on self-regularization before fixing the actual supervision bottleneck",
+        "copying poor late predictions back into earlier features"
+      ],
+      "teacher_role": "none",
+      "student_role": "student-only regularizer",
+      "systems_role": "training-only regularization",
+      "student_deployability": "high",
+      "codebases": [],
+      "checkpoints": [],
+      "evidence_strength": "medium",
+      "tsqbev_actions": [
+        "defer until DINOv3 plus teacher BEV/quality supervision is stable",
+        "apply to student head refinement only if the external teacher path plateaus for optimization reasons"
+      ],
+      "sources": {
+        "paper": "https://openaccess.thecvf.com/content_ICCV_2019/html/Zhang_Be_Your_Own_Teacher_Improve_the_Performance_of_Convolutional_Neural_ICCV_2019_paper.html"
+      }
+    },
+    {
+      "id": "deep_mutual_learning",
+      "title": "Deep Mutual Learning",
+      "year": 2018,
+      "area": "mutual_learning",
+      "technique_family": ["mutual_learning", "peer_distillation"],
+      "primary_bottleneck": "generalization_regularization",
+      "source_term": "Deep Mutual Learning",
+      "repo_aliases": ["mutual deep learning", "peer distillation"],
+      "core_trick": "Train multiple students together and let them align predictions so each student benefits from peer regularization.",
+      "intuition": "Peer learning helps when multiple students see the same task from slightly different inductive biases or augmentations. It is weaker when everyone shares the same blind spot.",
+      "ablation_takeaways": [
+        "Mutual learning can outperform static distillation when peers are diverse enough.",
+        "If all peers are weak in the same way, they amplify each other's mistakes instead of fixing them."
+      ],
+      "ablation_nuggets": [
+        "Use only when there is real architectural or view diversity across students.",
+        "Do not replace a strong external teacher with peer alignment if the students are all small and underinformed."
+      ],
+      "apply_when": [
+        "you can afford at least two diverse student views or architectures during training",
+        "you want extra regularization after a strong external teacher baseline exists"
+      ],
+      "avoid_when": [
+        "all students are nearly identical and make the same errors",
+        "GPU budget is already dominated by the real teacher path"
+      ],
+      "integration_pattern": "Use as a later-stage regularizer across small student variants or temporal/view-specific student heads.",
+      "failure_modes": [
+        "peer collapse around the same bad mode",
+        "extra compute with no information gain over a better single-teacher setup"
+      ],
+      "teacher_role": "none or auxiliary",
+      "student_role": "multi-student regularizer",
+      "systems_role": "training-only peer setup",
+      "student_deployability": "medium",
+      "codebases": [],
+      "checkpoints": [],
+      "evidence_strength": "medium",
+      "tsqbev_actions": [
+        "defer until one strong single-student recipe exists",
+        "if used, diversify the peers by backbone or modality emphasis rather than duplicating the same small model"
+      ],
+      "sources": {
+        "paper": "https://openaccess.thecvf.com/content_cvpr_2018/html/Zhang_Deep_Mutual_Learning_CVPR_2018_paper.html"
+      }
+    },
+    {
+      "id": "born_again_networks",
+      "title": "Born-Again Networks",
+      "year": 2018,
+      "area": "teacher_student_distillation",
+      "technique_family": ["self_distillation", "iterative_teacher_student"],
+      "primary_bottleneck": "student_generalization",
+      "source_term": "Born-Again Networks",
+      "repo_aliases": ["iterative self distillation"],
+      "core_trick": "Iteratively distill a model into another model of the same architecture and use the previous generation as the teacher.",
+      "intuition": "BAN works when the optimization landscape itself is the issue and a better teacher trajectory can improve the same student family.",
+      "ablation_takeaways": [
+        "Iterative teacher refresh can help even without bigger architectures.",
+        "It is still secondary to getting the teacher signal and task representation right in the first place."
+      ],
+      "ablation_nuggets": [
+        "Treat BAN as a later exploit, not an architectural reset.",
+        "Use only after official metrics are already nontrivial and stable."
+      ],
+      "apply_when": [
+        "a stable recipe exists and you want incremental generalization gains",
+        "teacher refresh is cheaper than collecting stronger supervision"
+      ],
+      "avoid_when": [
+        "the current teacher or student family is fundamentally wrong",
+        "the export path is still unstable or zeroed out"
+      ],
+      "integration_pattern": "Use on the winning student family after the external teacher regime is settled.",
+      "failure_modes": [
+        "compounding the same architectural mistake across generations",
+        "spending training budget on iteration before addressing core bottlenecks"
+      ],
+      "teacher_role": "iterative student teacher",
+      "student_role": "same-family follow-on student",
+      "systems_role": "training-only exploit",
+      "student_deployability": "high",
+      "codebases": [],
+      "checkpoints": [],
+      "evidence_strength": "medium",
+      "tsqbev_actions": [
+        "use only after the frontier student beats the current v28 control",
+        "treat as exploit-stage refinement, never as the first major fix"
+      ],
+      "sources": {
+        "paper": "https://arxiv.org/abs/1805.04770"
+      }
+    },
+    {
+      "id": "quality_map_distillation",
+      "title": "Quality-Map Distillation",
+      "year": 2023,
+      "area": "output_distillation",
+      "technique_family": ["quality_distillation", "dense_output_distillation"],
+      "primary_bottleneck": "ranking_quality",
+      "source_term": "quality-aware dense target distillation",
+      "repo_aliases": ["quality map distillation", "teacher quality supervision"],
+      "core_trick": "Distill dense quality-aware class or occupancy maps instead of only box lists so the student inherits ranking information and spatial confidence structure.",
+      "intuition": "Our current bottleneck is not just object presence. It is object ranking and geometric plausibility. Dense quality targets teach the student where high-confidence world structure should live.",
+      "ablation_takeaways": [
+        "Quality-aware output targets usually beat plain focal hard-negative tuning when overproduction and ranking are the real problem.",
+        "Dense output supervision is often cheaper and more architecture-agnostic than hidden-state matching."
+      ],
+      "ablation_nuggets": [
+        "Prioritize this before self-distillation or mutual learning.",
+        "Use when the teacher is much stronger and already produces reliable scores or region maps."
+      ],
+      "apply_when": [
+        "teacher outputs are trustworthy but student ranking/export is weak",
+        "the student family differs too much from the teacher for direct feature copying"
+      ],
+      "avoid_when": [
+        "teacher outputs are noisy or geometry is inconsistent",
+        "the student has no spatial target interface at all"
+      ],
+      "integration_pattern": "Distill teacher quality maps or region priors into student world tokens, BEV cells, or region-objectness heads.",
+      "failure_modes": [
+        "score mimicry without geometry sanity",
+        "teacher noise being baked into a dense target"
+      ],
+      "teacher_role": "primary dense supervisory signal",
+      "student_role": "ranking and objectness target",
+      "systems_role": "training-only supervision",
+      "student_deployability": "high",
+      "codebases": [],
+      "checkpoints": [],
+      "evidence_strength": "high",
+      "tsqbev_actions": [
+        "keep prioritizing teacher quality and region priors over more sparse query heuristics",
+        "use dense teacher supervision on the new DINOv3 branch before trying student-only regularizers"
+      ],
+      "sources": {
+        "paper": "https://openaccess.thecvf.com/content/CVPR2023/html/Zhou_UniDistill_A_Universal_Cross-Modality_Knowledge_Distillation_Framework_for_3D_Object_CVPR_2023_paper.html"
+      }
+    }
+  ]
+}

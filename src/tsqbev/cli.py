@@ -31,6 +31,7 @@ from tsqbev.eval_nuscenes import evaluate_nuscenes_predictions, export_nuscenes_
 from tsqbev.eval_openlane import evaluate_openlane_predictions, export_openlane_predictions
 from tsqbev.export import export_core_to_onnx
 from tsqbev.gap_analysis import analyze_reset_gap
+from tsqbev.knowledge_assets import knowledge_asset_status, mirror_knowledge_assets
 from tsqbev.latency import LatencyPredictor, features_from_config
 from tsqbev.maintenance_supervisor import run_maintenance_once, run_maintenance_supervisor
 from tsqbev.model import TSQBEVModel
@@ -262,6 +263,33 @@ def research_report() -> None:
     print(build_research_brief(persist_log=True).to_dict())
 
 
+def knowledge_assets_sync_report(
+    asset_root: Path | None,
+    *,
+    max_workers: int,
+    overwrite: bool,
+) -> None:
+    if asset_root is not None:
+        print(
+            mirror_knowledge_assets(
+                asset_root=asset_root,
+                max_workers=max_workers,
+                overwrite=overwrite,
+            )
+        )
+        return
+    print(
+        mirror_knowledge_assets(
+            max_workers=max_workers,
+            overwrite=overwrite,
+        )
+    )
+
+
+def knowledge_assets_status_report() -> None:
+    print(knowledge_asset_status())
+
+
 def memory_service_report(action: Literal["up", "down"]) -> None:
     print(manage_research_memory_services(action))
 
@@ -397,6 +425,8 @@ def _make_parser() -> argparse.ArgumentParser:
             "download-openlanev2",
             "prepare-openlanev1",
             "check-sam2-assets",
+            "knowledge-assets-sync",
+            "knowledge-assets-status",
             "memory-up",
             "memory-health",
             "memory-down",
@@ -409,6 +439,7 @@ def _make_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--dataset-root", type=Path, default=None)
     parser.add_argument("--lane-dataset-root", type=Path, default=None)
+    parser.add_argument("--asset-root", type=Path, default=None)
     parser.add_argument("--artifact-dir", type=Path, default=Path("artifacts/baselines"))
     parser.add_argument("--output-path", type=Path, default=Path("artifacts/eval/predictions.json"))
     parser.add_argument("--output-dir", type=Path, default=Path("artifacts/eval"))
@@ -557,6 +588,8 @@ def _make_parser() -> argparse.ArgumentParser:
     parser.add_argument("--grad-accum-steps", type=int, default=8)
     parser.add_argument("--batch-size", type=int, default=1)
     parser.add_argument("--num-workers", type=int, default=4)
+    parser.add_argument("--max-workers", type=int, default=6)
+    parser.add_argument("--overwrite-assets", action="store_true")
     parser.add_argument("--seed", type=int, default=1337)
     parser.add_argument("--max-train-samples", type=int, default=None)
     parser.add_argument("--max-val-samples", type=int, default=None)
@@ -725,6 +758,16 @@ def main() -> None:
     if args.command == "check-sam2-assets":
         config = _resolve_config(args)
         print(validate_local_sam2_assets(config, device=args.device))
+        return
+    if args.command == "knowledge-assets-sync":
+        knowledge_assets_sync_report(
+            args.asset_root,
+            max_workers=args.max_workers,
+            overwrite=args.overwrite_assets,
+        )
+        return
+    if args.command == "knowledge-assets-status":
+        knowledge_assets_status_report()
         return
     if args.command == "memory-up":
         memory_service_report("up")

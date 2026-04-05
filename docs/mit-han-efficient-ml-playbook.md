@@ -178,5 +178,7 @@ Inference from the sources:
 
 - Structured database:
   [research/knowledge/mit_han_efficient_ml_kb.json](../research/knowledge/mit_han_efficient_ml_kb.json)
+- Local mirrored source assets after sync:
+  [artifacts/knowledge_assets/manifest.json](../artifacts/knowledge_assets/manifest.json)
 - This file is ingested by the local research-memory sync and becomes queryable exact/semantic
   evidence for future briefs and planning.

@@ -19,6 +19,8 @@ chat context and makes the bounded loop operate from durable evidence.
   summaries.
 - structured literature databases and technique cards under `research/knowledge/` must be indexed
   as evidence and distilled into memory facts during sync.
+- local mirrored research assets for official papers, code, and checkpoints must live outside the
+  repo and be referenced by generated manifests under `artifacts/knowledge_assets/`.
 - `Mem0 OSS` distilled memory layer when its local services are healthy.
 - If `Mem0` is unavailable, memory writes must be spooled locally and flushed later.
 
@@ -36,7 +38,9 @@ Every bounded research invocation must:
 ## Required Outputs
 
 - `artifacts/memory/sync_manifest.json`
+- `artifacts/memory/current_build.json`
 - `artifacts/memory/brief.json`
+- `artifacts/knowledge_assets/manifest.json`
 - `docs/reports/current.md`
 - append-only timestamped report logs in `docs/reports/log/`
 
@@ -51,8 +55,11 @@ Every bounded research invocation must:
 - Default exact store: `DuckDB`
 - Default evidence index: `Qdrant` with local or service mode
 - Default evidence embedder: `FastEmbed` when available, otherwise deterministic hash fallback
+- Default reranker: `Cohere` with automatic `FastEmbed` fallback and exact/lexical final fallback
 - Default distilled-memory backend: `Mem0 OSS` with local `Qdrant` + `Ollama`
 - Default reports are PI-facing, concise, and citation-heavy
+- Default sync semantics: build a fresh sidecar memory state and promote it atomically instead of
+  mutating the active catalog in place
 
 ## References
 

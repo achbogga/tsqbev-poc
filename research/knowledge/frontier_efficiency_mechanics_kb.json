@@ -1,0 +1,322 @@
+{
+  "collection": "frontier_efficiency_mechanics",
+  "scope": "Frontier efficiency and systems techniques relevant to long-context reasoning, memory bandwidth, sparse sequence processing, and efficient vision backbones.",
+  "source_policy": "Primary sources only: official papers, official repositories, official project/model pages.",
+  "entries": [
+    {
+      "id": "paged_kv_cache",
+      "title": "PagedAttention / Paged KV Cache",
+      "source_term": "PagedAttention",
+      "repo_aliases": ["kv cache", "paged kv cache"],
+      "year": 2023,
+      "area": "llm_serving",
+      "technique_family": ["kv_cache", "serving_systems", "memory_management"],
+      "primary_bottleneck": "kv-cache fragmentation and memory waste",
+      "core_trick": "Treat KV cache like a virtual-memory problem so long-context serving stays memory efficient and high throughput under variable sequence lengths.",
+      "intuition": "KV caching matters when serving or agent memory is the bottleneck; it is not a direct perception-model trick unless the control plane itself is the thing starving the loop.",
+      "apply_when": [
+        "the research control plane is long-context and cache-heavy",
+        "you need many concurrent reasoning jobs without wasting memory"
+      ],
+      "avoid_when": [
+        "the active bottleneck is the perception model itself rather than the reasoning/control plane",
+        "the context sizes are small enough that paging adds complexity without benefit"
+      ],
+      "ablation_nuggets": [
+        "The main gain is systems efficiency under realistic multi-request loads, not a better model."
+      ],
+      "integration_pattern": [
+        "apply to the long-running planner/critic stack, not the BEV student"
+      ],
+      "failure_modes": [
+        "confusing serving wins with model-quality wins",
+        "building cache complexity before the retrieval stack is healthy"
+      ],
+      "teacher_role": "none",
+      "student_role": "none",
+      "systems_role": "control-plane serving optimization",
+      "student_deployability": "not_applicable",
+      "codebases": [
+        "https://github.com/vllm-project/vllm"
+      ],
+      "checkpoints": [],
+      "sources": {
+        "paper": "https://arxiv.org/abs/2309.06180",
+        "code": "https://github.com/vllm-project/vllm"
+      },
+      "tsqbev_actions": [
+        "treat paged KV cache as a future supervisor-serving upgrade, not a perception-side experiment"
+      ],
+      "evidence_strength": "high"
+    },
+    {
+      "id": "mla",
+      "title": "Multi-Head Latent Attention",
+      "source_term": "Multi-Head Latent Attention",
+      "repo_aliases": ["latent attention", "mla"],
+      "year": 2024,
+      "area": "efficient_attention",
+      "technique_family": ["latent_attention", "kv_cache_reduction", "serving_systems"],
+      "primary_bottleneck": "attention-state memory bandwidth",
+      "core_trick": "Compress attention state into a latent space so inference retains strong reasoning quality while reducing KV-cache footprint and memory traffic.",
+      "intuition": "MLA is valuable when bandwidth and cache size dominate; it is a control-plane and large-model serving trick first, and only a perception trick if you explicitly redesign the camera token path around it.",
+      "apply_when": [
+        "the reasoning stack or a very large teacher model is memory-bandwidth-bound",
+        "you want a latent interface instead of full-rank attention state"
+      ],
+      "avoid_when": [
+        "the local student is small enough that plain SDPA is not the bottleneck",
+        "you have not yet proven the basic feature path and are only adding complexity"
+      ],
+      "ablation_nuggets": [
+        "The point is state compression without catastrophic quality loss, not generic sparse attention."
+      ],
+      "integration_pattern": [
+        "use MLA on the control plane or very large teachers before trying to transplant it into the local student"
+      ],
+      "failure_modes": [
+        "prematurely rewriting the perception stack around a serving optimization",
+        "ignoring specialized kernels needed to realize the gain"
+      ],
+      "teacher_role": "possible large-teacher attention optimization",
+      "student_role": "experimental only after camera branch is stable",
+      "systems_role": "frontier long-context reasoning optimization",
+      "student_deployability": "low",
+      "codebases": [
+        "https://github.com/deepseek-ai/DeepSeek-V2"
+      ],
+      "checkpoints": [],
+      "sources": {
+        "paper": "https://arxiv.org/abs/2405.04434",
+        "code": "https://github.com/deepseek-ai/DeepSeek-V2"
+      },
+      "tsqbev_actions": [
+        "prioritize MLA for the research control plane and large-teacher serving, not as the first student-side rewrite"
+      ],
+      "evidence_strength": "high"
+    },
+    {
+      "id": "flashmla",
+      "title": "FlashMLA",
+      "source_term": "FlashMLA",
+      "year": 2025,
+      "area": "efficient_attention",
+      "technique_family": ["kernels", "latent_attention", "serving_systems"],
+      "primary_bottleneck": "kernel efficiency for latent-attention decoding",
+      "core_trick": "Provide specialized kernels that make MLA fast enough in practice instead of leaving it as a paper-side algorithmic win.",
+      "intuition": "Latent attention without the right kernel is an idea; FlashMLA is the systems half that makes the idea real.",
+      "apply_when": [
+        "MLA is already chosen and runtime kernel efficiency is the next blocker"
+      ],
+      "avoid_when": [
+        "the local hardware does not support the required kernel stack",
+        "the model is still too small to justify MLA complexity"
+      ],
+      "ablation_nuggets": [
+        "Kernel quality is often the difference between a promising attention method and a real speedup."
+      ],
+      "integration_pattern": [
+        "treat FlashMLA as a serving/kernel optimization layer after MLA is justified"
+      ],
+      "failure_modes": [
+        "overinvesting in custom kernels before the retrieval/planner stack is architecturally stable"
+      ],
+      "teacher_role": "large-teacher serving acceleration",
+      "student_role": "rarely justified early",
+      "systems_role": "kernel optimization for frontier inference",
+      "student_deployability": "low",
+      "codebases": [
+        "https://github.com/deepseek-ai/FlashMLA"
+      ],
+      "checkpoints": [],
+      "sources": {
+        "code": "https://github.com/deepseek-ai/FlashMLA"
+      },
+      "tsqbev_actions": [
+        "use FlashMLA only if the planner/critic or a giant teacher actually moves to MLA"
+      ],
+      "evidence_strength": "medium"
+    },
+    {
+      "id": "state_space_models",
+      "title": "State Space Models",
+      "source_term": "Mamba",
+      "repo_aliases": ["ssm", "state space models"],
+      "year": 2024,
+      "area": "sequence_models",
+      "technique_family": ["state_space_models", "long_sequence_modeling"],
+      "primary_bottleneck": "quadratic attention cost on long sequences",
+      "core_trick": "Replace or reduce quadratic attention with selective state-space recurrence so sequence cost scales more gracefully while retaining long-range conditioning.",
+      "intuition": "SSMs are a scaling and systems play first. They become a vision or perception win only when long token sequences are truly the cost bottleneck and spatial inductive structure is preserved.",
+      "apply_when": [
+        "sequence length dominates runtime and attention is the limiting factor",
+        "you can preserve spatial or geometric inductive structure around the SSM blocks"
+      ],
+      "avoid_when": [
+        "the main issue is weak supervision rather than sequence cost",
+        "short or moderate sequences already fit comfortably under efficient attention kernels"
+      ],
+      "ablation_nuggets": [
+        "The key win is scaling behavior; naive swaps often lose local structure and erase the benefit."
+      ],
+      "integration_pattern": [
+        "evaluate SSMs as a later efficient student family or control-plane backbone, not as the first frontier teacher branch"
+      ],
+      "failure_modes": [
+        "poor local structure preservation",
+        "rewriting the stack around SSMs before proving the teacher-supervision path"
+      ],
+      "teacher_role": "rare",
+      "student_role": "later efficient-student candidate",
+      "systems_role": "sequence-efficiency family",
+      "student_deployability": "medium",
+      "codebases": [
+        "https://github.com/state-spaces/mamba"
+      ],
+      "checkpoints": [],
+      "sources": {
+        "paper": "https://arxiv.org/abs/2312.00752",
+        "code": "https://github.com/state-spaces/mamba"
+      },
+      "tsqbev_actions": [
+        "keep SSMs as a later student-family branch after the DINOv3 plus teacher-distillation path is fully evaluated"
+      ],
+      "evidence_strength": "high"
+    },
+    {
+      "id": "vision_mamba",
+      "title": "Vision Mamba",
+      "source_term": "Vision Mamba",
+      "repo_aliases": ["state space models", "ssm", "mamba"],
+      "year": 2024,
+      "area": "vision_backbones",
+      "technique_family": ["state_space_models", "vision_backbones", "sequence_efficiency"],
+      "primary_bottleneck": "long-range vision modeling cost",
+      "core_trick": "Use selective state-space sequence modeling to reduce attention-style scaling while preserving long-range dependency handling in vision backbones.",
+      "intuition": "Vision SSMs are attractive when sequence length hurts attention, but they need strong spatial inductive handling to avoid losing local geometric fidelity.",
+      "apply_when": [
+        "image or BEV token length is the dominant bottleneck and attention is too expensive",
+        "you want a candidate efficient camera backbone family to test against transformer baselines"
+      ],
+      "avoid_when": [
+        "the active gap is teacher signal quality rather than camera backbone efficiency",
+        "the deployment stack already handles current attention costs well"
+      ],
+      "ablation_nuggets": [
+        "SSM gains depend heavily on how spatial structure is preserved.",
+        "Replacing attention blindly is not the point; the value is scaling behavior with the right inductive fixes."
+      ],
+      "integration_pattern": [
+        "treat Vision Mamba as a later student-backbone branch, not the immediate frontier teacher path"
+      ],
+      "failure_modes": [
+        "losing local geometric detail",
+        "rewriting the stack before teacher supervision is strong enough"
+      ],
+      "teacher_role": "unlikely; not the strongest teacher default",
+      "student_role": "experimental efficient student backbone family",
+      "systems_role": "candidate runtime optimization path",
+      "student_deployability": "medium",
+      "codebases": [
+        "https://github.com/hustvl/Vim"
+      ],
+      "checkpoints": [],
+      "sources": {
+        "paper": "https://arxiv.org/abs/2401.09417",
+        "code": "https://github.com/hustvl/Vim"
+      },
+      "tsqbev_actions": [
+        "keep Vision Mamba as a later camera-student candidate, not the first frontier branch"
+      ],
+      "evidence_strength": "medium"
+    },
+    {
+      "id": "mixture_of_experts",
+      "title": "Mixture of Experts",
+      "source_term": "Switch Transformer",
+      "repo_aliases": ["moe", "mixture of experts"],
+      "year": 2021,
+      "area": "scaling",
+      "technique_family": ["moe", "conditional_compute", "scaling"],
+      "primary_bottleneck": "teacher capacity scaling",
+      "core_trick": "Scale total parameter capacity by routing tokens to sparse experts so each token only pays for a small subset of the full model.",
+      "intuition": "MoE is compelling when the teacher needs much more capacity than a dense model can cheaply provide. It is usually the wrong first move for a latency-predictable edge student.",
+      "apply_when": [
+        "teacher-side capacity is the bottleneck and infrastructure can handle sparse routing complexity"
+      ],
+      "avoid_when": [
+        "the final student must be predictable on edge hardware",
+        "small-batch serving makes routing overhead dominate"
+      ],
+      "ablation_nuggets": [
+        "MoE wins on capacity-per-token but adds load balancing and routing complexity that must be paid somewhere."
+      ],
+      "integration_pattern": [
+        "treat generic MoE as a teacher-side scaling option only; distill back into a dense student"
+      ],
+      "failure_modes": [
+        "expert imbalance",
+        "systems overhead canceling conditional-compute gains"
+      ],
+      "teacher_role": "teacher-only scaling family",
+      "student_role": "avoid for first deployable student",
+      "systems_role": "large-scale routing and serving complexity",
+      "student_deployability": "low",
+      "codebases": [],
+      "checkpoints": [],
+      "sources": {
+        "paper": "https://jmlr.org/papers/v23/21-0998.html"
+      },
+      "tsqbev_actions": [
+        "if a much larger teacher is needed later, prefer MoE teacher experiments over MoE student deployment"
+      ],
+      "evidence_strength": "high"
+    },
+    {
+      "id": "vmoe",
+      "title": "V-MoE",
+      "source_term": "Vision Mixture of Experts",
+      "repo_aliases": ["mixture of experts", "moe", "v-moe"],
+      "year": 2021,
+      "area": "vision_foundation_models",
+      "technique_family": ["moe", "conditional_compute", "vision_backbones"],
+      "primary_bottleneck": "capacity scaling under limited per-token compute",
+      "core_trick": "Scale model capacity with sparsely activated experts so per-token compute stays manageable while total representational capacity grows.",
+      "intuition": "MoE belongs in the teacher much earlier than it belongs in the deployable student; routing complexity is real and batch-size sensitivity is harsh.",
+      "apply_when": [
+        "teacher-side capacity needs to scale far beyond what dense models allow"
+      ],
+      "avoid_when": [
+        "the final student must be simple and latency-predictable on edge hardware",
+        "small-batch deployment makes expert routing overhead dominant"
+      ],
+      "ablation_nuggets": [
+        "MoE can buy capacity efficiently but adds routing, balance, and systems complexity.",
+        "It is usually teacher-first for constrained deployment settings."
+      ],
+      "integration_pattern": [
+        "treat MoE as a teacher-only or offline frontier branch unless edge deployment constraints relax dramatically"
+      ],
+      "failure_modes": [
+        "expert imbalance",
+        "routing overhead erasing the conditional-compute benefit"
+      ],
+      "teacher_role": "frontier high-capacity teacher candidate",
+      "student_role": "usually avoid in the first deployable student",
+      "systems_role": "large-scale training and serving complexity",
+      "student_deployability": "low",
+      "codebases": [
+        "https://github.com/google-research/vmoe"
+      ],
+      "checkpoints": [],
+      "sources": {
+        "paper": "https://arxiv.org/abs/2106.05974",
+        "code": "https://github.com/google-research/vmoe"
+      },
+      "tsqbev_actions": [
+        "reserve MoE for teacher-side scaling experiments and keep the edge student dense for now"
+      ],
+      "evidence_strength": "high"
+    }
+  ]
+}

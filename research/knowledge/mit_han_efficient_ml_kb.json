@@ -39,7 +39,7 @@
         "Prune shared BEV trunk and head blocks against Jetson/Orin latency rather than MACs."
       ],
       "sources": {
-        "project": null,
+        "project": "https://hanlab.mit.edu/projects/amc",
         "paper_title": "AMC: AutoML for Model Compression and Acceleration on Mobile Devices",
         "paper_url": "https://arxiv.org/abs/1802.03494",
         "code": "https://github.com/mit-han-lab/amc"
@@ -649,7 +649,7 @@
       "sources": {
         "project": null,
         "paper_title": "LServe: Efficient Long-sequence LLM Serving with Unified Sparse Attention",
-        "paper_url": "https://openreview.net/pdf?id=KQ4pJFFqT1",
+        "paper_url": "https://arxiv.org/abs/2502.14866",
         "code": "https://github.com/mit-han-lab/omniserve"
       }
     },

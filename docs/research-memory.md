@@ -14,16 +14,21 @@ durable evidence instead of ephemeral chat context.
 This repo intentionally keeps the canonical truth in the filesystem. The memory databases are
 rebuildable from repo artifacts and docs.
 
+Sync no longer mutates the active catalog in place. It builds a fresh versioned memory state under
+the local memory root, then promotes it atomically so the active supervisor cannot hold the exact
+catalog hostage with a stale lock.
+
 Research notes and structured literature databases under `research/knowledge/` are also indexed
 into the evidence layer and distilled into memory facts during `research-sync`.
 
-Optional hosted reranking is supported for stronger semantic evidence ordering:
+Semantic retrieval now prefers:
 
-- local default: FastEmbed cross-encoder reranker
-- optional hosted provider: Cohere Rerank
+- default reranker: Cohere Rerank
+- automatic fallback reranker: FastEmbed cross-encoder
+- final fallback: exact + lexical retrieval only
 
-Important: Cohere Rerank is not an open self-hosted reranker. It is a hosted API. Keep it optional
-so the repo remains local-first and rebuildable without external services.
+Important: Cohere Rerank is hosted. The repo remains rebuildable because embeddings, exact state,
+and fallback reranking stay local when Cohere is unavailable or rate-limited.
 
 ## Why This Shape
 
@@ -38,6 +43,8 @@ so the repo remains local-first and rebuildable without external services.
 ```bash
 uv run tsqbev memory-health
 uv run tsqbev memory-backfill
+uv run tsqbev knowledge-assets-sync
+uv run tsqbev knowledge-assets-status
 uv run tsqbev memory-query --query "why is scale-up blocked?"
 uv run tsqbev research-brief
 uv run tsqbev research-report
@@ -49,12 +56,11 @@ uv run tsqbev maintenance-once --artifact-dir artifacts/maintenance
 uv run tsqbev maintenance-supervisor --artifact-dir artifacts/maintenance --interval-hours 24
 ```
 
-Optional stronger hosted reranking:
+Hosted-first reranking:
 
 ```bash
 export COHERE_API_KEY=...
 export TSQBEV_MEMORY_RERANKER_ENABLED=1
-export TSQBEV_MEMORY_RERANKER_PROVIDER=cohere
 export TSQBEV_COHERE_RERANKER_MODEL=rerank-v4.0-pro
 uv run tsqbev memory-health
 uv run tsqbev research-brief
@@ -90,10 +96,14 @@ If those services are unavailable, the repo still works:
 
 ## Outputs
 
-- machine-readable sync state: [artifacts/memory/sync_manifest.json](../artifacts/memory/sync_manifest.json)
+- machine-readable promoted sync state: [artifacts/memory/sync_manifest.json](../artifacts/memory/sync_manifest.json)
+- machine-readable current build pointer:
+  [artifacts/memory/current_build.json](../artifacts/memory/current_build.json)
 - machine-readable brief: [artifacts/memory/brief.json](../artifacts/memory/brief.json)
 - structured literature database:
   [research/knowledge/mit_han_efficient_ml_kb.json](../research/knowledge/mit_han_efficient_ml_kb.json)
+- local knowledge asset manifest: [artifacts/knowledge_assets/manifest.json](../artifacts/knowledge_assets/manifest.json)
+- local mirrored source root: `/home/achbogga/projects/research_assets`
 - PI-facing current report: [docs/reports/current.md](reports/current.md)
 - continuous supervisor report: [docs/reports/autoresearch.md](reports/autoresearch.md)
 - steering file consumed before runs: [docs/steering.md](steering.md)
@@ -107,3 +117,5 @@ If those services are unavailable, the repo still works:
   <https://qdrant.tech/documentation/frameworks/langchain/>
 - Qdrant reranker guide:
   <https://qdrant.tech/documentation/fastembed/fastembed-rerankers/>
+- Cohere Rerank overview:
+  <https://docs.cohere.com/docs/rerank-overview>
