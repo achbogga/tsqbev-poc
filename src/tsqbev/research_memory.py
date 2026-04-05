@@ -1237,10 +1237,6 @@ def _evidence_source_files(repo_root: Path) -> list[Path]:
         "src/tsqbev/*.py",
         "research/scripts/*.py",
         "research/scripts/*.sh",
-        "artifacts/**/summary.json",
-        "artifacts/**/*_summary.json",
-        "artifacts/**/metrics_summary.json",
-        "artifacts/**/calibration_summary.json",
     ):
         candidates.extend(repo_root.glob(pattern))
     for candidate in candidates:

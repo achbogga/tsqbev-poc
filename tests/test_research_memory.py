@@ -321,7 +321,8 @@ def test_evidence_source_files_exclude_results_jsonl(tmp_path: Path) -> None:
 
     assert "artifacts/research_v3/research_loop/results.jsonl" in event_files
     assert "artifacts/research_v3/research_loop/results.jsonl" not in evidence_files
-    assert "artifacts/research_v3/research_loop/summary.json" in evidence_files
+    assert "artifacts/research_v3/research_loop/summary.json" not in evidence_files
+    assert "docs/plan.md" in evidence_files
 
 
 def test_build_research_brief_uses_indexed_state(tmp_path: Path) -> None:
