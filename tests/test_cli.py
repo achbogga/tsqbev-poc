@@ -231,6 +231,98 @@ def test_train_joint_public_passes_lane_batch_multiplier(monkeypatch, tmp_path) 
     assert captured["official_eval_top_k"] == 40
 
 
+def test_train_nuscenes_passes_official_eval_controls(monkeypatch, tmp_path) -> None:
+    captured: dict[str, object] = {}
+
+    def fake_parser() -> argparse.ArgumentParser:
+        class _Parser:
+            def parse_args(self_inner) -> SimpleNamespace:
+                return SimpleNamespace(
+                    command="train-nuscenes",
+                    dataset_root=tmp_path / "nuscenes",
+                    artifact_dir=tmp_path / "artifacts",
+                    preset="rtx5000-nuscenes-dinov3-teacher",
+                    image_backbone=None,
+                    pretrained_image_backbone=None,
+                    freeze_image_backbone=None,
+                    foundation_repo_root=None,
+                    foundation_weights=None,
+                    activation_checkpointing=None,
+                    auto_vram_fit=None,
+                    attention_backend=None,
+                    sam2_repo_root=None,
+                    sam2_model_cfg=None,
+                    sam2_checkpoint=None,
+                    sam2_region_prior_mode=None,
+                    sam2_region_prior_weight=None,
+                    teacher_seed_mode=None,
+                    teacher_seed_selection_mode=None,
+                    version="v1.0-mini",
+                    train_split="mini_train",
+                    split="mini_val",
+                    epochs=36,
+                    max_train_steps=None,
+                    init_checkpoint=None,
+                    lr=1e-4,
+                    weight_decay=0.0,
+                    optimizer_schedule=None,
+                    grad_clip_norm=None,
+                    keep_best_checkpoint=True,
+                    early_stop_patience=6,
+                    early_stop_min_delta=0.02,
+                    early_stop_min_epochs=10,
+                    official_eval_every_epochs=5,
+                    official_eval_score_threshold=0.2,
+                    official_eval_top_k=40,
+                    augmentation_mode="off",
+                    loss_mode="quality_focal",
+                    hard_negative_ratio=3,
+                    hard_negative_cap=96,
+                    teacher_anchor_class_weight=0.5,
+                    teacher_anchor_quality_class_weight=0.45,
+                    teacher_anchor_objectness_weight=0.5,
+                    teacher_region_objectness_weight=0.12,
+                    teacher_region_class_weight=0.12,
+                    teacher_region_radius_m=4.0,
+                    teacher_anchor_final_class_weight=None,
+                    teacher_anchor_final_objectness_weight=None,
+                    teacher_anchor_bootstrap_epochs=0,
+                    teacher_anchor_decay_epochs=0,
+                    teacher_distillation=True,
+                    grad_accum_steps=8,
+                    batch_size=1,
+                    num_workers=4,
+                    device="cuda",
+                    seed=1337,
+                    max_train_samples=None,
+                    max_val_samples=None,
+                    teacher_kind="cache",
+                    teacher_cache_dir=tmp_path / "teacher_cache",
+                    teacher_checkpoint=None,
+                )
+
+        return _Parser()  # type: ignore[return-value]
+
+    monkeypatch.setattr(cli_module, "_make_parser", fake_parser)
+    monkeypatch.setattr(
+        cli_module,
+        "_resolve_nuscenes_eval_split",
+        lambda version, split: split or "mini_val",
+    )
+
+    def fake_fit_nuscenes(**kwargs):
+        captured["official_eval_every_epochs"] = kwargs["official_eval_every_epochs"]
+        captured["official_eval_score_threshold"] = kwargs["official_eval_score_threshold"]
+        captured["official_eval_top_k"] = kwargs["official_eval_top_k"]
+        return {"ok": True}
+
+    monkeypatch.setattr(cli_module, "fit_nuscenes", fake_fit_nuscenes)
+    cli_module.main()
+    assert captured["official_eval_every_epochs"] == 5
+    assert captured["official_eval_score_threshold"] == 0.2
+    assert captured["official_eval_top_k"] == 40
+
+
 def test_make_parser_defaults_openlane_repo_root_to_local_checkout() -> None:
     parser = cli_module._make_parser()
     action = next(action for action in parser._actions if action.dest == "openlane_repo_root")

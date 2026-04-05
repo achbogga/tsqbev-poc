@@ -612,6 +612,107 @@ def _run_joint_public_official_eval(
     return metrics
 
 
+def _run_nuscenes_official_eval(
+    *,
+    checkpoint_path: Path,
+    model_config: ModelConfig,
+    device: str | None,
+    artifact_root: Path,
+    epoch: int,
+    nuscenes_root: str | Path,
+    nuscenes_version: str,
+    nuscenes_split: str,
+    score_threshold: float,
+    top_k: int,
+) -> dict[str, float]:
+    eval_model = TSQBEVModel(model_config)
+    resolved_device = resolve_device(device)
+    load_weights_into_model_from_checkpoint(
+        eval_model,
+        checkpoint_path,
+        map_location=resolved_device,
+    )
+
+    eval_root = artifact_root / "official_eval" / f"epoch_{epoch:03d}"
+    det_output_dir = eval_root / "nuscenes"
+    eval_root.mkdir(parents=True, exist_ok=True)
+    metrics = {
+        "nuscenes_nds": 0.0,
+        "nuscenes_map": 0.0,
+        "nuscenes_eval_ok": 0.0,
+        "nuscenes_export_sanity_ok": 0.0,
+        "nuscenes_boxes_per_sample_mean": 0.0,
+        "nuscenes_ego_translation_norm_p99": 0.0,
+        "nuscenes_max_box_size_m": 0.0,
+        "nuscenes_score_mean": 0.0,
+    }
+    errors: dict[str, str] = {}
+    summary_payload: dict[str, object] = {"metrics": metrics, "errors": errors}
+
+    try:
+        det_result_path = export_nuscenes_predictions(
+            model=eval_model,
+            dataroot=nuscenes_root,
+            version=nuscenes_version,
+            split=nuscenes_split,
+            output_path=det_output_dir / "predictions.json",
+            score_threshold=score_threshold,
+            top_k=top_k,
+            device=device,
+        )
+        det_metrics = evaluate_nuscenes_predictions(
+            dataroot=nuscenes_root,
+            version=nuscenes_version,
+            split=nuscenes_split,
+            result_path=det_result_path,
+            output_dir=det_output_dir / "metrics",
+        )
+        sanity = export_sanity_diagnostics(
+            det_result_path,
+            dataroot=nuscenes_root,
+            version=nuscenes_version,
+        )
+        metrics["nuscenes_nds"] = float(cast(float, det_metrics.get("nd_score", 0.0)))
+        metrics["nuscenes_map"] = float(cast(float, det_metrics.get("mean_ap", 0.0)))
+        metrics["nuscenes_eval_ok"] = 1.0
+        metrics["nuscenes_export_sanity_ok"] = float(sanity.get("sanity_ok", 0.0))
+        metrics["nuscenes_boxes_per_sample_mean"] = float(
+            sanity.get("boxes_per_sample_mean", 0.0)
+        )
+        metrics["nuscenes_ego_translation_norm_p99"] = float(
+            sanity.get("ego_translation_norm_p99", 0.0)
+        )
+        metrics["nuscenes_max_box_size_m"] = float(sanity.get("max_box_size_m", 0.0))
+        metrics["nuscenes_score_mean"] = float(sanity.get("score_mean", 0.0))
+        summary_payload["nuscenes_sanity"] = sanity
+    except Exception as exc:
+        errors["nuscenes"] = repr(exc)
+
+    (eval_root / "summary.json").write_text(json.dumps(summary_payload, indent=2))
+    return metrics
+
+
+def _nuscenes_official_metric_key(metrics: dict[str, float] | None) -> tuple[float, ...]:
+    if metrics is None:
+        return (0.0,) * 7
+    return (
+        float(metrics.get("nuscenes_eval_ok", 0.0)),
+        float(metrics.get("nuscenes_export_sanity_ok", 0.0)),
+        float(metrics.get("nuscenes_nds", 0.0)),
+        float(metrics.get("nuscenes_map", 0.0)),
+        -float(metrics.get("nuscenes_boxes_per_sample_mean", float("inf"))),
+        -float(metrics.get("nuscenes_ego_translation_norm_p99", float("inf"))),
+        -float(metrics.get("nuscenes_max_box_size_m", float("inf"))),
+    )
+
+
+def _nuscenes_official_metrics_better(
+    candidate: dict[str, float] | None,
+    incumbent: dict[str, float] | None,
+) -> bool:
+    return _nuscenes_official_metric_key(candidate) > _nuscenes_official_metric_key(incumbent)
+
+
 def _joint_official_metric_key(metrics: dict[str, float] | None) -> tuple[float, ...]:
     if metrics is None:
         return (0.0,) * 8
@@ -664,6 +765,9 @@ def fit_nuscenes(
     early_stop_patience: int | None = None,
     early_stop_min_delta: float = 0.0,
     early_stop_min_epochs: int = 0,
+    official_eval_every_epochs: int | None = None,
+    official_eval_score_threshold: float = 0.20,
+    official_eval_top_k: int = 40,
     augmentation_mode: Literal["off", "moderate", "strong"] = "off",
     loss_mode: Literal["baseline", "focal_hardneg", "quality_focal"] = "baseline",
     hard_negative_ratio: int = 3,
@@ -809,6 +913,9 @@ def fit_nuscenes(
                         "early_stop_patience": early_stop_patience,
                         "early_stop_min_delta": early_stop_min_delta,
                         "early_stop_min_epochs": early_stop_min_epochs,
+                        "official_eval_every_epochs": official_eval_every_epochs,
+                        "official_eval_score_threshold": official_eval_score_threshold,
+                        "official_eval_top_k": official_eval_top_k,
                         "augmentation_mode": augmentation_mode,
                         "loss_mode": loss_mode,
                         "hard_negative_ratio": hard_negative_ratio,
@@ -884,10 +991,14 @@ def fit_nuscenes(
         history: list[dict[str, object]] = []
         checkpoint_last_path = artifact_root / "checkpoint_last.pt"
         checkpoint_best_path = artifact_root / "checkpoint_best.pt"
+        checkpoint_best_official_path = artifact_root / "checkpoint_best_official.pt"
         best_epoch = 0
         best_val_total = float("inf")
         best_train_metrics: dict[str, float] | None = None
         best_val_metrics: dict[str, float] | None = None
+        best_official_epoch = 0
+        best_official_metrics: dict[str, float] | None = None
+        latest_official_metrics: dict[str, float] | None = None
         epochs_without_improvement = 0
         early_stop_triggered = False
         early_stop_reason: str | None = None
@@ -982,6 +1093,54 @@ def fit_nuscenes(
                 )
             else:
                 epochs_without_improvement += 1
+            should_run_official_eval = (
+                official_eval_every_epochs is not None
+                and official_eval_every_epochs > 0
+                and epoch % official_eval_every_epochs == 0
+            )
+            if should_run_official_eval:
+                eval_checkpoint_path = (
+                    checkpoint_best_path
+                    if keep_best_checkpoint and checkpoint_best_path.exists()
+                    else checkpoint_last_path
+                )
+                latest_official_metrics = _run_nuscenes_official_eval(
+                    checkpoint_path=eval_checkpoint_path,
+                    model_config=model_config,
+                    device=device,
+                    artifact_root=artifact_root,
+                    epoch=epoch,
+                    nuscenes_root=dataroot,
+                    nuscenes_version=version,
+                    nuscenes_split=resolved_val_split,
+                    score_threshold=official_eval_score_threshold,
+                    top_k=official_eval_top_k,
+                )
+                history[-1]["official_eval"] = latest_official_metrics
+                _write_history(artifact_root, history)
+                if _nuscenes_official_metrics_better(
+                    latest_official_metrics,
+                    best_official_metrics,
+                ):
+                    best_official_metrics = dict(latest_official_metrics)
+                    best_official_epoch = epoch
+                    save_model_checkpoint(
+                        model,
+                        model_config,
+                        checkpoint_best_official_path,
+                        epoch=epoch,
+                        history=history,
+                    )
+                if active_tracker is not None:
+                    active_tracker.log({"epoch": epoch, **latest_official_metrics}, step=epoch)
+                print(
+                    "[official-eval] "
+                    f"epoch={epoch} "
+                    f"nds={latest_official_metrics['nuscenes_nds']:.4f} "
+                    f"map={latest_official_metrics['nuscenes_map']:.4f} "
+                    f"sanity_ok={latest_official_metrics['nuscenes_export_sanity_ok']:.0f}",
+                    flush=True,
+                )
             if active_tracker is not None:
                 active_tracker.log(
                     {
@@ -1035,24 +1194,33 @@ def fit_nuscenes(
         if not history:
             raise RuntimeError("fit_nuscenes completed without any train/val history")
 
-        selected_checkpoint_path = (
-            checkpoint_best_path
-            if keep_best_checkpoint and checkpoint_best_path.exists()
-            else checkpoint_last_path
-        )
+        if checkpoint_best_official_path.exists():
+            selected_checkpoint_path = checkpoint_best_official_path
+        else:
+            selected_checkpoint_path = (
+                checkpoint_best_path
+                if keep_best_checkpoint and checkpoint_best_path.exists()
+                else checkpoint_last_path
+            )
         selected_epoch = (
             best_epoch
-            if selected_checkpoint_path == checkpoint_best_path
+            if selected_checkpoint_path in {checkpoint_best_path, checkpoint_best_official_path}
             else epochs_run
         )
         selected_train_metrics = (
             best_train_metrics
-            if selected_checkpoint_path == checkpoint_best_path and best_train_metrics is not None
+            if (
+                selected_checkpoint_path in {checkpoint_best_path, checkpoint_best_official_path}
+                and best_train_metrics is not None
+            )
             else cast(dict[str, float], history[-1]["train"])
         )
         selected_val_metrics = (
             best_val_metrics
-            if selected_checkpoint_path == checkpoint_best_path and best_val_metrics is not None
+            if (
+                selected_checkpoint_path in {checkpoint_best_path, checkpoint_best_official_path}
+                and best_val_metrics is not None
+            )
             else cast(dict[str, float], history[-1]["val"])
         )
 
@@ -1074,9 +1242,16 @@ def fit_nuscenes(
             "selected_val": selected_val_metrics,
             "last_checkpoint_path": str(checkpoint_last_path),
             "best_checkpoint_path": str(checkpoint_best_path),
+            "best_official_checkpoint_path": (
+                str(checkpoint_best_official_path)
+                if checkpoint_best_official_path.exists()
+                else None
+            ),
             "best_epoch": best_epoch,
             "best_train": best_train_metrics,
             "best_val": best_val_metrics,
+            "best_official_epoch": best_official_epoch,
+            "best_official_metrics": best_official_metrics,
             "teacher_seed_mode": model_config.teacher_seed_mode,
             "train_samples": train_sample_count,
             "val_samples": val_sample_count,
@@ -1100,6 +1275,10 @@ def fit_nuscenes(
             "early_stop_patience": early_stop_patience,
             "early_stop_min_delta": early_stop_min_delta,
             "early_stop_min_epochs": early_stop_min_epochs,
+            "official_eval_every_epochs": official_eval_every_epochs,
+            "official_eval_score_threshold": official_eval_score_threshold,
+            "official_eval_top_k": official_eval_top_k,
+            "latest_official_eval": latest_official_metrics,
             "early_stop_triggered": early_stop_triggered,
             "early_stop_reason": early_stop_reason,
             "history": history,
@@ -1114,7 +1293,9 @@ def fit_nuscenes(
                     "train_samples": train_sample_count,
                     "val_samples": val_sample_count,
                     "best_epoch": best_epoch,
+                    "best_official_epoch": best_official_epoch,
                     "best_val_total": best_val_total,
+                    "official_eval_every_epochs": official_eval_every_epochs,
                     **_prefixed_metrics(
                         "final_train",
                         cast(dict[str, float], history[-1]["train"]),
@@ -1125,6 +1306,7 @@ def fit_nuscenes(
                     ),
                     **_prefixed_metrics("selected_train", selected_train_metrics),
                     **_prefixed_metrics("selected_val", selected_val_metrics),
+                    **(best_official_metrics or latest_official_metrics or {}),
                 }
             )
         status = "completed"

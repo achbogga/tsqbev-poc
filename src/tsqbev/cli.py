@@ -787,6 +787,9 @@ def main() -> None:
                 early_stop_min_epochs=(
                     args.early_stop_min_epochs if args.early_stop_min_epochs is not None else 0
                 ),
+                official_eval_every_epochs=args.official_eval_every_epochs,
+                official_eval_score_threshold=args.official_eval_score_threshold,
+                official_eval_top_k=args.official_eval_top_k,
                 augmentation_mode=args.augmentation_mode,
                 loss_mode=args.loss_mode,
                 hard_negative_ratio=args.hard_negative_ratio,

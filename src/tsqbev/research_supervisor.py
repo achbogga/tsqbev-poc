@@ -62,6 +62,12 @@ class SupervisorState:
     planner_provider: str | None
     critic_provider: str | None
     notes: list[str]
+    active_phase: str | None = None
+    active_checklist_item: str | None = None
+    planner_bottleneck: str | None = None
+    planner_objective: str | None = None
+    planner_decision_path: str | None = None
+    critic_decision_path: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -457,6 +463,12 @@ def _render_supervisor_report(
         f"- memory embedder: `{state.memory_embedder or 'unknown'}`",
         f"- planner provider: `{state.planner_provider or 'unknown'}`",
         f"- critic provider: `{state.critic_provider or 'unknown'}`",
+        f"- active phase: `{state.active_phase or '-'}`",
+        f"- active checklist item: `{state.active_checklist_item or '-'}`",
+        f"- planner bottleneck: `{state.planner_bottleneck or '-'}`",
+        f"- planner objective: `{state.planner_objective or '-'}`",
+        f"- planner decision path: `{state.planner_decision_path or '-'}`",
+        f"- critic decision path: `{state.critic_decision_path or '-'}`",
         f"- last invocation dir: `{state.last_invocation_dir or '-'}`",
         f"- last selected recipe: `{state.last_selected_recipe or '-'}`",
         f"- last NDS: `{state.last_nds if state.last_nds is not None else '-'}`",
@@ -492,6 +504,39 @@ def _write_supervisor_outputs(
         stop_path=artifact_root / "STOP",
     )
     report_path.write_text(report_text)
+
+
+def _active_checklist_item_for_phase(
+    phase: str,
+    *,
+    planner_decision: PlannerDecision | None = None,
+) -> str:
+    if phase == "pre_run_brief":
+        return (
+            "Control Plane / Split planning from heavy memory rebuild so pre-run control "
+            "never blocks on full backfill."
+        )
+    if phase == "launching_bounded_loop":
+        if (
+            planner_decision is not None
+            and planner_decision.active_bottleneck == "joint-metric-collapse"
+        ):
+            return (
+                "Multitask Reset / Add staged multitask curriculum: detection-only control, "
+                "frozen-trunk lane, then joint finetune."
+            )
+        return "Run Queue / Launch the next validated detection run from the fixed control plane."
+    if phase == "post_run_sync":
+        return (
+            "Memory And State / Verify that the pre-run brief cites the real incumbent "
+            "and active branch."
+        )
+    if phase == "waiting_external_run":
+        return (
+            "Run Queue / Relaunch the frontier supervisor after the memory upgrade so "
+            "it plans from stronger retrieval."
+        )
+    return "Run Queue / Keep the fixed control plane alive with a queued validated successor."
 
 
 def run_research_supervisor(
@@ -563,6 +608,8 @@ def run_research_supervisor(
                 planner_provider=planner_provider,
                 critic_provider=critic_provider,
                 notes=["Stop file present; supervisor exiting cleanly."],
+                active_phase="stopped",
+                active_checklist_item=_active_checklist_item_for_phase("stopped"),
             )
             _write_supervisor_outputs(
                 state,
@@ -600,6 +647,8 @@ def run_research_supervisor(
                         for item in external_runs[:3]
                     ],
                 ],
+                active_phase="waiting_external_run",
+                active_checklist_item=_active_checklist_item_for_phase("waiting_external_run"),
             )
             _write_supervisor_outputs(
                 state,
@@ -642,6 +691,8 @@ def run_research_supervisor(
             planner_provider=planner_provider,
             critic_provider=critic_provider,
             notes=pre_run_notes,
+            active_phase="pre_run_brief",
+            active_checklist_item=_active_checklist_item_for_phase("pre_run_brief"),
         )
         _write_supervisor_outputs(
             pre_run_state,
@@ -674,11 +725,53 @@ def run_research_supervisor(
         )
         planner_provider = planner_decision.provider
         critic_provider = critic_decision.provider
-        (invocation_root / "planner_decision.json").write_text(
+        planner_decision_path = invocation_root / "planner_decision.json"
+        critic_decision_path = invocation_root / "critic_decision.json"
+        planner_decision_path.write_text(
             json.dumps(asdict(planner_decision), indent=2)
         )
-        (invocation_root / "critic_decision.json").write_text(
+        critic_decision_path.write_text(
             json.dumps(asdict(critic_decision), indent=2)
+        )
+        launch_state = SupervisorState(
+            status="running",
+            generated_at_utc=datetime.now(tz=UTC).isoformat(),
+            repo_sha=current_git_sha(REPO_ROOT),
+            current_branch=_git_current_branch(REPO_ROOT),
+            dataset_root=str(dataset_root),
+            artifact_root=str(supervisor_root),
+            attempted_invocations=attempted_invocations,
+            completed_invocations=completed_invocations,
+            last_invocation_dir=str(last_invocation_dir) if last_invocation_dir else None,
+            last_selected_recipe=last_selected_recipe,
+            last_nds=last_nds,
+            last_map=last_map,
+            last_publish_status=last_publish_status,
+            last_publish_message=last_publish_message,
+            memory_mode=memory_mode,
+            memory_embedder=memory_embedder,
+            planner_provider=planner_provider,
+            critic_provider=critic_provider,
+            notes=[
+                "planner provider "
+                f"`{planner_decision.provider}` selected bottleneck "
+                f"`{planner_decision.active_bottleneck}`",
+                f"critic provider `{critic_decision.provider}` approved={critic_decision.approved}",
+            ],
+            active_phase="launching_bounded_loop",
+            active_checklist_item=_active_checklist_item_for_phase(
+                "launching_bounded_loop",
+                planner_decision=planner_decision,
+            ),
+            planner_bottleneck=planner_decision.active_bottleneck,
+            planner_objective=planner_decision.objective,
+            planner_decision_path=str(planner_decision_path),
+            critic_decision_path=str(critic_decision_path),
+        )
+        _write_supervisor_outputs(
+            launch_state,
+            artifact_root=supervisor_root,
+            report_path=DEFAULT_SUPERVISOR_REPORT,
         )
 
         started_at = datetime.now(tz=UTC).isoformat()
@@ -737,6 +830,15 @@ def run_research_supervisor(
                 planner_provider=planner_provider,
                 critic_provider=critic_provider,
                 notes=notes + critic_decision.rationale,
+                active_phase="launching_bounded_loop",
+                active_checklist_item=_active_checklist_item_for_phase(
+                    "launching_bounded_loop",
+                    planner_decision=planner_decision,
+                ),
+                planner_bottleneck=planner_decision.active_bottleneck,
+                planner_objective=planner_decision.objective,
+                planner_decision_path=str(planner_decision_path),
+                critic_decision_path=str(critic_decision_path),
             )
             _write_supervisor_outputs(
                 state,
@@ -860,6 +962,12 @@ def run_research_supervisor(
             planner_provider=planner_provider,
             critic_provider=critic_provider,
             notes=notes,
+            active_phase="post_run_sync",
+            active_checklist_item=_active_checklist_item_for_phase("post_run_sync"),
+            planner_bottleneck=planner_decision.active_bottleneck,
+            planner_objective=planner_decision.objective,
+            planner_decision_path=str(planner_decision_path),
+            critic_decision_path=str(critic_decision_path),
         )
         _write_supervisor_outputs(
             state,

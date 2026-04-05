@@ -8,15 +8,15 @@ This checklist is the operating contract for the current repo reset. Work procee
 
 - [x] Replace the silent supervisor startup path with immediate state and log output.
 - [x] Make critic rejection non-blocking so the GPU does not idle by default.
-- [ ] Persist active phase, planner verdict, critic verdict, and checklist item in supervisor state after launch.
+- [x] Persist active phase, planner verdict, critic verdict, and checklist item in supervisor state after launch.
 - [ ] Split planning from heavy memory rebuild so pre-run control never blocks on full backfill.
 - [ ] Add a bounded fallback path that launches the approved run directly when the supervisor loop fails to transition within a timeout.
 
 ## Memory And State
 
-- [ ] Replace `hash` semantic embeddings with strong local retrieval using a real supported frontier local embedder.
-- [ ] Enable strong local reranking using a real supported frontier local reranker.
-- [ ] Rebuild the local research memory after the embedder upgrade.
+- [x] Replace `hash` semantic embeddings with strong local retrieval using a real supported frontier local embedder.
+- [x] Enable strong local reranking using a real supported frontier local reranker.
+- [x] Rebuild the local research memory after the embedder upgrade.
 - [ ] Verify that the pre-run brief cites the real incumbent, the joint-collapse failure, and the active frontier branch from exact and semantic evidence.
 
 ## Evaluation Plane
@@ -32,7 +32,7 @@ This checklist is the operating contract for the current repo reset. Work procee
 - [x] Add `DINOv3` backbone support in the repo model/config/CLI surface.
 - [x] Clone official `SAM 2.1` repo locally.
 - [x] Add runtime dependencies needed by the official frontier camera stack (`torchmetrics`, `transformers`).
-- [ ] Replace the blocked `torch.hub` DINOv3 loading path with a robust gated-weight workflow or an official supported local checkpoint path.
+- [x] Replace the blocked `torch.hub` DINOv3 loading path with a robust gated-weight workflow or an official supported local checkpoint path.
 - [ ] Consume `SAM 2.1` priors in training instead of keeping them as config-only hooks.
 
 ## Multitask Reset
@@ -52,9 +52,7 @@ This checklist is the operating contract for the current repo reset. Work procee
 
 ## External Blockers
 
-- [ ] Official `DINOv3` pretrained weights are gated. Current failures:
-- Meta hosted weight URL returns `403`.
-- Hugging Face official repo returns `401` without granted access.
+- [x] Official `DINOv3` pretrained weights were gated; local approved checkpoints are now cached under `/home/achbogga/projects/research/dinov3_weights`.
 - [ ] No verified public official `SAM v3` target exists. Current public frontier remains `SAM 2.1`.
 
 ## Current Truth

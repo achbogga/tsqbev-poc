@@ -12,6 +12,7 @@ from tsqbev.teacher_cache import TeacherCacheStore
 from tsqbev.train import (
     _joint_official_metrics_better,
     _make_detection_criterion,
+    _nuscenes_official_metrics_better,
     _run_joint_public_official_eval,
     _teacher_anchor_schedule_value,
     fit_nuscenes,
@@ -310,6 +311,107 @@ def test_fit_nuscenes_early_stops_on_val_plateau(
     assert result["early_stop_triggered"] is True
     assert "plateau" in str(result["early_stop_reason"])
     assert len(train_calls) == 4
+
+
+def test_nuscenes_official_metric_prefers_sane_higher_nds() -> None:
+    weak = {
+        "nuscenes_eval_ok": 1.0,
+        "nuscenes_export_sanity_ok": 1.0,
+        "nuscenes_nds": 0.12,
+        "nuscenes_map": 0.11,
+        "nuscenes_boxes_per_sample_mean": 60.0,
+        "nuscenes_ego_translation_norm_p99": 55.0,
+        "nuscenes_max_box_size_m": 18.0,
+    }
+    strong = {
+        "nuscenes_eval_ok": 1.0,
+        "nuscenes_export_sanity_ok": 1.0,
+        "nuscenes_nds": 0.16,
+        "nuscenes_map": 0.14,
+        "nuscenes_boxes_per_sample_mean": 40.0,
+        "nuscenes_ego_translation_norm_p99": 45.0,
+        "nuscenes_max_box_size_m": 12.0,
+    }
+
+    assert _nuscenes_official_metrics_better(strong, weak) is True
+
+
+def test_fit_nuscenes_selects_best_official_checkpoint(
+    monkeypatch,
+    small_config,
+    tmp_path: Path,
+) -> None:
+    batch = make_synthetic_batch(small_config, batch_size=1, with_teacher=False)
+    example = SceneExample(scene=batch, metadata={"sample_token": "sample-1"})
+
+    def fake_nuscenes_dataset(**kwargs: object) -> _RepeatedDataset:
+        del kwargs
+        return _RepeatedDataset(example, length=1)
+
+    def fake_train_epoch(**kwargs: object) -> dict[str, float]:
+        del kwargs
+        return {"total": 12.0}
+
+    val_totals = iter([9.0, 8.5, 8.6, 8.7])
+
+    def fake_eval_epoch(**kwargs: object) -> dict[str, float]:
+        del kwargs
+        return {"total": next(val_totals)}
+
+    official_scores = {
+        2: {
+            "nuscenes_eval_ok": 1.0,
+            "nuscenes_export_sanity_ok": 1.0,
+            "nuscenes_nds": 0.13,
+            "nuscenes_map": 0.12,
+            "nuscenes_boxes_per_sample_mean": 42.0,
+            "nuscenes_ego_translation_norm_p99": 48.0,
+            "nuscenes_max_box_size_m": 15.0,
+            "nuscenes_score_mean": 0.42,
+        },
+        4: {
+            "nuscenes_eval_ok": 1.0,
+            "nuscenes_export_sanity_ok": 1.0,
+            "nuscenes_nds": 0.18,
+            "nuscenes_map": 0.16,
+            "nuscenes_boxes_per_sample_mean": 38.0,
+            "nuscenes_ego_translation_norm_p99": 44.0,
+            "nuscenes_max_box_size_m": 12.0,
+            "nuscenes_score_mean": 0.39,
+        },
+    }
+
+    def fake_run_official_eval(**kwargs: object) -> dict[str, float]:
+        epoch = kwargs.get("epoch")
+        assert isinstance(epoch, int)
+        return official_scores[epoch]
+
+    monkeypatch.setattr("tsqbev.train.NuScenesDataset", fake_nuscenes_dataset)
+    monkeypatch.setattr("tsqbev.train._train_epoch", fake_train_epoch)
+    monkeypatch.setattr("tsqbev.train._eval_epoch", fake_eval_epoch)
+    monkeypatch.setattr("tsqbev.train._run_nuscenes_official_eval", fake_run_official_eval)
+
+    result = fit_nuscenes(
+        dataroot=tmp_path,
+        artifact_dir=tmp_path / "artifacts",
+        config=small_config,
+        version="v1.0-mini",
+        train_split="mini_train",
+        val_split="mini_val",
+        epochs=4,
+        batch_size=1,
+        num_workers=0,
+        device="cpu",
+        log_every_steps=None,
+        keep_best_checkpoint=True,
+        official_eval_every_epochs=2,
+    )
+
+    best_official = Path(str(result["best_official_checkpoint_path"]))
+    assert best_official.exists()
+    assert Path(str(result["checkpoint_path"])) == best_official
+    assert result["best_official_epoch"] == 4
+    assert result["best_official_metrics"] == official_scores[4]
 
 
 def test_fit_openlane_supports_warm_start_and_max_train_steps(
