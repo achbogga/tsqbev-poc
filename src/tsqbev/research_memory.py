@@ -1883,7 +1883,24 @@ def _replace_symlink(link_path: Path, target: Path) -> None:
     tmp_link.replace(link_path)
 
 
-def _load_current_build_manifest(config: ResearchMemoryConfig) -> dict[str, Any] | None:
+def _read_current_symlink_manifest(config: ResearchMemoryConfig) -> dict[str, Any] | None:
+    link_path = config.current_build_link
+    if not link_path.is_symlink():
+        return None
+    try:
+        build_root = link_path.resolve(strict=True)
+    except OSError:
+        return None
+    return _read_json(build_root / "sync_manifest.json")
+
+
+def _load_promoted_manifest(config: ResearchMemoryConfig) -> dict[str, Any] | None:
+    payload = _read_json(config.promoted_manifest_path)
+    if payload is not None:
+        return payload
+    payload = _read_current_symlink_manifest(config)
+    if payload is not None:
+        return payload
     for path in (config.artifact_current_build_manifest_path, config.current_build_manifest_path):
         payload = _read_json(path)
         if payload is not None:
@@ -1892,7 +1909,7 @@ def _load_current_build_manifest(config: ResearchMemoryConfig) -> dict[str, Any]
 
 
 def _runtime_memory_config(config: ResearchMemoryConfig) -> ResearchMemoryConfig:
-    manifest = _load_current_build_manifest(config)
+    manifest = _load_promoted_manifest(config)
     if manifest is None:
         return config
     updates: dict[str, Any] = {}
@@ -1934,7 +1951,7 @@ def _promote_memory_build(
     build_root: Path,
     summary: dict[str, Any],
 ) -> dict[str, Any]:
-    manifest = {
+    current_build = {
         "build_id": summary["build_id"],
         "generated_at_utc": summary["generated_at_utc"],
         "build_root": str(build_root),
@@ -1947,11 +1964,15 @@ def _promote_memory_build(
         "event_count": summary["event_count"],
         "evidence_count": summary["evidence_count"],
     }
-    _write_json(config.current_build_manifest_path, manifest)
-    _write_json(config.artifact_current_build_manifest_path, manifest)
+    promoted_summary = dict(summary)
+    promoted_summary.update(current_build)
+    promoted_summary["current_build"] = current_build
     _replace_symlink(config.current_build_link, build_root)
     _replace_symlink(config.memory_root / "catalog.duckdb", build_root / "catalog.duckdb")
-    return manifest
+    _write_json_atomic(config.promoted_manifest_path, promoted_summary)
+    _write_json_atomic(config.current_build_manifest_path, current_build)
+    _write_json_atomic(config.artifact_current_build_manifest_path, current_build)
+    return promoted_summary
 
 
 def _write_json_atomic(path: Path, payload: dict[str, Any]) -> None:
@@ -1962,18 +1983,13 @@ def _write_json_atomic(path: Path, payload: dict[str, Any]) -> None:
 
 
 def _active_catalog_path(config: ResearchMemoryConfig) -> Path:
-    for manifest_path in (config.promoted_manifest_path,):
-        if manifest_path.exists():
-            try:
-                payload = json.loads(manifest_path.read_text())
-            except json.JSONDecodeError:
-                payload = None
-            if isinstance(payload, dict):
-                catalog_path = _as_opt_str(payload.get("catalog_path"))
-                if catalog_path is not None:
-                    candidate = Path(catalog_path)
-                    if candidate.exists():
-                        return candidate
+    payload = _load_promoted_manifest(config)
+    if isinstance(payload, dict):
+        catalog_path = _as_opt_str(payload.get("catalog_path"))
+        if catalog_path is not None:
+            candidate = Path(catalog_path)
+            if candidate.exists():
+                return candidate
     return config.catalog_path
 
 
@@ -1987,7 +2003,7 @@ def _prune_old_memory_builds(config: ResearchMemoryConfig, *, keep: int = 6) -> 
     builds_root = config.builds_root
     if not builds_root.exists():
         return
-    active_manifest = _load_current_build_manifest(config)
+    active_manifest = _load_promoted_manifest(config)
     active_build_root = None
     if isinstance(active_manifest, dict):
         build_root = _as_opt_str(active_manifest.get("build_root"))
@@ -2088,10 +2104,7 @@ def sync_research_memory(
         }
         catalog.record_sync(summary)
         _write_json_atomic(build_dir / "sync_manifest.json", summary)
-        current_build = _promote_memory_build(cfg, build_root=build_dir, summary=summary)
-        promoted_summary = dict(summary)
-        promoted_summary["current_build"] = current_build
-        _write_json_atomic(cfg.promoted_manifest_path, promoted_summary)
+        promoted_summary = _promote_memory_build(cfg, build_root=build_dir, summary=summary)
         _prune_old_memory_builds(cfg)
         return promoted_summary
     finally:
@@ -2446,7 +2459,14 @@ def check_research_memory_health(
     runtime_cfg = _runtime_memory_config(cfg)
     qdrant = QdrantEvidenceIndex(runtime_cfg)
     mem0_backend = Mem0MemoryBackend(runtime_cfg)
-    current_build = _load_current_build_manifest(cfg)
+    promoted_manifest = _load_promoted_manifest(cfg)
+    current_build = None
+    if isinstance(promoted_manifest, dict):
+        nested = promoted_manifest.get("current_build")
+        if isinstance(nested, dict):
+            current_build = nested
+        else:
+            current_build = promoted_manifest
     return {
         "repo_root": str(repo_root),
         "hostname": socket.gethostname(),
