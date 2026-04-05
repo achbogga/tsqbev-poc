@@ -29,6 +29,13 @@ from tsqbev.research_memory import (
 )
 from tsqbev.teacher_backends import TeacherProviderConfig
 
+_OpenAI: Any
+try:  # pragma: no cover - optional runtime dependency.
+    from openai import OpenAI as _OpenAI
+except ImportError:  # pragma: no cover
+    _OpenAI = None
+OpenAIClient: Any = _OpenAI
+
 DEFAULT_SUPERVISOR_ROOT = REPO_ROOT / "artifacts" / "autoresearch"
 DEFAULT_SUPERVISOR_REPORT = REPO_ROOT / "docs" / "reports" / "autoresearch.md"
 
@@ -51,10 +58,42 @@ class SupervisorState:
     last_publish_message: str | None
     memory_mode: str | None
     memory_embedder: str | None
+    planner_provider: str | None
+    critic_provider: str | None
     notes: list[str]
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
+
+
+@dataclass(slots=True)
+class PlannerDecision:
+    provider: str
+    model: str | None
+    active_bottleneck: str
+    objective: str
+    priority_tags: list[str]
+    suppress_tags: list[str]
+    force_priority_only: bool
+    token_burn_score: int
+    rationale: list[str]
+    kill_conditions: list[str]
+
+    def to_policy(self) -> dict[str, Any]:
+        return {
+            "priority_tags": self.priority_tags,
+            "suppress_tags": self.suppress_tags,
+            "force_priority_only": self.force_priority_only,
+        }
+
+
+@dataclass(slots=True)
+class CriticDecision:
+    provider: str
+    model: str | None
+    approved: bool
+    rationale: list[str]
+    supervisor_policy: dict[str, Any]
 
 
 def _git_current_branch(repo_root: Path = REPO_ROOT) -> str:
@@ -167,6 +206,151 @@ def _write_first_principles_checkpoint(
     return path
 
 
+def _extract_json_object(text: str) -> dict[str, Any]:
+    start = text.find("{")
+    end = text.rfind("}")
+    if start < 0 or end <= start:
+        raise ValueError("reasoner response did not contain a JSON object")
+    return json.loads(text[start : end + 1])
+
+
+def _heuristic_planner(brief: dict[str, Any]) -> PlannerDecision:
+    current_state = brief.get("current_state", [])
+    state_text = "\n".join(str(item) for item in current_state if isinstance(item, str)).lower()
+    if "joint" in state_text and "0.0000" in state_text:
+        return PlannerDecision(
+            provider="heuristic",
+            model=None,
+            active_bottleneck="joint-metric-collapse",
+            objective=(
+                "stop broken joint promotion and focus on official-metric-safe "
+                "detection control"
+            ),
+            priority_tags=["quality_rank_finegrid", "teacher_quality_plus", "teacher_off_control"],
+            suppress_tags=["teacher_bag", "anchor_mix", "augmentation", "lr_down", "query_boost"],
+            force_priority_only=True,
+            token_burn_score=-2,
+            rationale=[
+                "official joint detection collapsed to zero, so more multitask churn is low ROI",
+                "current best local line remains teacher-quality plus "
+                "quality-rank control detection",
+            ],
+            kill_conditions=[
+                "two consecutive runs fail to beat the current detection incumbent on NDS",
+                "export sanity degrades while loss improves",
+            ],
+        )
+    return PlannerDecision(
+        provider="heuristic",
+        model=None,
+        active_bottleneck="quality-vs-calibration-boundary",
+        objective="improve official mini-val NDS without reopening dead exploit families",
+        priority_tags=["quality_rank_finegrid", "teacher_quality_plus", "teacher_off_control"],
+        suppress_tags=["teacher_bag", "anchor_mix", "augmentation", "lr_down"],
+        force_priority_only=True,
+        token_burn_score=-1,
+        rationale=[
+            "quality-rank and teacher-quality-plus are the only winning branches so far",
+            "bag-style exploits and broad mutation fanout have underperformed",
+        ],
+        kill_conditions=[
+            "two consecutive runs do not produce a meaningful progress verdict",
+            "calibration improvements stop moving official NDS",
+        ],
+    )
+
+
+def _openai_reasoner(prompt: str, *, model: str) -> dict[str, Any]:
+    if OpenAIClient is None or not os.getenv("OPENAI_API_KEY"):
+        raise RuntimeError("OpenAI client or key unavailable")
+    client = OpenAIClient()
+    response = client.responses.create(
+        model=model,
+        input=prompt,
+    )
+    text = getattr(response, "output_text", "")
+    if not isinstance(text, str) or not text.strip():
+        raise ValueError("OpenAI response did not return text output")
+    return _extract_json_object(text)
+
+
+def _planner_decision_from_brief(brief: dict[str, Any]) -> PlannerDecision:
+    model = os.getenv("TSQBEV_SUPERVISOR_PLANNER_MODEL", "gpt-5.4")
+    prompt = (
+        "You are the planner for an autonomous perception research lab. "
+        "Given the current research brief, output only JSON with keys: "
+        "active_bottleneck, objective, priority_tags, suppress_tags, "
+        "force_priority_only, token_burn_score, rationale, kill_conditions. "
+        "Use only short strings. Focus on highest-ROI next experiments.\n\n"
+        f"BRIEF:\n{json.dumps(brief, indent=2, default=str)}"
+    )
+    try:
+        payload = _openai_reasoner(prompt, model=model)
+        return PlannerDecision(
+            provider="openai",
+            model=model,
+            active_bottleneck=str(payload["active_bottleneck"]),
+            objective=str(payload["objective"]),
+            priority_tags=[str(item) for item in payload.get("priority_tags", [])],
+            suppress_tags=[str(item) for item in payload.get("suppress_tags", [])],
+            force_priority_only=bool(payload.get("force_priority_only", False)),
+            token_burn_score=int(payload.get("token_burn_score", 0)),
+            rationale=[str(item) for item in payload.get("rationale", [])],
+            kill_conditions=[str(item) for item in payload.get("kill_conditions", [])],
+        )
+    except Exception:
+        return _heuristic_planner(brief)
+
+
+def _critic_decision_from_planner(
+    brief: dict[str, Any],
+    planner: PlannerDecision,
+) -> CriticDecision:
+    model = os.getenv("TSQBEV_SUPERVISOR_CRITIC_MODEL", "gpt-5.4-mini")
+    prompt = (
+        "You are the critic for an autonomous perception research lab. "
+        "Review the planner decision and current brief. Output only JSON with keys: "
+        "approved, rationale, priority_tags, suppress_tags, force_priority_only. "
+        "Reject repeated low-ROI branches.\n\n"
+        f"BRIEF:\n{json.dumps(brief, indent=2, default=str)}\n\n"
+        f"PLANNER:\n{json.dumps(asdict(planner), indent=2, default=str)}"
+    )
+    try:
+        payload = _openai_reasoner(prompt, model=model)
+        priority_tags = [
+            str(item) for item in payload.get("priority_tags", planner.priority_tags)
+        ]
+        suppress_tags = [
+            str(item) for item in payload.get("suppress_tags", planner.suppress_tags)
+        ]
+        supervisor_policy = {
+            "priority_tags": priority_tags,
+            "suppress_tags": suppress_tags,
+            "force_priority_only": bool(
+                payload.get("force_priority_only", planner.force_priority_only)
+            ),
+        }
+        return CriticDecision(
+            provider="openai",
+            model=model,
+            approved=bool(payload.get("approved", True)),
+            rationale=[str(item) for item in payload.get("rationale", [])],
+            supervisor_policy=supervisor_policy,
+        )
+    except Exception:
+        approved = planner.token_burn_score < 3
+        rationale = list(planner.rationale)
+        if not approved:
+            rationale.append("token burn score exceeded the allowed threshold")
+        return CriticDecision(
+            provider="heuristic",
+            model=None,
+            approved=approved,
+            rationale=rationale,
+            supervisor_policy=planner.to_policy(),
+        )
+
+
 def _git_publish_generated(
     repo_root: Path,
     *,
@@ -256,6 +440,8 @@ def _render_supervisor_report(
         f"- completed invocations: `{state.completed_invocations}`",
         f"- memory mode: `{state.memory_mode or 'unknown'}`",
         f"- memory embedder: `{state.memory_embedder or 'unknown'}`",
+        f"- planner provider: `{state.planner_provider or 'unknown'}`",
+        f"- critic provider: `{state.critic_provider or 'unknown'}`",
         f"- last invocation dir: `{state.last_invocation_dir or '-'}`",
         f"- last selected recipe: `{state.last_selected_recipe or '-'}`",
         f"- last NDS: `{state.last_nds if state.last_nds is not None else '-'}`",
@@ -324,6 +510,8 @@ def run_research_supervisor(
     last_map: float | None = None
     last_publish_status: str | None = None
     last_publish_message: str | None = None
+    planner_provider: str | None = None
+    critic_provider: str | None = None
 
     while max_invocations is None or attempted_invocations < max_invocations:
         memory_health = check_research_memory_health(REPO_ROOT)
@@ -353,6 +541,8 @@ def run_research_supervisor(
                 last_publish_message=last_publish_message,
                 memory_mode=memory_mode,
                 memory_embedder=memory_embedder,
+                planner_provider=planner_provider,
+                critic_provider=critic_provider,
                 notes=["Stop file present; supervisor exiting cleanly."],
             )
             _write_supervisor_outputs(
@@ -381,6 +571,8 @@ def run_research_supervisor(
                 last_publish_message=last_publish_message,
                 memory_mode=memory_mode,
                 memory_embedder=memory_embedder,
+                planner_provider=planner_provider,
+                critic_provider=critic_provider,
                 notes=[
                     "External `tsqbev research-loop` process detected; waiting instead of "
                     "contending for the same GPU.",
@@ -406,6 +598,16 @@ def run_research_supervisor(
         safe_sync_research_memory(REPO_ROOT)
         pre_run_brief = safe_build_research_brief(REPO_ROOT, persist_log=False)
         checkpoint_path = _write_first_principles_checkpoint(invocation_root, pre_run_brief)
+        planner_decision = _planner_decision_from_brief(pre_run_brief)
+        critic_decision = _critic_decision_from_planner(pre_run_brief, planner_decision)
+        planner_provider = planner_decision.provider
+        critic_provider = critic_decision.provider
+        (invocation_root / "planner_decision.json").write_text(
+            json.dumps(asdict(planner_decision), indent=2)
+        )
+        (invocation_root / "critic_decision.json").write_text(
+            json.dumps(asdict(critic_decision), indent=2)
+        )
 
         started_at = datetime.now(tz=UTC).isoformat()
         invocation_status = "completed"
@@ -413,7 +615,64 @@ def run_research_supervisor(
             f"started invocation `{invocation_root.name}` at `{started_at}`",
             "wrote first-principles checkpoint to "
             f"`{checkpoint_path.relative_to(REPO_ROOT)}` before launch",
+            f"planner provider `{planner_decision.provider}` selected bottleneck "
+            f"`{planner_decision.active_bottleneck}`",
         ]
+        if not critic_decision.approved:
+            notes.append("critic rejected the planner proposal; skipping execution")
+            invocation_status = "rejected"
+            summary = {
+                "status": "rejected",
+                "planner_decision": asdict(planner_decision),
+                "critic_decision": asdict(critic_decision),
+            }
+            safe_sync_research_memory(REPO_ROOT)
+            safe_build_research_brief(REPO_ROOT, persist_log=True)
+            publish_result = {"status": "disabled", "message": "execution skipped by critic"}
+            last_publish_status = str(publish_result.get("status"))
+            last_publish_message = str(publish_result.get("message"))
+            entry = {
+                "generated_at_utc": datetime.now(tz=UTC).isoformat(),
+                "repo_sha": current_git_sha(REPO_ROOT),
+                "branch": _git_current_branch(REPO_ROOT),
+                "status": invocation_status,
+                "invocation": attempted_invocations,
+                "invocation_root": str(invocation_root),
+                "first_principles_checkpoint": str(checkpoint_path),
+                "planner_decision": asdict(planner_decision),
+                "critic_decision": asdict(critic_decision),
+                "publish": publish_result,
+                "summary": summary,
+            }
+            _append_jsonl(ledger_path, entry)
+            state = SupervisorState(
+                status="running",
+                generated_at_utc=datetime.now(tz=UTC).isoformat(),
+                repo_sha=current_git_sha(REPO_ROOT),
+                current_branch=_git_current_branch(REPO_ROOT),
+                dataset_root=str(dataset_root),
+                artifact_root=str(supervisor_root),
+                attempted_invocations=attempted_invocations,
+                completed_invocations=completed_invocations,
+                last_invocation_dir=str(last_invocation_dir) if last_invocation_dir else None,
+                last_selected_recipe=last_selected_recipe,
+                last_nds=last_nds,
+                last_map=last_map,
+                last_publish_status=last_publish_status,
+                last_publish_message=last_publish_message,
+                memory_mode=memory_mode,
+                memory_embedder=memory_embedder,
+                planner_provider=planner_provider,
+                critic_provider=critic_provider,
+                notes=notes + critic_decision.rationale,
+            )
+            _write_supervisor_outputs(
+                state,
+                artifact_root=supervisor_root,
+                report_path=DEFAULT_SUPERVISOR_REPORT,
+            )
+            time.sleep(sleep_seconds)
+            continue
         try:
             summary = run_bounded_research_loop(
                 dataroot=dataset_root,
@@ -421,6 +680,7 @@ def run_research_supervisor(
                 device=device,
                 max_experiments=max_experiments,
                 teacher_provider_config=teacher_provider_config,
+                supervisor_policy=critic_decision.supervisor_policy,
             )
             selected_record = summary.get("selected_record", {})
             if isinstance(selected_record, dict):
@@ -467,6 +727,8 @@ def run_research_supervisor(
             "mean_ap": last_map,
             "publish": publish_result,
             "summary": summary,
+            "planner_decision": asdict(planner_decision),
+            "critic_decision": asdict(critic_decision),
         }
         _append_jsonl(ledger_path, entry)
         notes.append(
@@ -496,6 +758,8 @@ def run_research_supervisor(
             last_publish_message=last_publish_message,
             memory_mode=memory_mode,
             memory_embedder=memory_embedder,
+            planner_provider=planner_provider,
+            critic_provider=critic_provider,
             notes=notes,
         )
         _write_supervisor_outputs(

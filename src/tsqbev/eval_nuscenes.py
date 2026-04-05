@@ -207,6 +207,68 @@ def prediction_geometry_diagnostics(
     }
 
 
+def export_sanity_diagnostics(
+    result_path: str | Path,
+    *,
+    dataroot: str | Path,
+    version: str,
+) -> dict[str, float]:
+    """Measure whether an exported prediction file is numerically sane enough to trust."""
+
+    payload = json.loads(Path(result_path).read_text())
+    results = payload.get("results", {})
+    if not isinstance(results, dict):
+        raise ValueError("nuScenes result JSON must contain a results dictionary")
+
+    geometry = prediction_geometry_diagnostics(result_path, dataroot=dataroot, version=version)
+    max_sizes: list[float] = []
+    score_values: list[float] = []
+    saturated_scores = 0
+    total_scores = 0
+    for sample_predictions in results.values():
+        if not isinstance(sample_predictions, list):
+            continue
+        for prediction in sample_predictions:
+            if not isinstance(prediction, dict):
+                continue
+            size = prediction.get("size", [0.0, 0.0, 0.0])
+            if isinstance(size, list) and len(size) == 3:
+                max_sizes.append(max(float(size[0]), float(size[1]), float(size[2])))
+            score = float(prediction.get("detection_score", 0.0))
+            score_values.append(score)
+            total_scores += 1
+            if score >= 0.995:
+                saturated_scores += 1
+
+    size_sorted = sorted(max_sizes)
+    size_p95 = _percentile(max_sizes, 95.0)
+    score_p95 = _percentile(score_values, 95.0)
+    score_mean = float(sum(score_values) / max(len(score_values), 1))
+    saturated_fraction = float(saturated_scores / max(total_scores, 1))
+    max_size = float(size_sorted[-1] if size_sorted else 0.0)
+
+    sanity_ok = float(
+        geometry["boxes_per_sample_mean"] <= 60.0
+        and geometry["boxes_per_sample_p95"] <= 80.0
+        and geometry["ego_translation_norm_p99"] <= 120.0
+        and geometry["ego_translation_norm_max"] <= 150.0
+        and max_size <= 50.0
+        and size_p95 <= 20.0
+        and score_mean <= 0.98
+        and score_p95 <= 0.999
+        and saturated_fraction <= 0.5
+    )
+    return {
+        **geometry,
+        "max_box_size_m": max_size,
+        "box_size_p95_m": size_p95,
+        "score_mean": score_mean,
+        "score_p95": score_p95,
+        "saturated_score_fraction": saturated_fraction,
+        "sanity_ok": sanity_ok,
+    }
+
+
 def _load_nuscenes_eval() -> tuple[Any, Any, Any, Any]:
     try:
         from nuscenes.eval.detection.config import config_factory

@@ -2156,6 +2156,7 @@ def run_bounded_research_loop(
     device: str | None = None,
     max_experiments: int = 5,
     teacher_provider_config: TeacherProviderConfig | None = None,
+    supervisor_policy: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Run a bounded mini-nuScenes experiment sweep and promote one incumbent."""
 
@@ -2166,6 +2167,29 @@ def run_bounded_research_loop(
     max_experiments = max(1, max_experiments)
     previous_selected_record = _summary_selected_record(artifact_root / "summary.json")
     pre_run_boss_policy = _boss_policy_from_history(artifact_root)
+    if supervisor_policy is not None:
+        merged_policy = dict(pre_run_boss_policy)
+        merged_policy.update(supervisor_policy)
+        if "suppress_tags" in pre_run_boss_policy or "suppress_tags" in supervisor_policy:
+            merged_policy["suppress_tags"] = sorted(
+                {
+                    *[str(tag) for tag in pre_run_boss_policy.get("suppress_tags", [])],
+                    *[str(tag) for tag in supervisor_policy.get("suppress_tags", [])],
+                }
+            )
+        if "priority_tags" in pre_run_boss_policy or "priority_tags" in supervisor_policy:
+            supervisor_priority_tags = [
+                str(item) for item in supervisor_policy.get("priority_tags", [])
+            ]
+            merged_policy["priority_tags"] = [
+                *supervisor_priority_tags,
+                *[
+                    str(tag)
+                    for tag in pre_run_boss_policy.get("priority_tags", [])
+                    if str(tag) not in set(supervisor_priority_tags)
+                ],
+            ]
+        pre_run_boss_policy = merged_policy
     pre_run_brief = safe_build_research_brief(REPO_ROOT)
     (artifact_root / "pre_run_brief.json").write_text(json.dumps(pre_run_brief, indent=2))
 
@@ -2574,6 +2598,7 @@ def run_bounded_research_loop(
         "scale_gate_verdict": scale_verdict,
         "boss_progress_verdict": boss_progress_verdict,
         "boss_policy_pre_run": pre_run_boss_policy,
+        "supervisor_policy": supervisor_policy,
         "boss_policy_next": boss_policy_next,
         "recommended_next_steps": _recommended_next_steps(
             scale_verdict,

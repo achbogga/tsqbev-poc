@@ -25,7 +25,11 @@ from torch.utils.data import DataLoader, Dataset, Subset
 from tsqbev.checkpoints import load_weights_into_model_from_checkpoint, save_model_checkpoint
 from tsqbev.config import ModelConfig
 from tsqbev.datasets import NuScenesDataset, OpenLaneDataset, collate_scene_examples
-from tsqbev.eval_nuscenes import evaluate_nuscenes_predictions, export_nuscenes_predictions
+from tsqbev.eval_nuscenes import (
+    evaluate_nuscenes_predictions,
+    export_nuscenes_predictions,
+    export_sanity_diagnostics,
+)
 from tsqbev.eval_openlane import (
     evaluate_openlane_predictions,
     export_openlane_predictions,
@@ -522,6 +526,11 @@ def _run_joint_public_official_eval(
         "nuscenes_nds": 0.0,
         "nuscenes_map": 0.0,
         "nuscenes_eval_ok": 0.0,
+        "nuscenes_export_sanity_ok": 0.0,
+        "nuscenes_boxes_per_sample_mean": 0.0,
+        "nuscenes_ego_translation_norm_p99": 0.0,
+        "nuscenes_max_box_size_m": 0.0,
+        "nuscenes_score_mean": 0.0,
         "openlane_f_score": 0.0,
         "openlane_recall": 0.0,
         "openlane_precision": 0.0,
@@ -548,9 +557,24 @@ def _run_joint_public_official_eval(
             result_path=det_result_path,
             output_dir=det_output_dir / "metrics",
         )
+        sanity = export_sanity_diagnostics(
+            det_result_path,
+            dataroot=nuscenes_root,
+            version=nuscenes_version,
+        )
         metrics["nuscenes_nds"] = float(cast(float, det_metrics.get("nd_score", 0.0)))
         metrics["nuscenes_map"] = float(cast(float, det_metrics.get("mean_ap", 0.0)))
         metrics["nuscenes_eval_ok"] = 1.0
+        metrics["nuscenes_export_sanity_ok"] = float(sanity.get("sanity_ok", 0.0))
+        metrics["nuscenes_boxes_per_sample_mean"] = float(
+            sanity.get("boxes_per_sample_mean", 0.0)
+        )
+        metrics["nuscenes_ego_translation_norm_p99"] = float(
+            sanity.get("ego_translation_norm_p99", 0.0)
+        )
+        metrics["nuscenes_max_box_size_m"] = float(sanity.get("max_box_size_m", 0.0))
+        metrics["nuscenes_score_mean"] = float(sanity.get("score_mean", 0.0))
+        summary_payload["nuscenes_sanity"] = sanity
     except Exception as exc:
         errors["nuscenes"] = repr(exc)
 
@@ -586,6 +610,28 @@ def _run_joint_public_official_eval(
 
     (eval_root / "summary.json").write_text(json.dumps(summary_payload, indent=2))
     return metrics
+
+
+def _joint_official_metric_key(metrics: dict[str, float] | None) -> tuple[float, ...]:
+    if metrics is None:
+        return (0.0,) * 8
+    return (
+        float(metrics.get("nuscenes_eval_ok", 0.0)),
+        float(metrics.get("nuscenes_export_sanity_ok", 0.0)),
+        float(metrics.get("nuscenes_nds", 0.0)),
+        float(metrics.get("nuscenes_map", 0.0)),
+        float(metrics.get("openlane_eval_ok", 0.0)),
+        float(metrics.get("openlane_f_score", 0.0)),
+        float(metrics.get("openlane_precision", 0.0)),
+        float(metrics.get("openlane_recall", 0.0)),
+    )
+
+
+def _joint_official_metrics_better(
+    candidate: dict[str, float] | None,
+    incumbent: dict[str, float] | None,
+) -> bool:
+    return _joint_official_metric_key(candidate) > _joint_official_metric_key(incumbent)
 
 
 def fit_nuscenes(
@@ -1609,10 +1655,13 @@ def fit_joint_public(
         best_epoch = 0
         best_detection_total = float("inf")
         best_lane_total = float("inf")
+        best_official_epoch = 0
+        best_official_metrics: dict[str, float] | None = None
         epochs_without_improvement = 0
         early_stop_triggered = False
         early_stop_reason: str | None = None
         latest_official_metrics: dict[str, float] | None = None
+        checkpoint_best_official_path = artifact_root / "checkpoint_best_official.pt"
 
         for epoch in range(1, epochs + 1):
             lane_batches_per_epoch = _lane_batches_per_epoch(
@@ -1746,6 +1795,16 @@ def fit_joint_public(
                 )
                 history[-1]["official_eval"] = latest_official_metrics
                 _write_history(artifact_root, history)
+                if _joint_official_metrics_better(latest_official_metrics, best_official_metrics):
+                    best_official_metrics = dict(latest_official_metrics)
+                    best_official_epoch = epoch
+                    save_model_checkpoint(
+                        model,
+                        model_config,
+                        checkpoint_best_official_path,
+                        epoch=epoch,
+                        history=history,
+                    )
                 if active_tracker is not None:
                     active_tracker.log(
                         {"epoch": epoch, **latest_official_metrics},
@@ -1756,6 +1815,7 @@ def fit_joint_public(
                     f"epoch={epoch} "
                     f"nuscenes_nds={latest_official_metrics['nuscenes_nds']:.4f} "
                     f"nuscenes_map={latest_official_metrics['nuscenes_map']:.4f} "
+                    f"sanity_ok={latest_official_metrics['nuscenes_export_sanity_ok']:.0f} "
                     f"openlane_f={latest_official_metrics['openlane_f_score']:.4f} "
                     f"openlane_recall={latest_official_metrics['openlane_recall']:.4f} "
                     f"openlane_precision={latest_official_metrics['openlane_precision']:.4f}",
@@ -1785,11 +1845,14 @@ def fit_joint_public(
                 print(f"[early-stop] {early_stop_reason}", flush=True)
                 break
 
-        selected_checkpoint_path = (
-            checkpoint_best_path
-            if keep_best_checkpoint and checkpoint_best_path.exists()
-            else checkpoint_last_path
-        )
+        if checkpoint_best_official_path.exists():
+            selected_checkpoint_path = checkpoint_best_official_path
+        else:
+            selected_checkpoint_path = (
+                checkpoint_best_path
+                if keep_best_checkpoint and checkpoint_best_path.exists()
+                else checkpoint_last_path
+            )
         result = {
             "device": resolved_device.type,
             "amp_enabled": amp_enabled,
@@ -1799,9 +1862,16 @@ def fit_joint_public(
             "selected_checkpoint_path": str(selected_checkpoint_path),
             "last_checkpoint_path": str(checkpoint_last_path),
             "best_checkpoint_path": str(checkpoint_best_path),
+            "best_official_checkpoint_path": (
+                str(checkpoint_best_official_path)
+                if checkpoint_best_official_path.exists()
+                else None
+            ),
             "best_epoch": best_epoch,
             "best_detection_total": best_detection_total,
             "best_lane_total": best_lane_total,
+            "best_official_epoch": best_official_epoch,
+            "best_official_metrics": best_official_metrics,
             "early_stop_triggered": early_stop_triggered,
             "early_stop_reason": early_stop_reason,
             "lane_loss_scale": lane_loss_scale,
@@ -1820,10 +1890,11 @@ def fit_joint_public(
                     "best_epoch": best_epoch,
                     "best_detection_total": best_detection_total,
                     "best_lane_total": best_lane_total,
+                    "best_official_epoch": best_official_epoch,
                     "lane_loss_scale": lane_loss_scale,
                     "lane_batch_multiplier": lane_batch_multiplier,
                     "official_eval_every_epochs": official_eval_every_epochs,
-                    **(latest_official_metrics or {}),
+                    **(best_official_metrics or latest_official_metrics or {}),
                 }
             )
         status = "completed"

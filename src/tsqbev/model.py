@@ -267,6 +267,98 @@ class DINOv2ProjectorBackbone(nn.Module):
         return [low, high]
 
 
+class DINOv3ProjectorBackbone(nn.Module):
+    """Projected multiscale camera backbone from official DINOv3 intermediate features.
+
+    References:
+    - DINOv3 official repo and model card:
+      https://github.com/facebookresearch/dinov3
+    - BEVFormer v2 perspective supervision:
+      https://openaccess.thecvf.com/content/CVPR2023/papers/Yang_BEVFormer_v2_Adapting_Modern_Image_Backbones_to_Birds-Eye-View_Recognition_via_CVPR_2023_paper.pdf
+    """
+
+    def __init__(self, config: ModelConfig) -> None:
+        super().__init__()
+        self.config = config
+        self.freeze_backbone = config.freeze_image_backbone
+        self.activation_checkpointing = config.activation_checkpointing
+        repo_root = Path(config.foundation_repo_root or "/home/achbogga/projects/dinov3")
+        if not repo_root.exists():
+            raise FileNotFoundError(
+                f"DINOv3 repo root `{repo_root}` does not exist; clone the official repo first"
+            )
+        load_kwargs: dict[str, object] = {
+            "source": "local",
+            "pretrained": config.pretrained_image_backbone,
+        }
+        if config.foundation_weights is not None:
+            load_kwargs["weights"] = config.foundation_weights
+        self.extractor = torch.hub.load(
+            str(repo_root),
+            config.image_backbone,
+            **load_kwargs,
+        )
+        self.layers = list(config.foundation_intermediate_layers)
+        embed_dim = int(self.extractor.embed_dim)
+        self.low_proj = nn.Conv2d(embed_dim, config.model_dim, kernel_size=1)
+        self.high_proj = nn.Conv2d(embed_dim, config.model_dim, kernel_size=1)
+        self.high_downsample = nn.Sequential(
+            nn.Conv2d(config.model_dim, config.model_dim, kernel_size=3, stride=2, padding=1),
+            nn.ReLU(),
+        )
+        self.register_buffer(
+            "image_mean",
+            torch.tensor(_IMAGENET_MEAN, dtype=torch.float32).view(1, 3, 1, 1),
+        )
+        self.register_buffer(
+            "image_std",
+            torch.tensor(_IMAGENET_STD, dtype=torch.float32).view(1, 3, 1, 1),
+        )
+        if self.freeze_backbone:
+            self.extractor.requires_grad_(False)
+            self.extractor.eval()
+
+    def train(self, mode: bool = True) -> DINOv3ProjectorBackbone:
+        super().train(mode)
+        if self.freeze_backbone:
+            self.extractor.eval()
+        return self
+
+    def _extract_multiscale(self, images: Tensor) -> tuple[Tensor, Tensor]:
+        image_mean = cast(Tensor, self.image_mean).to(dtype=images.dtype, device=images.device)
+        image_std = cast(Tensor, self.image_std).to(dtype=images.dtype, device=images.device)
+        normalized = (images - image_mean) / image_std
+        resized = _resize_to_multiple(normalized, self.config.foundation_patch_multiple)
+        outputs = self.extractor.get_intermediate_layers(
+            resized,
+            n=self.layers,
+            reshape=True,
+        )
+        if len(outputs) != 2:
+            raise RuntimeError(
+                "DINOv3 backbone must return exactly two intermediate feature maps for TSQBEV"
+            )
+        low, high = outputs
+        return low, high
+
+    def forward(self, images: Tensor) -> list[Tensor]:
+        batch, views = images.shape[:2]
+        x = images.reshape(batch * views, *images.shape[2:])
+        if self.freeze_backbone:
+            with torch.no_grad():
+                low, high = self._extract_multiscale(x)
+        elif _checkpoint_enabled(self.activation_checkpointing, x):
+            low, high = checkpoint(self._extract_multiscale, x, use_reentrant=False)
+        else:
+            low, high = self._extract_multiscale(x)
+        low = self.low_proj(low)
+        high = self.high_proj(high)
+        high = self.high_downsample(high)
+        low = low.reshape(batch, views, self.config.model_dim, low.shape[-2], low.shape[-1])
+        high = high.reshape(batch, views, self.config.model_dim, high.shape[-2], high.shape[-1])
+        return [low, high]
+
+
 def build_image_backbone(config: ModelConfig) -> nn.Module:
     """Construct the configured image backbone."""
 
@@ -274,6 +366,8 @@ def build_image_backbone(config: ModelConfig) -> nn.Module:
         return TinyImageBackbone(config)
     if config.image_backbone.startswith("dinov2_"):
         return DINOv2ProjectorBackbone(config)
+    if config.image_backbone.startswith("dinov3_"):
+        return DINOv3ProjectorBackbone(config)
     return TorchvisionImageBackbone(config)
 
 

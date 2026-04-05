@@ -279,6 +279,8 @@ def _resolve_config(args: argparse.Namespace) -> ModelConfig:
         config = ModelConfig.rtx5000_nuscenes_teacher_bootstrap()
     elif args.preset == "rtx5000-nuscenes-dinov2-teacher":
         config = ModelConfig.rtx5000_nuscenes_dinov2_teacher()
+    elif args.preset == "rtx5000-nuscenes-dinov3-teacher":
+        config = ModelConfig.rtx5000_nuscenes_dinov3_teacher()
     elif args.preset == "rtx5000-nuscenes-teacher-quality-plus":
         config = ModelConfig.rtx5000_nuscenes_teacher_quality_plus()
     elif args.preset == "rtx5000-nuscenes-query-boost":
@@ -295,16 +297,42 @@ def _resolve_config(args: argparse.Namespace) -> ModelConfig:
         updates["pretrained_image_backbone"] = args.pretrained_image_backbone
     if args.freeze_image_backbone is not None:
         updates["freeze_image_backbone"] = args.freeze_image_backbone
-    if args.foundation_repo_root is not None:
-        updates["foundation_repo_root"] = str(args.foundation_repo_root)
-    if args.activation_checkpointing is not None:
-        updates["activation_checkpointing"] = args.activation_checkpointing
-    if args.attention_backend is not None:
-        updates["attention_backend"] = args.attention_backend
-    if args.teacher_seed_mode is not None:
-        updates["teacher_seed_mode"] = args.teacher_seed_mode
-    if args.teacher_seed_selection_mode is not None:
-        updates["teacher_seed_selection_mode"] = args.teacher_seed_selection_mode
+    foundation_repo_root = getattr(args, "foundation_repo_root", None)
+    if foundation_repo_root is not None:
+        updates["foundation_repo_root"] = str(foundation_repo_root)
+    foundation_weights = getattr(args, "foundation_weights", None)
+    if foundation_weights is not None:
+        updates["foundation_weights"] = str(foundation_weights)
+    activation_checkpointing = getattr(args, "activation_checkpointing", None)
+    if activation_checkpointing is not None:
+        updates["activation_checkpointing"] = activation_checkpointing
+    attention_backend = getattr(args, "attention_backend", None)
+    if attention_backend is not None:
+        updates["attention_backend"] = attention_backend
+    auto_vram_fit = getattr(args, "auto_vram_fit", None)
+    if auto_vram_fit is not None:
+        updates["auto_vram_fit"] = auto_vram_fit
+    sam2_repo_root = getattr(args, "sam2_repo_root", None)
+    if sam2_repo_root is not None:
+        updates["sam2_repo_root"] = str(sam2_repo_root)
+    sam2_model_cfg = getattr(args, "sam2_model_cfg", None)
+    if sam2_model_cfg is not None:
+        updates["sam2_model_cfg"] = sam2_model_cfg
+    sam2_checkpoint = getattr(args, "sam2_checkpoint", None)
+    if sam2_checkpoint is not None:
+        updates["sam2_checkpoint"] = str(sam2_checkpoint)
+    sam2_region_prior_mode = getattr(args, "sam2_region_prior_mode", None)
+    if sam2_region_prior_mode is not None:
+        updates["sam2_region_prior_mode"] = sam2_region_prior_mode
+    sam2_region_prior_weight = getattr(args, "sam2_region_prior_weight", None)
+    if sam2_region_prior_weight is not None:
+        updates["sam2_region_prior_weight"] = sam2_region_prior_weight
+    teacher_seed_mode = getattr(args, "teacher_seed_mode", None)
+    if teacher_seed_mode is not None:
+        updates["teacher_seed_mode"] = teacher_seed_mode
+    teacher_seed_selection_mode = getattr(args, "teacher_seed_selection_mode", None)
+    if teacher_seed_selection_mode is not None:
+        updates["teacher_seed_selection_mode"] = teacher_seed_selection_mode
     return config.model_copy(update=updates)
 
 
@@ -395,6 +423,7 @@ def _make_parser() -> argparse.ArgumentParser:
             "rtx5000-nuscenes-teacher",
             "rtx5000-nuscenes-teacher-quality-plus",
             "rtx5000-nuscenes-dinov2-teacher",
+            "rtx5000-nuscenes-dinov3-teacher",
         ),
         default="default",
     )
@@ -406,6 +435,8 @@ def _make_parser() -> argparse.ArgumentParser:
             "efficientnet_b0",
             "dinov2_vits14_reg",
             "dinov2_vitb14_reg",
+            "dinov3_vits16",
+            "dinov3_vitb16",
         ),
         default=None,
     )
@@ -420,8 +451,14 @@ def _make_parser() -> argparse.ArgumentParser:
         default=None,
     )
     parser.add_argument("--foundation-repo-root", type=Path, default=None)
+    parser.add_argument("--foundation-weights", type=Path, default=None)
     parser.add_argument(
         "--activation-checkpointing",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+    )
+    parser.add_argument(
+        "--auto-vram-fit",
         action=argparse.BooleanOptionalAction,
         default=None,
     )
@@ -430,6 +467,15 @@ def _make_parser() -> argparse.ArgumentParser:
         choices=("auto", "math", "flash", "efficient", "cudnn"),
         default=None,
     )
+    parser.add_argument("--sam2-repo-root", type=Path, default=None)
+    parser.add_argument("--sam2-model-cfg", type=str, default=None)
+    parser.add_argument("--sam2-checkpoint", type=Path, default=None)
+    parser.add_argument(
+        "--sam2-region-prior-mode",
+        choices=("off", "proposal_boxes"),
+        default=None,
+    )
+    parser.add_argument("--sam2-region-prior-weight", type=float, default=None)
     parser.add_argument(
         "--teacher-seed-mode",
         choices=("off", "replace_lidar", "replace_lidar_refs"),

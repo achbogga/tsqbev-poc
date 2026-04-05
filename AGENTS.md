@@ -25,10 +25,11 @@ The default migration target for this repo is now a foundation-teacher perspecti
 
 - sparse temporal runtime core from the `Sparse4D` family
 - `BEVFormer v2`-style perspective supervision to adapt strong image backbones
-- `DINOv2` first and `DINOv3` second for projected camera foundation features
+- `DINOv3` first and `DINOv2` only as a fallback for projected camera foundation features
 - `OpenPCDet` / `BEVFusion` as strong geometry and multimodal teachers
 - `MapTRv2` as the staged lane/vector-map head
 - `EfficientViT`, `OFA`, `AMC`, and `HAQ` for the later efficiency path
+- `SAM 2.1` region or mask priors as the frontier public Segment Anything branch until a newer official public release exists
 - `Alpamayo` as a teacher/evaluator for long-tail reasoning, not the runtime trunk
 
 Use the legacy sparse-query line and dense-BEV control baselines only as comparison evidence unless
@@ -151,6 +152,8 @@ The bounded research loop must:
 - treat the local research-memory stack as required context, not optional decoration
 - emit a machine-readable `boss_progress_verdict` after every invocation that compares the new
   promoted run against the previous mini incumbent and the best historical mini result
+- prefer hosted frontier reasoning models for planner and critic roles whenever credentials exist,
+  with local heuristics only as fallback
 - when repeated `incremental_progress`, `schedule_checkpoint_drift`, or regression appears,
   suppress low-ROI exploit families automatically instead of reopening them by habit
 - when multiple ROI-positive directions land together, prefer one KD/ranking branch and one

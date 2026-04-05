@@ -60,6 +60,34 @@ def test_resolve_config_supports_dinov2_teacher_preset() -> None:
     assert config.ranking_mode == "quality_class_only"
 
 
+def test_resolve_config_supports_dinov3_teacher_preset() -> None:
+    args = argparse.Namespace(
+        preset="rtx5000-nuscenes-dinov3-teacher",
+        image_backbone=None,
+        pretrained_image_backbone=None,
+        freeze_image_backbone=None,
+        foundation_repo_root=None,
+        foundation_weights=None,
+        activation_checkpointing=None,
+        attention_backend=None,
+        auto_vram_fit=None,
+        sam2_repo_root=None,
+        sam2_model_cfg=None,
+        sam2_checkpoint=None,
+        sam2_region_prior_mode=None,
+        sam2_region_prior_weight=None,
+        teacher_seed_mode=None,
+        teacher_seed_selection_mode=None,
+    )
+
+    config = _resolve_config(args)
+
+    assert config.image_backbone == "dinov3_vits16"
+    assert config.freeze_image_backbone is True
+    assert config.auto_vram_fit is True
+    assert config.sam2_region_prior_mode == "proposal_boxes"
+
+
 def test_resolve_config_supports_teacher_quality_plus_preset() -> None:
     args = argparse.Namespace(
         preset="rtx5000-nuscenes-teacher-quality-plus",
@@ -67,8 +95,15 @@ def test_resolve_config_supports_teacher_quality_plus_preset() -> None:
         pretrained_image_backbone=None,
         freeze_image_backbone=None,
         foundation_repo_root=None,
+        foundation_weights=None,
         activation_checkpointing=None,
         attention_backend=None,
+        auto_vram_fit=None,
+        sam2_repo_root=None,
+        sam2_model_cfg=None,
+        sam2_checkpoint=None,
+        sam2_region_prior_mode=None,
+        sam2_region_prior_weight=None,
         teacher_seed_mode=None,
         teacher_seed_selection_mode=None,
     )

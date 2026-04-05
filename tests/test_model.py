@@ -195,3 +195,46 @@ def test_model_supports_dinov2_projected_backbone(monkeypatch, synthetic_batch, 
     assert fake_dino.last_input_shape is not None
     assert fake_dino.last_input_shape[-2] % 14 == 0
     assert fake_dino.last_input_shape[-1] % 14 == 0
+
+
+def test_model_supports_dinov3_projected_backbone(monkeypatch, synthetic_batch, tmp_path) -> None:
+    class FakeDinoV3(nn.Module):
+        def __init__(self) -> None:
+            super().__init__()
+            self.embed_dim = 384
+            self.last_input_shape: tuple[int, ...] | None = None
+
+        def get_intermediate_layers(
+            self,
+            x: torch.Tensor,
+            n: list[int],
+            reshape: bool = True,
+        ) -> tuple[torch.Tensor, torch.Tensor]:
+            self.last_input_shape = tuple(x.shape)
+            batch = x.shape[0]
+            height = x.shape[-2] // 16
+            width = x.shape[-1] // 16
+            low = torch.randn(batch, self.embed_dim, height, width, device=x.device, dtype=x.dtype)
+            high = torch.randn(batch, self.embed_dim, height, width, device=x.device, dtype=x.dtype)
+            return low, high
+
+    fake_dino = FakeDinoV3()
+    monkeypatch.setattr("torch.hub.load", lambda *args, **kwargs: fake_dino)
+    foundation_root = tmp_path / "dinov3"
+    foundation_root.mkdir()
+    config = ModelConfig.small().model_copy(
+        update={
+            "image_backbone": "dinov3_vits16",
+            "pretrained_image_backbone": True,
+            "freeze_image_backbone": True,
+            "foundation_repo_root": str(foundation_root),
+            "foundation_patch_multiple": 16,
+            "attention_backend": "math",
+        }
+    )
+    model = TSQBEVModel(config)
+    outputs = model(synthetic_batch)
+    assert outputs["object_logits"].shape[0] == synthetic_batch.batch_size
+    assert fake_dino.last_input_shape is not None
+    assert fake_dino.last_input_shape[-2] % 16 == 0
+    assert fake_dino.last_input_shape[-1] % 16 == 0

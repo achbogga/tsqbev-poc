@@ -128,10 +128,10 @@ class ResearchMemoryConfig(BaseModel):
     mem0_ollama_llm_model: str = "llama3.1:latest"
     mem0_ollama_embed_model: str = "nomic-embed-text:latest"
     embedder_provider: Literal["auto", "fastembed", "hash"] = "auto"
-    embedder_model: str = "sentence-transformers/all-MiniLM-L6-v2"
-    reranker_enabled: bool = False
+    embedder_model: str = "BAAI/bge-m3"
+    reranker_enabled: bool = True
     reranker_provider: Literal["auto", "fastembed", "cohere"] = "auto"
-    reranker_model: str = "BAAI/bge-reranker-base"
+    reranker_model: str = "BAAI/bge-reranker-v2-m3"
     cohere_reranker_model: str = "rerank-v4.0-pro"
     cohere_api_key: str | None = None
     cohere_base_url: str | None = None
@@ -184,13 +184,16 @@ class ResearchMemoryConfig(BaseModel):
             embedder_provider=os.getenv("TSQBEV_MEMORY_EMBEDDER", "auto"),  # type: ignore[arg-type]
             embedder_model=os.getenv(
                 "TSQBEV_MEMORY_EMBEDDER_MODEL",
-                "sentence-transformers/all-MiniLM-L6-v2",
+                "BAAI/bge-m3",
             ),
-            reranker_enabled=_env_bool("TSQBEV_MEMORY_RERANKER_ENABLED", False),
+            reranker_enabled=_env_bool("TSQBEV_MEMORY_RERANKER_ENABLED", True),
             reranker_provider=os.getenv(
                 "TSQBEV_MEMORY_RERANKER_PROVIDER", "auto"
             ),  # type: ignore[arg-type]
-            reranker_model=os.getenv("TSQBEV_MEMORY_RERANKER_MODEL", "BAAI/bge-reranker-base"),
+            reranker_model=os.getenv(
+                "TSQBEV_MEMORY_RERANKER_MODEL",
+                "BAAI/bge-reranker-v2-m3",
+            ),
             cohere_reranker_model=os.getenv(
                 "TSQBEV_COHERE_RERANKER_MODEL", "rerank-v4.0-pro"
             ),

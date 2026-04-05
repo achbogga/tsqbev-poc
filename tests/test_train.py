@@ -10,6 +10,7 @@ from tsqbev.synthetic import make_synthetic_batch
 from tsqbev.teacher_backends import TeacherProviderConfig
 from tsqbev.teacher_cache import TeacherCacheStore
 from tsqbev.train import (
+    _joint_official_metrics_better,
     _make_detection_criterion,
     _run_joint_public_official_eval,
     _teacher_anchor_schedule_value,
@@ -377,6 +378,16 @@ def test_joint_public_official_eval_degrades_gracefully_on_openlane_failure(
         lambda **kwargs: {"nd_score": 0.25, "mean_ap": 0.2},
     )
     monkeypatch.setattr(
+        "tsqbev.train.export_sanity_diagnostics",
+        lambda *args, **kwargs: {
+            "sanity_ok": 1.0,
+            "boxes_per_sample_mean": 12.0,
+            "ego_translation_norm_p99": 24.0,
+            "max_box_size_m": 4.5,
+            "score_mean": 0.75,
+        },
+    )
+    monkeypatch.setattr(
         "tsqbev.train.export_openlane_predictions",
         lambda **kwargs: lane_pred_dir,
     )
@@ -411,6 +422,7 @@ def test_joint_public_official_eval_degrades_gracefully_on_openlane_failure(
 
     assert metrics["nuscenes_eval_ok"] == 1.0
     assert metrics["nuscenes_nds"] == 0.25
+    assert metrics["nuscenes_export_sanity_ok"] == 1.0
     assert metrics["openlane_eval_ok"] == 0.0
     assert metrics["openlane_f_score"] == 0.0
 
@@ -419,3 +431,27 @@ def test_joint_public_official_eval_degrades_gracefully_on_openlane_failure(
     )
     assert summary["metrics"]["nuscenes_map"] == 0.2
     assert "openlane" in summary["errors"]
+
+
+def test_joint_official_metrics_prefer_sane_official_detection() -> None:
+    broken = {
+        "nuscenes_eval_ok": 1.0,
+        "nuscenes_export_sanity_ok": 0.0,
+        "nuscenes_nds": 0.40,
+        "nuscenes_map": 0.35,
+        "openlane_eval_ok": 1.0,
+        "openlane_f_score": 0.70,
+        "openlane_precision": 0.72,
+        "openlane_recall": 0.68,
+    }
+    sane = {
+        "nuscenes_eval_ok": 1.0,
+        "nuscenes_export_sanity_ok": 1.0,
+        "nuscenes_nds": 0.20,
+        "nuscenes_map": 0.18,
+        "openlane_eval_ok": 1.0,
+        "openlane_f_score": 0.65,
+        "openlane_precision": 0.66,
+        "openlane_recall": 0.64,
+    }
+    assert _joint_official_metrics_better(sane, broken) is True

@@ -34,10 +34,12 @@ These instructions are durable repo policy, not one-off chat guidance.
     ranking and source-mix collapse
 - if a public upstream stack or teacher suite is better supported than the current custom path,
   pivot to it rather than deepening the custom sparse-query line
-- treat Sparse4D, BEVFormer v2, OpenPCDet, BEVFusion, MapTRv2, EfficientViT, DINOv2 / DINOv3,
+- treat Sparse4D, BEVFormer v2, OpenPCDet, BEVFusion, MapTRv2, EfficientViT, DINOv3, SAM 2.1,
   Alpamayo, and MIT HAN Lab compression methods as first-class candidates
 - treat Alpamayo as a teacher/evaluator and long-tail mining tool, not as the in-vehicle runtime
   perception trunk
+- prefer hosted frontier planner and critic models for the research control plane whenever
+  credentials exist, with local fallback only on failure
 - prefer the highest-ROI falsifiable change first, not the most fashionable or largest one
 - fix small blockers immediately when they are clearly slowing the loop
 - do not stop after one run if the next step is clear and bounded
