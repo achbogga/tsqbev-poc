@@ -1,5 +1,5 @@
 {
-  "generated_at_utc": "2026-04-05T11:34:42.315265+00:00",
+  "generated_at_utc": "2026-04-05T12:35:20.078423+00:00",
   "current_state": [
     "Local incumbent: `carryover_carryover_carryover_carryover_carryover_carryover_recovery_v14_teacher_anchor_quality_focal_teacher_quality_query_boost_quality_rank_teacher_quality_plus_quality_rank_finegrid` with NDS `0.1833`, mAP `0.1814`, val total `10.6925` from [artifacts/research_v29_continuation_v1/research_loop/results.jsonl](artifacts/research_v29_continuation_v1/research_loop/results.jsonl).",
     "Best local overfit frontier: `recovery_v14_teacher_anchor_quality_focal` with NDS `0.1553`, mAP `0.1992`, train_total_ratio `0.3624`, car AP@4m `0.4958` from [artifacts/gates/recovery_v14_teacher_anchor_quality_focal/overfit_gate/summary.json](artifacts/gates/recovery_v14_teacher_anchor_quality_focal/overfit_gate/summary.json).",
@@ -15,9 +15,9 @@
   ],
   "open_blockers": [
     "Scale-up blocker: at least one scale gate remains unmet; do not spend 10x compute yet ([artifacts/research_v29_continuation_v1/research_loop/summary.json](artifacts/research_v29_continuation_v1/research_loop/summary.json)).",
-    "Repeated rabbit-hole signal: `incremental_progress` appeared `69` times.",
-    "Repeated rabbit-hole signal: `schedule_checkpoint_drift` appeared `28` times.",
-    "Repeated rabbit-hole signal: `vehicle_emergence_failure` appeared `17` times."
+    "Repeated rabbit-hole signal: `incremental_progress` appeared `72` times.",
+    "Repeated rabbit-hole signal: `schedule_checkpoint_drift` appeared `29` times.",
+    "Repeated rabbit-hole signal: `vehicle_emergence_failure` appeared `18` times."
   ],
   "recommended_next_steps": [
     "run the 32-sample overfit gate before any larger-scale training",
