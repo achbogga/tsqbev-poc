@@ -735,6 +735,30 @@ def _joint_official_metrics_better(
     return _joint_official_metric_key(candidate) > _joint_official_metric_key(incumbent)
 
 
+def _catastrophic_nuscenes_official_failure(metrics: dict[str, float] | None) -> bool:
+    if metrics is None:
+        return False
+    eval_ok = float(metrics.get("nuscenes_eval_ok", 0.0)) >= 1.0
+    if not eval_ok:
+        return False
+    nds = float(metrics.get("nuscenes_nds", 0.0))
+    mean_ap = float(metrics.get("nuscenes_map", 0.0))
+    sanity_ok = float(metrics.get("nuscenes_export_sanity_ok", 0.0))
+    max_box_size_m = float(metrics.get("nuscenes_max_box_size_m", 0.0))
+    score_mean = float(metrics.get("nuscenes_score_mean", 0.0))
+    ego_translation_p99 = float(metrics.get("nuscenes_ego_translation_norm_p99", 0.0))
+    return (
+        nds <= 1e-8
+        and mean_ap <= 1e-8
+        and (
+            sanity_ok <= 0.0
+            or max_box_size_m > 100.0
+            or score_mean > 0.99
+            or ego_translation_p99 > 20.0
+        )
+    )
+
+
 def fit_nuscenes(
     dataroot: str | Path,
     artifact_dir: str | Path,
@@ -1141,6 +1165,22 @@ def fit_nuscenes(
                     f"sanity_ok={latest_official_metrics['nuscenes_export_sanity_ok']:.0f}",
                     flush=True,
                 )
+                if _catastrophic_nuscenes_official_failure(latest_official_metrics):
+                    epochs_run = epoch
+                    train_steps_completed += (
+                        len(train_loader) if epoch_max_steps is None else epoch_max_steps
+                    )
+                    early_stop_triggered = True
+                    early_stop_reason = (
+                        "catastrophic official-eval failure: "
+                        f"epoch={epoch} nds={latest_official_metrics['nuscenes_nds']:.4f} "
+                        f"map={latest_official_metrics['nuscenes_map']:.4f} "
+                        f"sanity_ok={latest_official_metrics['nuscenes_export_sanity_ok']:.0f} "
+                        f"max_box_size_m={latest_official_metrics['nuscenes_max_box_size_m']:.2f} "
+                        f"score_mean={latest_official_metrics['nuscenes_score_mean']:.4f}"
+                    )
+                    print(f"[early-stop] {early_stop_reason}", flush=True)
+                    break
             if active_tracker is not None:
                 active_tracker.log(
                     {
@@ -2003,6 +2043,19 @@ def fit_joint_public(
                     f"openlane_precision={latest_official_metrics['openlane_precision']:.4f}",
                     flush=True,
                 )
+                if _catastrophic_nuscenes_official_failure(latest_official_metrics):
+                    epochs_run = epoch
+                    early_stop_triggered = True
+                    early_stop_reason = (
+                        "catastrophic joint official-eval failure: "
+                        f"epoch={epoch} nds={latest_official_metrics['nuscenes_nds']:.4f} "
+                        f"map={latest_official_metrics['nuscenes_map']:.4f} "
+                        f"sanity_ok={latest_official_metrics['nuscenes_export_sanity_ok']:.0f} "
+                        f"max_box_size_m={latest_official_metrics['nuscenes_max_box_size_m']:.2f} "
+                        f"score_mean={latest_official_metrics['nuscenes_score_mean']:.4f}"
+                    )
+                    print(f"[early-stop] {early_stop_reason}", flush=True)
+                    break
 
             print(
                 f"[joint-epoch] completed epoch={epoch} "
