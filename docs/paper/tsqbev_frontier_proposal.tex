@@ -21,6 +21,8 @@
 \usepackage{tikz}
 \usepackage{pgfplots}
 \pgfplotsset{compat=1.18}
+\setlength{\emergencystretch}{2em}
+\Urlmuskip=0mu plus 1mu\relax
 \usetikzlibrary{arrows.meta,positioning,calc,fit,backgrounds,shapes.geometric,decorations.pathreplacing}
 
 \newcommand{\iconmem}{\textbf{DB}}
@@ -41,22 +43,22 @@
 \maketitle
 
 \begin{abstract}
-The current \texttt{tsqbev-poc} repository has crossed the threshold from ``toy public scaffold'' to
-``measured but still weak local control.'' The best trusted local model reaches \texttt{NDS 0.1833}
-and \texttt{mAP 0.1814} on \texttt{nuScenes mini\_val}, while the reproduced public
-\texttt{BEVFusion} teacher/control reaches \texttt{NDS 0.7072} and \texttt{mAP 0.6730}. This gap is
-too large to close with more local query-budget nudges. We propose a new research program centered
-on a \emph{world-anchored latent contract}: an efficient \texttt{Sparse4D}-style student, a
-\texttt{DINOv3}-conditioned camera branch with \texttt{BEVFormer v2}-style perspective
-supervision, dense world-aligned distillation from unrestricted teachers such as
-\texttt{BEVFusion}/\texttt{OpenPCDet}, and offline region-support priors from \texttt{SAM 2.1}. We
-argue from exact local evidence, the repository's promoted research-memory state, and primary-source
-literature that three lessons matter most. First, camera foundation features require a geometry-aware
-bridge before they can improve 3D metrics. Second, lane learning should be attached only after the
-shared world latent is stable. Third, the control plane for research itself must be official-metric
-driven, exact-state aware, and resistant to low-signal branch churn. We define the proposed model,
-the distillation objectives, the staged multitask curriculum, the hardware-aware deployment path,
-and falsifiable success criteria for the next frontier push.
+This paper proposes a frontier-reset program for a deployable multimodal 3D perception student.
+The current local control in \texttt{tsqbev-poc} reaches \texttt{NDS 0.1833} and \texttt{mAP 0.1814}
+on \texttt{nuScenes mini\_val}; a first \texttt{DINOv3} probe reaches \texttt{NDS 0.1616} and
+\texttt{mAP 0.1591}; and a reproduced public \texttt{BEVFusion} system provides a much stronger,
+cross-split contextual ceiling on the full validation set. This evidence suggests that the main
+bottleneck is no longer basic non-collapse, but the absence of a world-aligned bridge between
+frontier image priors and precise 3D geometry. We therefore propose a research program centered on a
+\emph{world-anchored latent contract}: an efficient \texttt{Sparse4D}-style student, a
+\texttt{DINOv3}-conditioned camera branch with \texttt{BEVFormer v2}-style perspective supervision,
+dense world-aligned distillation from unrestricted teachers such as \texttt{BEVFusion} and
+\texttt{OpenPCDet}, and offline region-support priors from \texttt{SAM 2.1}. The proposal is built
+around three hypotheses: camera foundation features need an explicit geometry bridge, lane learning
+should only be reintroduced after the shared world latent is stable, and the research control plane
+must be governed by official metrics rather than by loss alone. We define the model, the
+distillation losses, the staged multitask curriculum, the deployment path, and falsifiable success
+criteria for the next frontier push.
 \end{abstract}
 
 \section{Introduction}
@@ -73,22 +75,23 @@ The local evidence is now concrete. The repository's best trusted local control,
 \texttt{NDS 0.1833}, \texttt{mAP 0.1814}, \SI{18.34}{ms} mean latency, and \texttt{40.0}
 boxes/sample on \texttt{mini\_val}. The reproduced public teacher ceiling,
 \repo{artifacts/bevfusion\_repro/bevfusion\_bbox\_summary.json}, remains far ahead at
-\texttt{NDS 0.7072}, \texttt{mAP 0.6730}. The first real \texttt{DINOv3} probe,
+\texttt{NDS 0.7072}, \texttt{mAP 0.6730} on the full validation split, so it should be treated as a
+contextual ceiling rather than a split-matched comparison. The first real \texttt{DINOv3} probe,
 \repo{artifacts/foundation\_v3\_dinov3\_teacher\_vits16\_36ep\_v1/epoch022\_probe\_r4/metrics/nuscenes/metrics\_summary.json},
 is promising but still below the trusted control at \texttt{NDS 0.1616}, \texttt{mAP 0.1591}. The
 naive joint detection+lane branch already failed catastrophically on official detection metrics,
-reaching zero on \texttt{mini\_val}; therefore, more naive multitask reruns are not a viable
-frontier strategy.
+reaching zero on \texttt{mini\_val}; this is strong evidence against resuming naive multitask
+coupling without stricter task isolation and checkpointing.
 
-This proposal makes three claims.
+This proposal makes three core contributions.
 \begin{enumerate}[leftmargin=*,itemsep=2pt]
-\item The next breakthrough must be \emph{world-aligned}, not just backbone-heavier. This means a
+\item It proposes a \emph{world-aligned} frontier hypothesis rather than a backbone-only one. This means a
 shared latent in world or BEV coordinates that every teacher supervises explicitly.
-\item Cross-modal fusion and temporal memory should be separated conceptually. Gated or deformable
+\item It separates cross-modal fusion from temporal memory. Gated or deformable
 cross-attention is the right tool for selective spatial fusion, while selective state-space models
 are better treated as later temporal efficiency upgrades rather than immediate substitutes for
 spatial alignment.
-\item The research lab itself must be a first-class system. Exact memory, semantic retrieval,
+\item It treats the research lab itself as a first-class system. Exact memory, semantic retrieval,
 official-metric checkpointing, and promotion gates are part of the scientific method here, not just
 operator convenience.
 \end{enumerate}
@@ -99,7 +102,7 @@ operator convenience.
 \caption{Exact local starting point for this proposal. All numbers are drawn from repository
 artifacts referenced in the text.}
 \label{tab:starting-point}
-\begin{tabular}{lrrrr}
+\begin{tabularx}{\linewidth}{>{\raggedright\arraybackslash}p{0.31\linewidth} >{\raggedright\arraybackslash}p{0.13\linewidth} r r >{\raggedright\arraybackslash}X}
 \toprule
 System & Split & NDS & mAP & Notes \\
 \midrule
@@ -108,14 +111,15 @@ Trusted local control & \texttt{mini\_val} & 0.1833 & 0.1814 & \SI{18.34}{ms}, 4
 Naive joint det+lane & \texttt{mini\_val} & 0.0000 & 0.0000 & invalid path \\
 Reproduced \texttt{BEVFusion} & \texttt{val} & 0.7072 & 0.6730 & teacher/control ceiling \\
 \bottomrule
-\end{tabular}
+\end{tabularx}
 \end{table}
 
 The numbers in Table~\ref{tab:starting-point} imply two things. First, the repository is no longer
-blocked by complete model failure. There is a real local control and a real dense teacher ceiling.
-Second, the local frontier is not yet close enough to justify incrementalism. The gap to the teacher
-is still \(\Delta\text{NDS}\approx0.5239\), which is far too large to be explained by scheduler
-tweaks or slight query-count changes.
+blocked by complete model failure. There is a real local control, a real \texttt{DINOv3} signal,
+and a real dense-teacher ceiling. Second, the local frontier is not yet close enough to justify
+incrementalism. The full-validation \texttt{BEVFusion} result is not directly comparable to the
+\texttt{mini\_val} student numbers, but it is large enough to make clear that small local
+schedule-only nudges are unlikely to close the broader gap.
 
 The promoted memory build,
 \repo{artifacts/memory/sync\_manifest.json}, reinforces the same diagnosis. It indexes \texttt{65}
@@ -123,6 +127,13 @@ high-signal facts and explicitly surfaces repeated rabbit holes such as
 \repo{incremental\_progress}, \repo{schedule\_checkpoint\_drift}, and
 \repo{vehicle\_emergence\_failure}. This is the empirical reason we should not restart a broad
 local loop until the next branch is hypothesis-tight.
+
+\paragraph{Terminology.}
+We expand the main abbreviations on first use. \textbf{NDS} is the nuScenes Detection Score;
+\textbf{mAP} is mean Average Precision; \textbf{SSM} denotes a state-space model; \textbf{MoE}
+denotes a mixture-of-experts model; and \textbf{KB} refers to the repository knowledge base. Later
+loss terms expand \textbf{VFL} as Varifocal Loss, \textbf{BCE} as binary cross-entropy, and
+\textbf{GIoU} as generalized intersection-over-union.
 
 \section{Literature-Grounded Design Principles}
 \paragraph{Foundation camera features require a geometry bridge.}
@@ -144,8 +155,8 @@ teacher-side support generation, not replacing the deployable perception trunk.
 
 \paragraph{Fusion and temporal memory should be separated.}
 Gated cross-attention is a selective \emph{external lookup} mechanism, while Mamba-like selective
-SSMs are \emph{internal temporal memory} mechanisms \cite{flamingo,mamba}. Conflating them is a
-category error. We therefore use gated or deformable fusion for spatial cross-modal alignment now,
+SSMs are \emph{internal temporal memory} mechanisms \cite{flamingo,mamba}. This distinction matters
+for design: we therefore use gated or deformable fusion for spatial cross-modal alignment now,
 and treat temporal SSMs as a later optimization path if and only if the spatial/world latent is
 already winning.
 
@@ -181,13 +192,10 @@ fix for a weak world model.
 
 \node[student] (cams) at (4.4,3.2) {multi-view images\\+ projection adapter};
 \node[student] (cross) at (4.4,1.3) {gated deformable\\cross-attention};
-\node[student] (world) at (8.9,1.3) {shared world latent\\$Z^{\text{world}}_s$};
+\node[student] (world) at (8.9,1.3) {shared world latent\\$Z_s^{\text{world}}$};
 \node[student] (sparse4d) at (8.9,3.2) {Sparse4D-style\\student core};
 \node[student] (det) at (13.1,2.4) {3D detection head};
 \node[student] (lane) at (13.1,0.3) {staged MapTRv2\\lane/vector head};
-
-\node[control] (mem) at (8.9,-2.3) {\iconmem\\DuckDB + Qdrant + Mem0\\promoted memory};
-\node[control] (ctrl) at (13.1,-2.3) {\iconchip\\planner / critic / evaluator\\official-metric gates};
 
 \draw[arr] (dino) -- node[above, note] {semantic features} (cams);
 \draw[arr] (sam) -- node[above, note] {region masks / priors} (cross);
@@ -197,13 +205,10 @@ fix for a weak world model.
 \draw[arr] (world) -- (sparse4d);
 \draw[arr] (sparse4d) -- (det);
 \draw[arr] (world) -- (lane);
-\draw[arr] (mem) -- node[above, note] {agenda + evidence} (ctrl);
-\draw[arr] (ctrl) -- node[right, note] {gates} (det);
-\draw[arr] (ctrl) -- node[right, note] {non-regression} (lane);
 \end{tikzpicture}}
 \caption{Proposal overview. Heavy teachers supervise a shared world latent rather than directly
-replacing the deployable student. The control plane uses exact memory and official-metric gates to
-prevent low-signal branch churn.}
+replacing the deployable student. Runtime inference is the green path; the blue blocks are
+training-time teachers. The control plane is shown separately in Figure~\ref{fig:control}.}
 \label{fig:proposal}
 \end{figure*}
 
@@ -213,12 +218,13 @@ instead of each teacher attaching ad hoc local losses to separate branches.
 
 The runtime student remains a \texttt{Sparse4D}-style sparse temporal model \cite{sparse4d}. The
 camera branch is strengthened with \texttt{DINOv3} priors and a learned projection adapter. A
-gated deformable cross-attention block fuses camera support into the world latent. The dense
-teacher side supplies three different kinds of supervision:
+gated deformable cross-attention block fuses camera support into the world latent
+\cite{deformabledetr}. The dense teacher side supplies three different kinds of supervision:
 \begin{enumerate}[leftmargin=*,itemsep=2pt]
 \item semantic camera priors from \texttt{DINOv3},
 \item region support from \texttt{SAM 2.1},
-\item world-aligned geometry and BEV targets from \texttt{BEVFusion} or strong LiDAR teachers.
+\item world-aligned geometry and BEV targets from \texttt{BEVFusion} or strong LiDAR teachers
+\cite{bevfusion,openpcdet}.
 \end{enumerate}
 
 \subsection{Student-side fusion}
@@ -235,7 +241,7 @@ Let \(q_i \in \R^d\) be the \(i\)-th sparse query with a projected multi-view re
 g_i = \sigma(W_g q_i).
 \label{eq:gated-cross}
 \end{equation}
-Equation~\eqref{eq:gated-cross} encodes the key distinction from the KB: cross-attention is the
+Equation~\eqref{eq:gated-cross} encodes the key distinction from the knowledge base: cross-attention is the
 right mechanism for \emph{whether and where} to read external evidence, not for long-horizon
 temporal carry.
 
@@ -275,8 +281,10 @@ for dense BEV or world-latent alignment, and
 \right),
 \label{eq:quality}
 \end{equation}
-where \(q_t\) is a quality-aware teacher target, \(s_s\) is the student ranking score, and
-\((c,d,b)\) denote center, dimensions, and box geometry.
+where \(q_t\) is a quality-aware teacher target, \(s_s\) is the student ranking score,
+\(\mathrm{VFL}\) denotes Varifocal Loss, and \(\mathrm{GIoU}\) denotes generalized
+intersection-over-union \cite{varifocalnet,giou}. The tuple \((c,d,b)\) denotes center, dimensions,
+and box geometry.
 
 \subsection{Region-support distillation from \texttt{SAM 2.1}}
 Let \(M_{\text{sam}}\) be a teacher region prior warped into the world grid by \(\mathcal{W}\). The
@@ -290,7 +298,7 @@ student predicts occupancy or support logits \(H_{\text{occ}}(Z_s^{\text{world}}
 \right).
 \label{eq:occ}
 \end{equation}
-This loss exists to preserve object support and foreground structure that box-only supervision
+Here \(\mathrm{BCE}\) is binary cross-entropy. This loss exists to preserve object support and foreground structure that box-only supervision
 cannot preserve reliably.
 
 \subsection{Staged lane integration}
@@ -377,26 +385,28 @@ boxes/sample, and physically plausible box ranges.
 \caption{Proposed staged program. Each stage has a hard falsifier so the loop cannot drift
 indefinitely.}
 \label{tab:stages}
-\begin{tabularx}{\linewidth}{l l X X}
+\small
+\begin{tabularx}{\linewidth}{>{\raggedright\arraybackslash}p{0.07\linewidth} >{\raggedright\arraybackslash}p{0.16\linewidth} >{\raggedright\arraybackslash}X >{\raggedright\arraybackslash}X}
 \toprule
 Stage & Goal & Proposed mechanism & Falsifier / gate \\
 \midrule
 S0 & hold a trusted control & keep the current \texttt{v29} line as the baseline & any new branch must report official metrics against it \\
-S1 & stronger camera-to-world bridge & \texttt{DINOv3} + projection adapter + perspective supervision & if official \texttt{mini\_val} stays below control after teacher distillation, stop backbone-only work \\
-S2 & stronger world supervision & \texttt{BEVFusion/OpenPCDet} BEV distillation + quality targets + \texttt{SAM 2.1} region priors & if geometry/export does not improve, stop adding more teacher loss terms blindly \\
-S3 & stable lane integration & staged \texttt{MapTRv2} vector head with non-regression gate & if detection drops beyond tolerance, revert to frozen shared trunk \\
+S1 & stronger camera-to-world bridge & \texttt{DINOv3} + projection adapter + perspective supervision & if official \texttt{mini\_val} stays below the trusted control after teacher distillation, stop backbone-only work \\
+S2 & stronger world supervision & \texttt{BEVFusion/OpenPCDet} BEV distillation + quality targets + \texttt{SAM 2.1} region priors & if geometry and export sanity do not improve, stop adding teacher losses blindly \\
+S3 & stable lane integration & staged \texttt{MapTRv2} vector head with non-regression gate & if detection drops beyond tolerance, revert to the frozen shared trunk \\
 S4 & efficiency and deployment & activation checkpointing, dynamic VRAM fit, then \texttt{EfficientViT}/\texttt{OFA}/\texttt{AMC}/\texttt{HAQ}/\texttt{AWQ} & only start after S1/S2 produce a real metric win \\
 \bottomrule
 \end{tabularx}
+\normalsize
 \end{table*}
 
 The immediate frontier work should stop after S2 if it does not beat the trusted control. In that
 case the repo should pivot architecture family again rather than continuing local tweaks.
 
 \section{Expected Breakthrough Mechanism}
-The proposal's central new hypothesis is this:
+The proposal's central hypothesis is this:
 \begin{quote}
-\textbf{The smallest deployable student can break the local frontier only if all heavy teachers
+\textbf{The smallest deployable student is most likely to break the local frontier if all heavy teachers
 supervise the \emph{same world latent}, while the camera branch is explicitly taught how image-space
 semantics map into world-space geometry.}
 \end{quote}
@@ -416,9 +426,9 @@ world latent.
 
 \section{Why Not Other Directions First?}
 \paragraph{Why not Mamba first?}
-The KB explicitly distinguishes fusion from temporal memory. Mamba-style SSMs may eventually
+The knowledge base explicitly distinguishes fusion from temporal memory. Mamba-style SSMs may eventually
 replace or compress temporal attention, but they do not solve the current image-to-world bridge
-problem \cite{mamba}. Starting there would be a category error.
+problem \cite{mamba}. Starting there would likely attack the wrong bottleneck first.
 
 \paragraph{Why not MoE first?}
 MoE is a teacher-side or control-plane efficiency tool unless the student already needs more
@@ -501,6 +511,14 @@ Supervision}. CVPR 2023.
 \bibitem{mamba}
 \emph{Mamba: Linear-Time Sequence Modeling with Selective State Spaces}. arXiv:2312.00752, 2023.
 \url{https://arxiv.org/abs/2312.00752}
+
+\bibitem{varifocalnet}
+\emph{VarifocalNet: An IoU-aware Dense Object Detector}. CVPR 2021.
+\url{https://arxiv.org/abs/2008.13367}
+
+\bibitem{giou}
+\emph{Generalized Intersection over Union: A Metric and A Loss for Bounding Box Regression}. CVPR 2019.
+\url{https://arxiv.org/abs/1902.09630}
 
 \bibitem{byot}
 \emph{Be Your Own Teacher: Improve the Performance of Convolutional Neural Networks via Self Distillation}. ICCV 2019.

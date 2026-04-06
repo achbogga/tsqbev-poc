@@ -107,6 +107,93 @@ class ResearchRecipe:
     skip_training: bool = False
 
 
+@dataclass(slots=True)
+class ResearchProposal:
+    """Supervisor-selected bounded research thesis for one invocation."""
+
+    proposal_id: str
+    objective: str
+    targeted_bottleneck: str | None
+    launch_tags: list[str]
+    exploitation_tags: list[str]
+    suppress_tags: list[str]
+    rationale: list[str]
+    kill_conditions: list[str]
+    force_tags_only: bool = False
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "proposal_id": self.proposal_id,
+            "objective": self.objective,
+            "targeted_bottleneck": self.targeted_bottleneck,
+            "launch_tags": list(self.launch_tags),
+            "exploitation_tags": list(self.exploitation_tags),
+            "suppress_tags": list(self.suppress_tags),
+            "rationale": list(self.rationale),
+            "kill_conditions": list(self.kill_conditions),
+            "force_tags_only": self.force_tags_only,
+        }
+
+
+def _normalize_proposal(
+    proposal: ResearchProposal | dict[str, Any] | None,
+    *,
+    fallback_policy: dict[str, Any] | None = None,
+) -> ResearchProposal | None:
+    if proposal is None and fallback_policy is None:
+        return None
+    if isinstance(proposal, ResearchProposal):
+        base = proposal.to_dict()
+    elif isinstance(proposal, dict):
+        base = dict(proposal)
+    else:
+        base = {}
+    policy = fallback_policy or {}
+    launch_tags = [str(tag) for tag in base.get("launch_tags", [])]
+    exploitation_tags = [str(tag) for tag in base.get("exploitation_tags", [])]
+    if not launch_tags:
+        launch_tags = [str(tag) for tag in policy.get("priority_tags", [])]
+    if not exploitation_tags:
+        exploitation_tags = launch_tags.copy()
+    suppress_tags = [str(tag) for tag in base.get("suppress_tags", policy.get("suppress_tags", []))]
+    rationale = [str(item) for item in base.get("rationale", policy.get("reasons", []))]
+    kill_conditions = [str(item) for item in base.get("kill_conditions", [])]
+    objective = str(base.get("objective", "improve official mini-val frontier"))
+    targeted_bottleneck = base.get("targeted_bottleneck")
+    default_proposal_id = f"proposal-{datetime.now(UTC).strftime('%Y%m%d-%H%M%S')}"
+    proposal_id = str(base.get("proposal_id", default_proposal_id))
+    force_tags_only = bool(base.get("force_tags_only", policy.get("force_priority_only", False)))
+    return ResearchProposal(
+        proposal_id=proposal_id,
+        objective=objective,
+        targeted_bottleneck=(
+            None if targeted_bottleneck is None else str(targeted_bottleneck)
+        ),
+        launch_tags=launch_tags,
+        exploitation_tags=exploitation_tags,
+        suppress_tags=suppress_tags,
+        rationale=rationale,
+        kill_conditions=kill_conditions,
+        force_tags_only=force_tags_only,
+    )
+
+
+def _proposal_policy(
+    proposal: ResearchProposal | None,
+    *,
+    phase: Literal["launch", "exploit"],
+) -> dict[str, Any]:
+    if proposal is None:
+        return {}
+    priority_tags = proposal.launch_tags if phase == "launch" else proposal.exploitation_tags
+    return {
+        "priority_tags": list(priority_tags),
+        "suppress_tags": list(proposal.suppress_tags),
+        "force_priority_only": bool(proposal.force_tags_only),
+        "reasons": list(proposal.rationale),
+    }
+
+
 def _baseline_recipe() -> ResearchRecipe:
     baseline = ModelConfig.rtx5000_nuscenes_baseline()
     return ResearchRecipe(
@@ -1651,6 +1738,7 @@ def _write_run_manifest(
     device: str | None,
     max_experiments: int,
     teacher_provider_config: TeacherProviderConfig | None,
+    proposal: ResearchProposal | None = None,
     extra: dict[str, Any] | None = None,
 ) -> None:
     payload: dict[str, Any] = {
@@ -1667,6 +1755,7 @@ def _write_run_manifest(
             teacher_provider_config=teacher_provider_config,
         ),
         "recipe": _serialize_recipe(recipe),
+        "proposal": None if proposal is None else proposal.to_dict(),
         "environment": _environment_manifest(device),
         "teacher_provider_config": (
             {
@@ -2156,6 +2245,7 @@ def run_bounded_research_loop(
     device: str | None = None,
     max_experiments: int = 5,
     teacher_provider_config: TeacherProviderConfig | None = None,
+    proposal: ResearchProposal | dict[str, Any] | None = None,
     supervisor_policy: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Run a bounded mini-nuScenes experiment sweep and promote one incumbent."""
@@ -2167,6 +2257,7 @@ def run_bounded_research_loop(
     max_experiments = max(1, max_experiments)
     previous_selected_record = _summary_selected_record(artifact_root / "summary.json")
     pre_run_boss_policy = _boss_policy_from_history(artifact_root)
+    resolved_proposal = _normalize_proposal(proposal, fallback_policy=supervisor_policy)
     if supervisor_policy is not None:
         merged_policy = dict(pre_run_boss_policy)
         merged_policy.update(supervisor_policy)
@@ -2190,8 +2281,36 @@ def run_bounded_research_loop(
                 ],
             ]
         pre_run_boss_policy = merged_policy
+    if resolved_proposal is not None:
+        launch_policy = _proposal_policy(resolved_proposal, phase="launch")
+        proposal_merged_policy = dict(pre_run_boss_policy)
+        proposal_merged_policy.update(launch_policy)
+        proposal_merged_policy["suppress_tags"] = sorted(
+            {
+                *[str(tag) for tag in pre_run_boss_policy.get("suppress_tags", [])],
+                *[str(tag) for tag in launch_policy.get("suppress_tags", [])],
+            }
+        )
+        proposal_priority_tags = [str(tag) for tag in launch_policy.get("priority_tags", [])]
+        proposal_merged_policy["priority_tags"] = [
+            *proposal_priority_tags,
+            *[
+                str(tag)
+                for tag in pre_run_boss_policy.get("priority_tags", [])
+                if str(tag) not in set(proposal_priority_tags)
+            ],
+        ]
+        proposal_merged_policy["force_priority_only"] = bool(
+            launch_policy.get("force_priority_only", False)
+            or pre_run_boss_policy.get("force_priority_only", False)
+        )
+        pre_run_boss_policy = proposal_merged_policy
     pre_run_brief = safe_build_research_brief(REPO_ROOT)
     (artifact_root / "pre_run_brief.json").write_text(json.dumps(pre_run_brief, indent=2))
+    if resolved_proposal is not None:
+        (artifact_root / "proposal.json").write_text(
+            json.dumps(resolved_proposal.to_dict(), indent=2)
+        )
 
     records: list[dict[str, Any]] = []
     incumbent_record: dict[str, Any] | None = None
@@ -2289,6 +2408,7 @@ def run_bounded_research_loop(
             device=device,
             max_experiments=max_experiments,
             teacher_provider_config=run_teacher_provider_config,
+            proposal=resolved_proposal,
             extra={"run_id": run_id, "status": "started"},
         )
         try:
@@ -2502,6 +2622,7 @@ def run_bounded_research_loop(
             device=device,
             max_experiments=max_experiments,
             teacher_provider_config=run_teacher_provider_config,
+            proposal=resolved_proposal,
             extra=record,
         )
         _flush_progress_ledgers(artifact_root, records)
@@ -2546,7 +2667,14 @@ def run_bounded_research_loop(
                 incumbent_record,
                 teacher_provider_config,
                 remaining_budget,
-                boss_policy=pre_run_boss_policy,
+                boss_policy=(
+                    {
+                        **pre_run_boss_policy,
+                        **_proposal_policy(resolved_proposal, phase="exploit"),
+                    }
+                    if resolved_proposal is not None
+                    else pre_run_boss_policy
+                ),
             )
             candidate_queue.extend(
                 [
@@ -2598,8 +2726,18 @@ def run_bounded_research_loop(
         "scale_gate_verdict": scale_verdict,
         "boss_progress_verdict": boss_progress_verdict,
         "boss_policy_pre_run": pre_run_boss_policy,
+        "proposal": None if resolved_proposal is None else resolved_proposal.to_dict(),
         "supervisor_policy": supervisor_policy,
         "boss_policy_next": boss_policy_next,
+        "relaunch": {
+            "should_relaunch": not bool(scale_verdict.get("authorized", False)),
+            "reason": (
+                "scale gate not yet authorized; continue bounded proposal-driven iteration"
+                if not bool(scale_verdict.get("authorized", False))
+                else "scale gate authorized; stop bounded local loop and reassess"
+            ),
+            "next_proposal": None if resolved_proposal is None else resolved_proposal.to_dict(),
+        },
         "recommended_next_steps": _recommended_next_steps(
             scale_verdict,
             incumbent_record,

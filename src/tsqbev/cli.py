@@ -443,6 +443,7 @@ def _make_parser() -> argparse.ArgumentParser:
     parser.add_argument("--artifact-dir", type=Path, default=Path("artifacts/baselines"))
     parser.add_argument("--output-path", type=Path, default=Path("artifacts/eval/predictions.json"))
     parser.add_argument("--output-dir", type=Path, default=Path("artifacts/eval"))
+    parser.add_argument("--proposal-path", type=Path, default=None)
     parser.add_argument("--checkpoint", type=Path, default=None)
     parser.add_argument("--init-checkpoint", type=Path, default=None)
     parser.add_argument("--result-json", type=Path, default=None)
@@ -1156,6 +1157,7 @@ def main() -> None:
                 git_publish=args.git_publish,
                 git_remote=args.git_remote,
                 git_branch=args.git_branch,
+                proposal_path=args.proposal_path,
             )
         )
         return

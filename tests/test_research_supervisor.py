@@ -6,9 +6,12 @@ from tsqbev.research_supervisor import (
     SupervisorState,
     _active_checklist_item_for_phase,
     _as_str_list,
+    _build_supervisor_proposal,
     _critic_decision_from_planner,
     _heuristic_planner,
+    _load_proposal_context,
     _render_supervisor_report,
+    _write_context_refresh_summary,
 )
 
 
@@ -75,6 +78,7 @@ def test_render_supervisor_report_includes_phase_and_planner_fields(tmp_path: Pa
         planner_objective="improve nds",
         planner_decision_path="/artifacts/invocation_001/planner_decision.json",
         critic_decision_path="/artifacts/invocation_001/critic_decision.json",
+        proposal_path="/docs/paper/tsqbev_frontier_program.md",
     )
     report = _render_supervisor_report(
         state,
@@ -85,3 +89,66 @@ def test_render_supervisor_report_includes_phase_and_planner_fields(tmp_path: Pa
     assert "active phase" in report
     assert "planner bottleneck" in report
     assert "launching_bounded_loop" in report
+
+
+def test_load_proposal_context_truncates_large_files(tmp_path: Path) -> None:
+    proposal = tmp_path / "proposal.md"
+    proposal.write_text("# Proposal\n" + ("abc " * 5000))
+    context = _load_proposal_context(proposal, max_chars=128)
+    assert context.startswith("# Proposal")
+    assert context.endswith("[truncated]")
+
+
+def test_write_context_refresh_summary_writes_json_and_markdown(tmp_path: Path) -> None:
+    planner = _heuristic_planner({"current_state": ["best frontier is v28 detection control"]})
+    critic = _critic_decision_from_planner(
+        {"current_state": ["best frontier is v28 detection control"]},
+        planner,
+        proposal_context="proposal thesis",
+    )
+    json_path, md_path = _write_context_refresh_summary(
+        tmp_path,
+        phase="post_run",
+        proposal_path=None,
+        proposal_context="proposal thesis",
+        brief={
+            "current_state": ["control is v29"],
+            "open_blockers": ["scale-up blocked"],
+            "recommended_next_steps": ["run DINOv3 + perspective supervision"],
+            "evidence_refs": ["artifact summary"],
+        },
+        planner_decision=planner,
+        critic_decision=critic,
+        notes=["finished invocation"],
+        summary={
+            "selected_record": {
+                "recipe": "frontier_run",
+                "evaluation": {"nd_score": 0.2, "mean_ap": 0.19},
+                "val": {"total": 10.5},
+                "benchmark": {"mean_ms": 18.0},
+            }
+        },
+    )
+    assert json_path.exists()
+    assert md_path.exists()
+    assert "proposal thesis" in md_path.read_text()
+    assert "frontier_run" in json_path.read_text()
+
+
+def test_build_supervisor_proposal_uses_planner_and_critic_policy() -> None:
+    planner = _heuristic_planner(
+        {"current_state": ["joint_public_v3 collapsed with NDS 0.0000 and mAP 0.0000"]}
+    )
+    critic = _critic_decision_from_planner(
+        {"current_state": ["joint_public_v3 collapsed with NDS 0.0000 and mAP 0.0000"]},
+        planner,
+        proposal_context="proposal thesis",
+    )
+    proposal = _build_supervisor_proposal(
+        planner,
+        critic,
+        invocation_root=Path("/tmp/invocation_001"),
+    )
+    assert proposal.proposal_id == "invocation_001"
+    assert proposal.targeted_bottleneck == "joint-metric-collapse"
+    assert "teacher_off_control" in proposal.exploitation_tags

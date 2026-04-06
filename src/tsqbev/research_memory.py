@@ -919,6 +919,31 @@ class ResearchCatalog:
         ).fetchall()
         return [{"root_cause_verdict": row[0], "count": int(row[1])} for row in rows]
 
+    def latest_supervisor_invocation(self) -> dict[str, Any] | None:
+        row = self._conn.execute(
+            """
+            SELECT source_path, targeted_bottleneck, hypothesis, nds, mean_ap, payload_json
+            FROM research_events
+            WHERE event_type = 'supervisor_invocation'
+            ORDER BY CASE
+                         WHEN source_path LIKE '%post_run_context_summary.json' THEN 1
+                         ELSE 0
+                     END DESC,
+                     source_path DESC
+            LIMIT 1
+            """
+        ).fetchone()
+        if row is None:
+            return None
+        return {
+            "source_path": row[0],
+            "targeted_bottleneck": row[1],
+            "objective": row[2],
+            "nds": row[3],
+            "mean_ap": row[4],
+            "payload": json.loads(str(row[5])),
+        }
+
     def lexical_evidence(self, query: str, *, limit: int = 8) -> list[dict[str, Any]]:
         tokens = [token for token in _tokenize(query) if len(token) > 1]
         if not tokens:
@@ -1427,6 +1452,30 @@ def _parse_summary_json(path: Path, repo_root: Path) -> list[ResearchEvent]:
     elif "coverage" in payload:
         event_type = "teacher_cache_audit"
         status = "completed"
+    elif _as_opt_str(payload.get("kind")) == "supervisor_invocation":
+        event_type = "supervisor_invocation"
+        dataset = "nuScenes v1.0-mini"
+        status = _as_opt_str(payload.get("phase")) or "completed"
+        planner = payload.get("planner_decision", {})
+        selected_metrics = payload.get("selected_metrics", {})
+        if isinstance(planner, dict):
+            recipe = _as_opt_str(_nested_get(payload, "selected_metrics", "selected_recipe"))
+            architecture = None
+            nds = (
+                _safe_float(selected_metrics.get("nds"))
+                if isinstance(selected_metrics, dict)
+                else None
+            )
+            mean_ap = (
+                _safe_float(selected_metrics.get("mean_ap"))
+                if isinstance(selected_metrics, dict)
+                else None
+            )
+            val_total = (
+                _safe_float(selected_metrics.get("val_total"))
+                if isinstance(selected_metrics, dict)
+                else None
+            )
 
     events.append(
         ResearchEvent(
@@ -1443,9 +1492,11 @@ def _parse_summary_json(path: Path, repo_root: Path) -> list[ResearchEvent]:
             final_decision=None,
             git_sha=None,
             run_id=None,
-            hypothesis=None,
+            hypothesis=_as_opt_str(_nested_get(payload, "planner_decision", "objective")),
             mutation_reason=None,
-            targeted_bottleneck=None,
+            targeted_bottleneck=_as_opt_str(
+                _nested_get(payload, "planner_decision", "active_bottleneck")
+            ),
             root_cause_verdict=_as_opt_str(payload.get("reason")),
             token_burn_score=None,
             nds=nds,
@@ -1623,6 +1674,55 @@ def _derive_memory_facts(events: list[ResearchEvent], repo_root: Path) -> list[M
                 git_sha=None,
                 run_id=None,
                 payload={"reason": reason},
+            )
+        )
+
+    supervisor_events = by_type.get("supervisor_invocation", [])
+    if supervisor_events:
+        event = supervisor_events[-1]
+        planner = event.payload.get("planner_decision", {})
+        selected_metrics = event.payload.get("selected_metrics", {})
+        relaunch = event.payload.get("loop_summary", {}).get("relaunch", {})
+        objective = (
+            _as_opt_str(planner.get("objective"))
+            if isinstance(planner, dict)
+            else None
+        )
+        bottleneck = (
+            _as_opt_str(planner.get("active_bottleneck"))
+            if isinstance(planner, dict)
+            else None
+        )
+        recipe = (
+            _as_opt_str(selected_metrics.get("selected_recipe"))
+            if isinstance(selected_metrics, dict)
+            else None
+        )
+        claim = "Latest supervisor invocation refreshed the proposal-driven loop."
+        if objective and recipe:
+            claim = (
+                f"Latest supervisor objective targets `{objective}`; "
+                f"last selected recipe was `{recipe}`."
+            )
+        elif objective:
+            claim = f"Latest supervisor objective targets `{objective}`."
+        if isinstance(relaunch, dict) and "reason" in relaunch:
+            reason = _as_opt_str(relaunch.get("reason"))
+            if reason:
+                claim += f" Relaunch status: {reason}."
+        facts.append(
+            MemoryFact(
+                fact_id=_sha1(f"supervisor:{claim}:{event.source_path}"),
+                kind="supervisor_invocation",
+                claim=claim,
+                confidence=0.85,
+                source_refs=[event.source_path],
+                dataset=event.dataset,
+                architecture_family=event.architecture_family,
+                bottleneck=bottleneck,
+                git_sha=event.git_sha,
+                run_id=event.run_id,
+                payload={"recipe": recipe, "objective": objective},
             )
         )
 
@@ -2289,6 +2389,7 @@ def build_research_brief(
             scale_blocker = catalog.latest_scale_blocker()
         upstream = catalog.latest_upstream_baseline()
         repeated = catalog.repeated_rabbit_holes()
+        latest_supervisor = catalog.latest_supervisor_invocation()
         lexical = catalog.lexical_evidence(
             "current incumbent scale blocker bevfusion baseline",
             limit=runtime_cfg.evidence_top_k,
@@ -2347,6 +2448,13 @@ def build_research_brief(
                 f"mAP `{upstream['mean_ap']:.4f}` from "
                 f"{_repo_link(repo_root / upstream['source_path'], repo_root)}."
             )
+        if latest_supervisor is not None:
+            current_state.append(
+                "Latest supervisor invocation: "
+                f"objective `{latest_supervisor['objective'] or '-'}` targeting "
+                f"`{latest_supervisor['targeted_bottleneck'] or '-'}` from "
+                f"{_repo_link(repo_root / latest_supervisor['source_path'], repo_root)}."
+            )
         if cfg.steering_path.exists():
             current_state.append(
                 f"Active steering file present at {_repo_link(cfg.steering_path, repo_root)}."
@@ -2380,6 +2488,11 @@ def build_research_brief(
             delta_since_last.append(
                 "Distilled memory backend returned "
                 f"`{len(memories)}` relevant memory items for the current brief."
+            )
+        if latest_supervisor is not None:
+            delta_since_last.append(
+                "The proposal-driven supervisor is now emitting per-invocation context summaries "
+                "that are ingested by the memory layer."
             )
 
         open_blockers: list[str] = []

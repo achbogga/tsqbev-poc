@@ -18,7 +18,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from tsqbev.research import run_bounded_research_loop
+from tsqbev.research import ResearchProposal, run_bounded_research_loop
 from tsqbev.research_guard import ensure_research_loop_enabled
 from tsqbev.research_memory import (
     REPO_ROOT,
@@ -39,6 +39,7 @@ OpenAIClient: Any = _OpenAI
 
 DEFAULT_SUPERVISOR_ROOT = REPO_ROOT / "artifacts" / "autoresearch"
 DEFAULT_SUPERVISOR_REPORT = REPO_ROOT / "docs" / "reports" / "autoresearch.md"
+DEFAULT_PROPOSAL_PATH = REPO_ROOT / "docs" / "paper" / "tsqbev_frontier_program.md"
 
 
 @dataclass(slots=True)
@@ -68,6 +69,7 @@ class SupervisorState:
     planner_objective: str | None = None
     planner_decision_path: str | None = None
     critic_decision_path: str | None = None
+    proposal_path: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -220,6 +222,172 @@ def _write_first_principles_checkpoint(
     return path
 
 
+def _load_proposal_context(proposal_path: Path | None, *, max_chars: int = 7000) -> str:
+    if proposal_path is None or not proposal_path.exists():
+        return ""
+    text = proposal_path.read_text(encoding="utf-8").strip()
+    if not text:
+        return ""
+    compact = "\n".join(line.rstrip() for line in text.splitlines()).strip()
+    if len(compact) <= max_chars:
+        return compact
+    return compact[:max_chars].rstrip() + "\n\n[truncated]"
+
+
+def _extract_selected_metrics(summary: dict[str, Any]) -> dict[str, Any]:
+    selected = summary.get("selected_record", {})
+    if not isinstance(selected, dict):
+        return {}
+    evaluation = selected.get("evaluation", {})
+    val_payload = selected.get("val", {})
+    benchmark = selected.get("benchmark", {})
+    if not isinstance(evaluation, dict):
+        evaluation = {}
+    if not isinstance(val_payload, dict):
+        val_payload = {}
+    if not isinstance(benchmark, dict):
+        benchmark = {}
+    return {
+        "selected_recipe": selected.get("recipe"),
+        "nds": evaluation.get("nd_score"),
+        "mean_ap": evaluation.get("mean_ap"),
+        "val_total": val_payload.get("total"),
+        "latency_ms": benchmark.get("mean_ms"),
+    }
+
+
+def _write_context_refresh_summary(
+    invocation_root: Path,
+    *,
+    phase: str,
+    proposal_path: Path | None,
+    proposal_context: str,
+    brief: dict[str, Any],
+    planner_decision: PlannerDecision,
+    critic_decision: CriticDecision,
+    notes: list[str],
+    summary: dict[str, Any] | None = None,
+) -> tuple[Path, Path]:
+    invocation_root.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "kind": "supervisor_invocation",
+        "generated_at_utc": datetime.now(tz=UTC).isoformat(),
+        "invocation_id": invocation_root.name,
+        "phase": phase,
+        "proposal_path": (
+            str(proposal_path.relative_to(REPO_ROOT))
+            if proposal_path is not None and proposal_path.exists()
+            else None
+        ),
+        "proposal_context_excerpt": proposal_context,
+        "brief": {
+            "current_state": brief.get("current_state", []),
+            "open_blockers": brief.get("open_blockers", []),
+            "recommended_next_steps": brief.get("recommended_next_steps", []),
+            "evidence_refs": brief.get("evidence_refs", []),
+        },
+        "planner_decision": asdict(planner_decision),
+        "critic_decision": asdict(critic_decision),
+        "notes": notes,
+        "loop_summary": summary or {},
+        "selected_metrics": _extract_selected_metrics(summary or {}),
+    }
+    brief_payload = payload["brief"]
+    assert isinstance(brief_payload, dict)
+    brief_current_state = list(brief_payload.get("current_state", []))
+    brief_open_blockers = list(brief_payload.get("open_blockers", []))
+    brief_next_steps = list(brief_payload.get("recommended_next_steps", []))
+    selected_metrics = payload["selected_metrics"]
+    assert isinstance(selected_metrics, dict)
+    json_path = invocation_root / f"{phase}_context_summary.json"
+    md_path = invocation_root / f"{phase}_context_summary.md"
+    json_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    md_lines = [
+        f"# {phase.replace('_', ' ').title()} Context Summary",
+        f"_Generated: `{payload['generated_at_utc']}`_",
+        "",
+        f"- proposal path: `{payload['proposal_path'] or '-'}`",
+        f"- planner bottleneck: `{planner_decision.active_bottleneck}`",
+        f"- planner objective: `{planner_decision.objective}`",
+        f"- critic approved: `{critic_decision.approved}`",
+        "",
+        "## Proposal Context",
+        proposal_context or "No proposal context loaded.",
+        "",
+        "## Brief Current State",
+        *[f"- {line}" for line in brief_current_state],
+        "",
+        "## Open Blockers",
+        *[f"- {line}" for line in brief_open_blockers],
+        "",
+        "## Recommended Next Steps",
+        *[f"- {line}" for line in brief_next_steps],
+        "",
+        "## Planner Rationale",
+        *[f"- {line}" for line in planner_decision.rationale],
+        "",
+        "## Critic Rationale",
+        *[f"- {line}" for line in critic_decision.rationale],
+        "",
+        "## Notes",
+        *[f"- {line}" for line in notes],
+    ]
+    if selected_metrics:
+        md_lines.extend(
+            [
+                "",
+                "## Selected Metrics",
+                *[
+                    f"- {key}: `{value}`"
+                    for key, value in selected_metrics.items()
+                    if value is not None
+                ],
+            ]
+        )
+    md_path.write_text("\n".join(md_lines).rstrip() + "\n", encoding="utf-8")
+    return json_path, md_path
+
+
+def _build_supervisor_proposal(
+    planner_decision: PlannerDecision,
+    critic_decision: CriticDecision,
+    *,
+    invocation_root: Path,
+) -> ResearchProposal:
+    policy = critic_decision.supervisor_policy
+    launch_tags = [
+        str(tag) for tag in policy.get("priority_tags", planner_decision.priority_tags)
+    ]
+    exploitation_tags = launch_tags.copy()
+    if (
+        "quality_rank_finegrid" in exploitation_tags
+        and "teacher_quality_plus" not in exploitation_tags
+    ):
+        exploitation_tags.append("teacher_quality_plus")
+    if (
+        planner_decision.active_bottleneck == "joint-metric-collapse"
+        and "teacher_off_control" not in exploitation_tags
+    ):
+        exploitation_tags.append("teacher_off_control")
+    suppress_tags = [
+        str(tag) for tag in policy.get("suppress_tags", planner_decision.suppress_tags)
+    ]
+    force_tags_only = bool(
+        policy.get("force_priority_only", planner_decision.force_priority_only)
+    )
+    return ResearchProposal(
+        proposal_id=invocation_root.name,
+        objective=planner_decision.objective,
+        targeted_bottleneck=planner_decision.active_bottleneck,
+        launch_tags=launch_tags,
+        exploitation_tags=exploitation_tags,
+        suppress_tags=suppress_tags,
+        rationale=[*planner_decision.rationale, *critic_decision.rationale],
+        kill_conditions=planner_decision.kill_conditions,
+        force_tags_only=force_tags_only,
+    )
+
+
 def _extract_json_object(text: str) -> dict[str, Any]:
     start = text.find("{")
     end = text.rfind("}")
@@ -299,14 +467,20 @@ def _openai_reasoner(prompt: str, *, model: str) -> dict[str, Any]:
     return _extract_json_object(text)
 
 
-def _planner_decision_from_brief(brief: dict[str, Any]) -> PlannerDecision:
+def _planner_decision_from_brief(
+    brief: dict[str, Any],
+    *,
+    proposal_context: str = "",
+) -> PlannerDecision:
     model = os.getenv("TSQBEV_SUPERVISOR_PLANNER_MODEL", "gpt-5.4")
     prompt = (
         "You are the planner for an autonomous perception research lab. "
         "Given the current research brief, output only JSON with keys: "
         "active_bottleneck, objective, priority_tags, suppress_tags, "
         "force_priority_only, token_burn_score, rationale, kill_conditions. "
-        "Use only short strings. Focus on highest-ROI next experiments.\n\n"
+        "Use only short strings. Focus on highest-ROI next experiments. Treat the proposal "
+        "context as binding unless the brief contains direct counter-evidence.\n\n"
+        f"PROPOSAL_CONTEXT:\n{proposal_context}\n\n"
         f"BRIEF:\n{json.dumps(brief, indent=2, default=str)}"
     )
     try:
@@ -330,13 +504,17 @@ def _planner_decision_from_brief(brief: dict[str, Any]) -> PlannerDecision:
 def _critic_decision_from_planner(
     brief: dict[str, Any],
     planner: PlannerDecision,
+    *,
+    proposal_context: str = "",
 ) -> CriticDecision:
     model = os.getenv("TSQBEV_SUPERVISOR_CRITIC_MODEL", "gpt-5.4-mini")
     prompt = (
         "You are the critic for an autonomous perception research lab. "
         "Review the planner decision and current brief. Output only JSON with keys: "
         "approved, rationale, priority_tags, suppress_tags, force_priority_only. "
-        "Reject repeated low-ROI branches.\n\n"
+        "Reject repeated low-ROI branches. Treat the proposal context as the active thesis and "
+        "reject plans that drift away from it without strong evidence.\n\n"
+        f"PROPOSAL_CONTEXT:\n{proposal_context}\n\n"
         f"BRIEF:\n{json.dumps(brief, indent=2, default=str)}\n\n"
         f"PLANNER:\n{json.dumps(asdict(planner), indent=2, default=str)}"
     )
@@ -469,6 +647,7 @@ def _render_supervisor_report(
         f"- planner objective: `{state.planner_objective or '-'}`",
         f"- planner decision path: `{state.planner_decision_path or '-'}`",
         f"- critic decision path: `{state.critic_decision_path or '-'}`",
+        f"- proposal path: `{state.proposal_path or '-'}`",
         f"- last invocation dir: `{state.last_invocation_dir or '-'}`",
         f"- last selected recipe: `{state.last_selected_recipe or '-'}`",
         f"- last NDS: `{state.last_nds if state.last_nds is not None else '-'}`",
@@ -552,6 +731,7 @@ def run_research_supervisor(
     git_publish: bool = True,
     git_remote: str = "origin",
     git_branch: str | None = None,
+    proposal_path: str | Path | None = DEFAULT_PROPOSAL_PATH,
 ) -> dict[str, Any]:
     """Run a continuous bounded research supervisor with memory + report publishing."""
 
@@ -575,6 +755,7 @@ def run_research_supervisor(
     pre_run_sync_enabled = _env_bool("TSQBEV_SUPERVISOR_PRE_RUN_SYNC", False)
     run_on_reject = _env_bool("TSQBEV_SUPERVISOR_RUN_ON_REJECT", True)
     memory_cfg = ResearchMemoryConfig.from_env()
+    resolved_proposal_path = Path(proposal_path) if proposal_path is not None else None
 
     while max_invocations is None or attempted_invocations < max_invocations:
         print("[supervisor] heartbeat: checking memory health", flush=True)
@@ -610,6 +791,7 @@ def run_research_supervisor(
                 notes=["Stop file present; supervisor exiting cleanly."],
                 active_phase="stopped",
                 active_checklist_item=_active_checklist_item_for_phase("stopped"),
+                proposal_path=str(resolved_proposal_path) if resolved_proposal_path else None,
             )
             _write_supervisor_outputs(
                 state,
@@ -649,6 +831,7 @@ def run_research_supervisor(
                 ],
                 active_phase="waiting_external_run",
                 active_checklist_item=_active_checklist_item_for_phase("waiting_external_run"),
+                proposal_path=str(resolved_proposal_path) if resolved_proposal_path else None,
             )
             _write_supervisor_outputs(
                 state,
@@ -693,6 +876,7 @@ def run_research_supervisor(
             notes=pre_run_notes,
             active_phase="pre_run_brief",
             active_checklist_item=_active_checklist_item_for_phase("pre_run_brief"),
+            proposal_path=str(resolved_proposal_path) if resolved_proposal_path else None,
         )
         _write_supervisor_outputs(
             pre_run_state,
@@ -716,8 +900,36 @@ def run_research_supervisor(
             flush=True,
         )
         checkpoint_path = _write_first_principles_checkpoint(invocation_root, pre_run_brief)
-        planner_decision = _planner_decision_from_brief(pre_run_brief)
-        critic_decision = _critic_decision_from_planner(pre_run_brief, planner_decision)
+        proposal_context = _load_proposal_context(resolved_proposal_path)
+        planner_decision = _planner_decision_from_brief(
+            pre_run_brief,
+            proposal_context=proposal_context,
+        )
+        critic_decision = _critic_decision_from_planner(
+            pre_run_brief,
+            planner_decision,
+            proposal_context=proposal_context,
+        )
+        supervisor_proposal = _build_supervisor_proposal(
+            planner_decision,
+            critic_decision,
+            invocation_root=invocation_root,
+        )
+        (invocation_root / "proposal.json").write_text(
+            json.dumps(supervisor_proposal.to_dict(), indent=2),
+            encoding="utf-8",
+        )
+        _write_context_refresh_summary(
+            invocation_root,
+            phase="pre_run",
+            proposal_path=resolved_proposal_path,
+            proposal_context=proposal_context,
+            brief=pre_run_brief,
+            planner_decision=planner_decision,
+            critic_decision=critic_decision,
+            notes=pre_run_notes,
+            summary=None,
+        )
         print(
             f"[supervisor] invocation {attempted_invocations}: planner={planner_decision.provider} "
             f"critic={critic_decision.provider} approved={critic_decision.approved}",
@@ -767,6 +979,7 @@ def run_research_supervisor(
             planner_objective=planner_decision.objective,
             planner_decision_path=str(planner_decision_path),
             critic_decision_path=str(critic_decision_path),
+            proposal_path=str(resolved_proposal_path) if resolved_proposal_path else None,
         )
         _write_supervisor_outputs(
             launch_state,
@@ -790,6 +1003,7 @@ def run_research_supervisor(
                 "status": "rejected",
                 "planner_decision": asdict(planner_decision),
                 "critic_decision": asdict(critic_decision),
+                "proposal": supervisor_proposal.to_dict(),
             }
             safe_sync_research_memory(REPO_ROOT)
             safe_build_research_brief(REPO_ROOT, persist_log=True)
@@ -806,6 +1020,7 @@ def run_research_supervisor(
                 "first_principles_checkpoint": str(checkpoint_path),
                 "planner_decision": asdict(planner_decision),
                 "critic_decision": asdict(critic_decision),
+                "proposal": supervisor_proposal.to_dict(),
                 "publish": publish_result,
                 "summary": summary,
             }
@@ -839,6 +1054,7 @@ def run_research_supervisor(
                 planner_objective=planner_decision.objective,
                 planner_decision_path=str(planner_decision_path),
                 critic_decision_path=str(critic_decision_path),
+                proposal_path=str(resolved_proposal_path) if resolved_proposal_path else None,
             )
             _write_supervisor_outputs(
                 state,
@@ -869,6 +1085,7 @@ def run_research_supervisor(
                 device=device,
                 max_experiments=max_experiments,
                 teacher_provider_config=teacher_provider_config,
+                proposal=supervisor_proposal,
                 supervisor_policy=critic_decision.supervisor_policy,
             )
             selected_record = summary.get("selected_record", {})
@@ -896,6 +1113,17 @@ def run_research_supervisor(
                 flush=True,
             )
 
+        _write_context_refresh_summary(
+            invocation_root,
+            phase="post_run",
+            proposal_path=resolved_proposal_path,
+            proposal_context=proposal_context,
+            brief=pre_run_brief,
+            planner_decision=planner_decision,
+            critic_decision=critic_decision,
+            notes=notes,
+            summary=summary if isinstance(summary, dict) else {"summary": summary},
+        )
         safe_sync_research_memory(REPO_ROOT, config=memory_cfg)
         safe_build_research_brief(REPO_ROOT, persist_log=True)
         print(
@@ -930,6 +1158,7 @@ def run_research_supervisor(
             "summary": summary,
             "planner_decision": asdict(planner_decision),
             "critic_decision": asdict(critic_decision),
+            "proposal": supervisor_proposal.to_dict(),
         }
         _append_jsonl(ledger_path, entry)
         notes.append(
@@ -968,6 +1197,7 @@ def run_research_supervisor(
             planner_objective=planner_decision.objective,
             planner_decision_path=str(planner_decision_path),
             critic_decision_path=str(critic_decision_path),
+            proposal_path=str(resolved_proposal_path) if resolved_proposal_path else None,
         )
         _write_supervisor_outputs(
             state,

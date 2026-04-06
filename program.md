@@ -166,11 +166,14 @@ The bounded loop is not enough by itself. A Karpathy-style lab workflow in this 
    - active bottleneck
    - smallest bounded next move
    - stopping condition for the branch
-4. after each invocation, the repo must sync memory, rebuild the PI brief, append the ledger,
+4. each invocation must also persist compact pre-run and post-run context summaries as
+   `*_context_summary.json` and `*_context_summary.md` so the memory layer can ingest durable
+   reasoning state instead of depending on ephemeral chat context
+5. after each invocation, the repo must sync memory, rebuild the PI brief, append the ledger,
    and publish the generated report artifacts
-5. the next invocation should start automatically unless a stop file is present or the repo is
+6. the next invocation should start automatically unless a stop file is present or the repo is
    explicitly disabled
-6. the next invocation must read the prior `boss_progress_verdict` and obey its
+7. the next invocation must read the prior `boss_progress_verdict` and obey its
    `boss_policy_next`; suppressed exploit families stay suppressed until the evidence changes
 
 The intended entrypoint is `tsqbev research-supervisor`, not manual one-off screens, whenever the
@@ -228,6 +231,8 @@ Every invocation must write:
 - per-run calibration summary when multiple thresholds or `top_k` values are tried
 - per-run source-mix diagnostics
 - per-run root-cause verdict
+- supervisor-side `pre_run_context_summary.json`
+- supervisor-side `post_run_context_summary.json`
 - `artifacts/memory/sync_manifest.json`
 - `artifacts/memory/brief.json`
 - `docs/reports/current.md`

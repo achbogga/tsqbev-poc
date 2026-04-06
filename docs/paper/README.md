@@ -4,6 +4,7 @@ Current sources:
 
 - `tsqbev_short_paper.tex`
 - `tsqbev_frontier_proposal.tex`
+- `tsqbev_frontier_program.md`
 
 Recommended build command:
 
@@ -14,6 +15,10 @@ research/scripts/build_frontier_paper.sh docs/paper/tsqbev_frontier_proposal.tex
 Expected output:
 
 - `docs/paper/tsqbev_frontier_proposal.pdf`
+
+Supervisor / planner context:
+
+- `docs/paper/tsqbev_frontier_program.md`
 
 The build script prefers `tectonic` on `PATH`, then falls back to `$HOME/.local/bin/tectonic`.
 One user-space install path is:

@@ -5,6 +5,7 @@ REPO_ROOT="/home/achbogga/projects/tsqbev-poc"
 DATASET_ROOT="/home/achbogga/projects/research/nuscenes"
 ARTIFACT_ROOT="${1:-$REPO_ROOT/artifacts/autoresearch_frontier}"
 TEACHER_CACHE_DIR="${TEACHER_CACHE_DIR:-$REPO_ROOT/artifacts/teacher_cache/centerpoint_pointpillar_mini}"
+PROPOSAL_PATH="${PROPOSAL_PATH:-$REPO_ROOT/docs/paper/tsqbev_frontier_program.md}"
 WAIT_FOR_SESSION="${WAIT_FOR_SESSION:-}"
 POLL_SECONDS="${POLL_SECONDS:-30}"
 
@@ -14,6 +15,10 @@ if [[ -n "$WAIT_FOR_SESSION" ]]; then
   done
 fi
 
+while pgrep -af "tsqbev train-nuscenes|tsqbev research-loop|tsqbev research-supervisor" >/dev/null; do
+  sleep "$POLL_SECONDS"
+done
+
 cd "$REPO_ROOT"
 rm -f "$ARTIFACT_ROOT/STOP"
 export TSQBEV_SUPERVISOR_PRE_RUN_SYNC="${TSQBEV_SUPERVISOR_PRE_RUN_SYNC:-0}"
@@ -22,6 +27,7 @@ uv run tsqbev research-supervisor \
   --dataset-root "$DATASET_ROOT" \
   --artifact-dir "$ARTIFACT_ROOT" \
   --teacher-cache-dir "$TEACHER_CACHE_DIR" \
+  --proposal-path "$PROPOSAL_PATH" \
   --max-experiments 4 \
   --sleep-seconds 30 \
   --wait-poll-seconds 20 \
