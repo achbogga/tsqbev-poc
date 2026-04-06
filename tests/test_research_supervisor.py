@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from subprocess import CompletedProcess
 
 from tsqbev.research_supervisor import (
     SupervisorState,
@@ -8,7 +9,9 @@ from tsqbev.research_supervisor import (
     _as_str_list,
     _build_supervisor_proposal,
     _critic_decision_from_planner,
+    _external_research_loop_processes,
     _heuristic_planner,
+    _linux_process_name,
     _load_proposal_context,
     _render_supervisor_report,
     _write_context_refresh_summary,
@@ -152,3 +155,38 @@ def test_build_supervisor_proposal_uses_planner_and_critic_policy() -> None:
     assert proposal.proposal_id == "invocation_001"
     assert proposal.targeted_bottleneck == "joint-metric-collapse"
     assert "teacher_off_control" in proposal.exploitation_tags
+
+
+def test_linux_process_name_returns_none_for_missing_pid() -> None:
+    assert _linux_process_name(999999999) is None
+
+
+def test_external_research_loop_processes_ignores_pt_data_workers(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "tsqbev.research_supervisor.subprocess.run",
+        lambda *args, **kwargs: CompletedProcess(
+            args=args[0],
+            returncode=0,
+            stdout=(
+                "1111 /home/user/.venv/bin/python tsqbev research-loop --artifact-dir /tmp/a\n"
+                "2222 /home/user/.venv/bin/python tsqbev research-loop --artifact-dir /tmp/a\n"
+                "3333 /home/user/.venv/bin/python tsqbev research-supervisor "
+                "--artifact-dir /tmp/b\n"
+            ),
+            stderr="",
+        ),
+    )
+    monkeypatch.setattr("tsqbev.research_supervisor.os.getpid", lambda: 9999)
+    monkeypatch.setattr(
+        "tsqbev.research_supervisor._linux_process_name",
+        lambda pid: "pt_data_worker" if pid == 2222 else "python",
+    )
+
+    processes = _external_research_loop_processes()
+
+    assert processes == [
+        {
+            "pid": 1111,
+            "cmd": "/home/user/.venv/bin/python tsqbev research-loop --artifact-dir /tmp/a",
+        }
+    ]

@@ -135,6 +135,17 @@ def _timestamp_tag() -> str:
     return datetime.now(tz=UTC).strftime("%Y%m%d-%H%M%S")
 
 
+def _linux_process_name(pid: int) -> str | None:
+    status_path = Path(f"/proc/{pid}/status")
+    try:
+        for line in status_path.read_text(encoding="utf-8").splitlines():
+            if line.startswith("Name:"):
+                return line.split(":", 1)[1].strip()
+    except OSError:
+        return None
+    return None
+
+
 def _external_research_loop_processes(repo_root: Path = REPO_ROOT) -> list[dict[str, Any]]:
     completed = subprocess.run(
         ["pgrep", "-af", "tsqbev research-loop"],
@@ -158,6 +169,8 @@ def _external_research_loop_processes(repo_root: Path = REPO_ROOT) -> list[dict[
         if pid == current_pid:
             continue
         if "research-supervisor" in cmd:
+            continue
+        if _linux_process_name(pid) == "pt_data_worker":
             continue
         processes.append({"pid": pid, "cmd": cmd})
     return processes
