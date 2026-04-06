@@ -202,9 +202,11 @@ def _proposal_policy(
 
 _FRONTIER_LAUNCH_TAGS = {
     "dino_v3",
+    "dino_v3_bridge",
     "bevformer_v2_perspective_supervision",
     "shared_world_latent",
     "world_aligned_distillation",
+    "world_latent_distillation",
     "bevfusion_teacher",
     "openpcdet_teacher",
     "sparse4d_efficiency",
@@ -1283,6 +1285,7 @@ def _initial_recipes(
         )
         frontier_tagged: list[tuple[str, ResearchRecipe]] = [
             ("dino_v3", frontier_vits),
+            ("dino_v3_bridge", frontier_vits),
             ("bevformer_v2_perspective_supervision", frontier_vits),
             ("sparse4d_efficiency", frontier_vits),
             ("sam21_offline_support", frontier_vits),
@@ -1292,6 +1295,10 @@ def _initial_recipes(
                 [
                     (
                         "world_aligned_distillation",
+                        _make_frontier_world_distill_recipe(frontier_vits),
+                    ),
+                    (
+                        "world_latent_distillation",
                         _make_frontier_world_distill_recipe(frontier_vits),
                     ),
                     ("openpcdet_teacher", frontier_vits),
@@ -1806,6 +1813,7 @@ def _build_exploitation_recipes(
         tagged_candidates: list[tuple[str, ResearchRecipe]] = [
             ("quality_rank_finegrid", _make_frontier_official_guardrail_recipe(incumbent_recipe)),
             ("dino_v3", _make_frontier_vitb16_recipe(incumbent_recipe)),
+            ("dino_v3_bridge", _make_frontier_vitb16_recipe(incumbent_recipe)),
             (
                 "sam21_offline_support",
                 _make_frontier_sam2_ablation_recipe(incumbent_recipe),
@@ -1816,6 +1824,10 @@ def _build_exploitation_recipes(
                 [
                     (
                         "world_aligned_distillation",
+                        _make_frontier_world_distill_recipe(incumbent_recipe),
+                    ),
+                    (
+                        "world_latent_distillation",
                         _make_frontier_world_distill_recipe(incumbent_recipe),
                     ),
                     (
