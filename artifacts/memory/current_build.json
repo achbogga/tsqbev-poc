@@ -1,13 +1,13 @@
 {
-  "build_id": "20260405T223936Z-ccec3ac",
-  "generated_at_utc": "2026-04-05T22:40:54.130926+00:00",
-  "build_root": "/home/achbogga/projects/tsqbev-poc/.local/research-memory/builds/20260405T223936Z-ccec3ac",
-  "catalog_path": "/home/achbogga/projects/tsqbev-poc/.local/research-memory/builds/20260405T223936Z-ccec3ac/catalog.duckdb",
+  "build_id": "20260406T001121Z-215e8f6",
+  "generated_at_utc": "2026-04-06T00:11:52.651797+00:00",
+  "build_root": "/home/achbogga/projects/tsqbev-poc/.local/research-memory/builds/20260406T001121Z-215e8f6",
+  "catalog_path": "/home/achbogga/projects/tsqbev-poc/.local/research-memory/builds/20260406T001121Z-215e8f6/catalog.duckdb",
   "qdrant_evidence_collection": "tsqbev_evidence",
   "qdrant_memory_collection": "tsqbev_memories",
   "mem0_qdrant_collection": "tsqbev_mem0",
-  "repo_sha": "ccec3ac",
+  "repo_sha": "215e8f6",
   "fact_count": 65,
   "event_count": 2649,
-  "evidence_count": 1313
+  "evidence_count": 1342
 }

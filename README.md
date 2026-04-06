@@ -19,7 +19,7 @@ that keeps the agenda grounded in exact artifacts plus primary-source literature
 | Frontier camera branch | first real `DINOv3` probe is promising but still below the trusted local control | [artifacts/foundation_v3_dinov3_teacher_vits16_36ep_v1/epoch022_probe_r4/metrics/nuscenes/metrics_summary.json](artifacts/foundation_v3_dinov3_teacher_vits16_36ep_v1/epoch022_probe_r4/metrics/nuscenes/metrics_summary.json) |
 | Lane branch | isolated `OpenLane V1` warm-start is viable; current naive joint detection+lane path is not trustworthy | [artifacts/openlane_v1_warmstart_v1/openlane_train.log](artifacts/openlane_v1_warmstart_v1/openlane_train.log), [artifacts/joint_public_v2_manual_eval/official_eval/epoch_031/nuscenes/metrics/metrics_summary.json](artifacts/joint_public_v2_manual_eval/official_eval/epoch_031/nuscenes/metrics/metrics_summary.json) |
 | Knowledge base | `57` structured cards, `117` asset refs, `105` unique mirrored source assets | [artifacts/knowledge_assets/coverage_summary.json](artifacts/knowledge_assets/coverage_summary.json) |
-| Memory layer | promoted exact build is live at repo SHA `647b888`, with `65` indexed facts and coherent current-build state | [artifacts/memory/sync_manifest.json](artifacts/memory/sync_manifest.json) |
+| Memory layer | promoted exact build is live with `65` indexed facts and coherent current-build state | [artifacts/memory/sync_manifest.json](artifacts/memory/sync_manifest.json) |
 
 ## What This Repo Is
 
@@ -40,6 +40,9 @@ The active reset stack is:
 - lane/map branch: `MapTRv2`-style staged vector head, only after detection is stable
 
 The detailed live agenda is in [docs/research-agenda.md](docs/research-agenda.md).
+The current frontier proposal paper is available as
+[docs/paper/tsqbev_frontier_proposal.pdf](docs/paper/tsqbev_frontier_proposal.pdf), with source in
+[docs/paper/tsqbev_frontier_proposal.tex](docs/paper/tsqbev_frontier_proposal.tex).
 
 ## Quick Start
 
@@ -105,6 +108,8 @@ Start here:
 ## Research Agenda
 
 The live evidence-backed agenda is in [docs/research-agenda.md](docs/research-agenda.md).
+The longer-form research thesis and experiment program are in
+[docs/paper/tsqbev_frontier_proposal.pdf](docs/paper/tsqbev_frontier_proposal.pdf).
 
 Current top-line agenda:
 

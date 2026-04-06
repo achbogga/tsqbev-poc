@@ -4,6 +4,9 @@ _Last refreshed from promoted research memory on `2026-04-05`._
 
 This agenda is the public, evidence-backed version of the repo's current direction. It is built
 from exact local artifacts, the promoted research-memory catalog, and the frontier knowledge base.
+The long-form companion proposal is
+[paper/tsqbev_frontier_proposal.pdf](paper/tsqbev_frontier_proposal.pdf), with source in
+[paper/tsqbev_frontier_proposal.tex](paper/tsqbev_frontier_proposal.tex).
 
 ## Snapshot
 
@@ -15,7 +18,7 @@ from exact local artifacts, the promoted research-memory catalog, and the fronti
 | `DINOv3` probe | real signal, but still below trusted control at `NDS 0.1616`, `mAP 0.1591` | [../artifacts/foundation_v3_dinov3_teacher_vits16_36ep_v1/epoch022_probe_r4/metrics/nuscenes/metrics_summary.json](../artifacts/foundation_v3_dinov3_teacher_vits16_36ep_v1/epoch022_probe_r4/metrics/nuscenes/metrics_summary.json) |
 | Lane status | isolated training is viable; naive joint detection+lane remains invalid | [../artifacts/openlane_v1_warmstart_v1/openlane_train.log](../artifacts/openlane_v1_warmstart_v1/openlane_train.log), [../artifacts/joint_public_v2_manual_eval/official_eval/epoch_031/nuscenes/metrics/metrics_summary.json](../artifacts/joint_public_v2_manual_eval/official_eval/epoch_031/nuscenes/metrics/metrics_summary.json) |
 | Knowledge base coverage | `57` cards, `117` asset refs, `105` unique mirrored assets | [../artifacts/knowledge_assets/coverage_summary.json](../artifacts/knowledge_assets/coverage_summary.json) |
-| Promoted memory build | `repo_sha 647b888`, `65` facts, `2649` events, `1301` evidence chunks | [../artifacts/memory/sync_manifest.json](../artifacts/memory/sync_manifest.json) |
+| Promoted memory build | live promoted build with `65` facts, `2649` events, `1342` evidence chunks | [../artifacts/memory/sync_manifest.json](../artifacts/memory/sync_manifest.json) |
 
 ## What We Know
 
@@ -73,6 +76,7 @@ Primary evidence:
 
 - [foundation-teacher-direction-2026-04-04.md](foundation-teacher-direction-2026-04-04.md)
 - [../research/knowledge/frontier_vision_foundations_kb.json](../research/knowledge/frontier_vision_foundations_kb.json)
+- [paper/tsqbev_frontier_proposal.pdf](paper/tsqbev_frontier_proposal.pdf)
 
 ### C. Do not resume naive joint detection+lane training
 

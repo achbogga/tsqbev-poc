@@ -44,6 +44,7 @@ At release time, make sure these are present and up to date:
 - current brief/report
 - knowledge asset coverage summary
 - live research agenda
+- current long-form frontier proposal PDF/source
 
 Current examples:
 
@@ -52,6 +53,8 @@ Current examples:
 - [artifacts/memory/sync_manifest.json](artifacts/memory/sync_manifest.json)
 - [artifacts/knowledge_assets/coverage_summary.json](artifacts/knowledge_assets/coverage_summary.json)
 - [docs/research-agenda.md](docs/research-agenda.md)
+- [docs/paper/tsqbev_frontier_proposal.pdf](docs/paper/tsqbev_frontier_proposal.pdf)
+- [docs/paper/tsqbev_frontier_proposal.tex](docs/paper/tsqbev_frontier_proposal.tex)
 
 ## Secrets And Access
 
@@ -106,4 +109,5 @@ When publishing a fork or derivative release, prefer:
 - exact local-control artifact links
 - exact upstream-control artifact links
 - the current agenda and memory status
+- the current long-form proposal PDF/source
 - a short note on which external assets are mirrored locally and which remain gated
