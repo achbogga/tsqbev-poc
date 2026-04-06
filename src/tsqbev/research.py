@@ -104,6 +104,12 @@ class ResearchRecipe:
     teacher_region_radius_m: float = 4.0
     score_threshold_candidates: tuple[float, ...] = (0.05,)
     top_k_candidates: tuple[int, ...] = (112,)
+    official_eval_every_epochs: int | None = None
+    official_eval_score_threshold: float = 0.20
+    official_eval_top_k: int = 40
+    early_stop_patience: int | None = None
+    early_stop_min_delta: float = 0.0
+    early_stop_min_epochs: int = 0
     skip_training: bool = False
 
 
@@ -192,6 +198,233 @@ def _proposal_policy(
         "force_priority_only": bool(proposal.force_tags_only),
         "reasons": list(proposal.rationale),
     }
+
+
+_FRONTIER_LAUNCH_TAGS = {
+    "dino_v3",
+    "bevformer_v2_perspective_supervision",
+    "shared_world_latent",
+    "world_aligned_distillation",
+    "bevfusion_teacher",
+    "openpcdet_teacher",
+    "sparse4d_efficiency",
+    "sam21_offline_support",
+}
+
+
+def _priority_tags_request_frontier(priority_tags: list[str]) -> bool:
+    return any(tag in _FRONTIER_LAUNCH_TAGS for tag in priority_tags)
+
+
+def _is_frontier_recipe(recipe: ResearchRecipe) -> bool:
+    return recipe.config.image_backbone.startswith("dinov3_") or (
+        recipe.config.sam2_region_prior_mode != "off"
+    )
+
+
+def _frontier_vits16_config(*, teacher_provider_available: bool) -> ModelConfig:
+    config = ModelConfig.rtx5000_nuscenes_dinov3_teacher()
+    if teacher_provider_available:
+        return config
+    return config.model_copy(
+        update={
+            "teacher_seed_mode": "off",
+            "router_mode": "tri_source",
+            "ranking_mode": "class_times_objectness",
+        }
+    )
+
+
+def _frontier_vitb16_config(*, teacher_provider_available: bool) -> ModelConfig:
+    base = _frontier_vits16_config(teacher_provider_available=teacher_provider_available)
+    return base.model_copy(
+        update={
+            "image_backbone": "dinov3_vitb16",
+            "foundation_weights": (
+                "/home/achbogga/projects/research/dinov3_weights/"
+                "dinov3_vitb16_pretrain_lvd1689m-73cec8be.pth"
+            ),
+        }
+    )
+
+
+def _frontier_vits16_recipe(*, teacher_provider_available: bool) -> ResearchRecipe:
+    return ResearchRecipe(
+        name=(
+            "frontier_dinov3_teacher_distill_vits16"
+            if teacher_provider_available
+            else "frontier_dinov3_camera_only_vits16"
+        ),
+        note=(
+            "hard-pivot executable slice: DINOv3 ViT-S/16 projection, SAM 2.1 region priors, "
+            "teacher-guided ranking, and aggressive official-eval gating"
+        ),
+        hypothesis=(
+            "the next real gain should come from stronger camera semantics and tighter "
+            "teacher-guided geometry constraints, not another local MobileNet query tweak"
+        ),
+        mutation_reason=(
+            "replace legacy carryover recipes with the DINOv3/SAM2 teacher-distillation "
+            "frontier slice and let official metrics decide early"
+        ),
+        config=_frontier_vits16_config(teacher_provider_available=teacher_provider_available),
+        stage="baseline",
+        use_teacher_provider=teacher_provider_available,
+        batch_size=1,
+        grad_accum_steps=4,
+        lr=1e-4,
+        weight_decay=1e-4,
+        epochs=30,
+        max_train_steps=None,
+        num_workers=4,
+        score_threshold=0.20,
+        top_k=40,
+        optimizer_schedule="cosine",
+        grad_clip_norm=1.0,
+        keep_best_checkpoint=True,
+        augmentation_mode="off",
+        enable_teacher_distillation=teacher_provider_available,
+        loss_mode="quality_focal",
+        teacher_anchor_quality_class_weight=0.45 if teacher_provider_available else 0.0,
+        teacher_region_objectness_weight=0.12 if teacher_provider_available else 0.0,
+        teacher_region_class_weight=0.12 if teacher_provider_available else 0.0,
+        teacher_region_radius_m=6.0,
+        score_threshold_candidates=(0.15, 0.20, 0.24, 0.28),
+        top_k_candidates=(32, 40, 48),
+        official_eval_every_epochs=5,
+        official_eval_score_threshold=0.20,
+        official_eval_top_k=40,
+        early_stop_patience=3,
+        early_stop_min_delta=0.02,
+        early_stop_min_epochs=10,
+    )
+
+
+def _make_frontier_vitb16_recipe(recipe: ResearchRecipe) -> ResearchRecipe:
+    return _clone_recipe(
+        recipe,
+        name=f"{recipe.name}_vitb16",
+        note=(
+            "scale the hard-pivot camera branch to DINOv3 ViT-B/16 with activation "
+            "checkpointing still enabled"
+        ),
+        hypothesis=(
+            "the teacher-aligned hard pivot may still be camera-capacity limited; a bounded "
+            "move from ViT-S/16 to ViT-B/16 is the cleanest frontier scale-up"
+        ),
+        mutation_reason=(
+            "upgrade the DINOv3 camera backbone to ViT-B/16 without changing the rest of "
+            "the launch contract"
+        ),
+        config=_frontier_vitb16_config(
+            teacher_provider_available=recipe.use_teacher_provider,
+        ),
+        stage="explore",
+        batch_size=1,
+        grad_accum_steps=max(recipe.grad_accum_steps, 6),
+    )
+
+
+def _make_frontier_world_distill_recipe(recipe: ResearchRecipe) -> ResearchRecipe:
+    return _clone_recipe(
+        recipe,
+        name=f"{recipe.name}_world_distill",
+        note=(
+            "increase teacher-aligned quality pressure on the DINOv3/SAM2 branch as the "
+            "current executable proxy for world-aligned distillation"
+        ),
+        hypothesis=(
+            "if the frontier branch is still losing geometry despite stronger camera features, "
+            "the next bounded move is more teacher alignment rather than a legacy query mutation"
+        ),
+        mutation_reason=(
+            "raise teacher quality and region supervision on the hard-pivot branch while "
+            "keeping the rest of the recipe fixed"
+        ),
+        stage="exploit",
+        teacher_anchor_quality_class_weight=max(
+            recipe.teacher_anchor_quality_class_weight,
+            0.55,
+        ),
+        teacher_region_objectness_weight=max(recipe.teacher_region_objectness_weight, 0.15),
+        teacher_region_class_weight=max(recipe.teacher_region_class_weight, 0.15),
+        score_threshold_candidates=(0.16, 0.20, 0.24, 0.28),
+        top_k_candidates=(32, 40, 48),
+    )
+
+
+def _make_frontier_sam2_ablation_recipe(recipe: ResearchRecipe) -> ResearchRecipe:
+    return _clone_recipe(
+        recipe,
+        name=f"{recipe.name}_no_sam2",
+        note=(
+            "ablate SAM 2.1 priors while keeping the DINOv3 and teacher-distillation path fixed"
+        ),
+        hypothesis=(
+            "if the frontier branch destabilizes geometry, SAM 2.1 proposal priors need to be "
+            "measured explicitly instead of assumed helpful"
+        ),
+        mutation_reason="disable SAM 2.1 priors as a paired hard-pivot ablation",
+        config=recipe.config.model_copy(
+            update={
+                "sam2_region_prior_mode": "off",
+                "sam2_region_prior_weight": 0.0,
+            }
+        ),
+        stage="exploit",
+    )
+
+
+def _make_frontier_teacher_control_recipe(recipe: ResearchRecipe) -> ResearchRecipe:
+    return _clone_recipe(
+        recipe,
+        name=f"{recipe.name}_teacher_control",
+        note=(
+            "paired hard-pivot control with DINOv3/SAM2 still active but teacher anchoring "
+            "and distillation disabled"
+        ),
+        hypothesis=(
+            "the hard-pivot branch must prove that teacher supervision, not just the new camera "
+            "backbone, is driving any gain"
+        ),
+        mutation_reason=(
+            "turn teacher seeding and distillation off while preserving the hard-pivot camera "
+            "branch and the official-eval launch contract"
+        ),
+        config=recipe.config.model_copy(
+            update={
+                "teacher_seed_mode": "off",
+                "router_mode": "tri_source",
+                "ranking_mode": "class_times_objectness",
+            }
+        ),
+        stage="exploit",
+        use_teacher_provider=False,
+        enable_teacher_distillation=False,
+        teacher_anchor_quality_class_weight=0.0,
+        teacher_region_objectness_weight=0.0,
+        teacher_region_class_weight=0.0,
+    )
+
+
+def _make_frontier_official_guardrail_recipe(recipe: ResearchRecipe) -> ResearchRecipe:
+    return _clone_recipe(
+        recipe,
+        name=f"{recipe.name}_official_guardrail",
+        note="eval-only guardrail sweep around the current frontier export boundary",
+        hypothesis=(
+            "the hard-pivot branch should be measured on the official operating boundary before "
+            "opening another training mutation"
+        ),
+        mutation_reason=(
+            "run an eval-only guardrail sweep on the current frontier checkpoint to separate "
+            "training gains from export-boundary failures"
+        ),
+        stage="exploit",
+        score_threshold_candidates=(0.16, 0.20, 0.24, 0.28, 0.32),
+        top_k_candidates=(32, 40, 48, 56),
+        skip_training=True,
+    )
 
 
 def _baseline_recipe() -> ResearchRecipe:
@@ -359,6 +592,12 @@ def _clone_recipe(
     teacher_region_radius_m: float | None = None,
     score_threshold_candidates: tuple[float, ...] | None = None,
     top_k_candidates: tuple[int, ...] | None = None,
+    official_eval_every_epochs: int | None = None,
+    official_eval_score_threshold: float | None = None,
+    official_eval_top_k: int | None = None,
+    early_stop_patience: int | None = None,
+    early_stop_min_delta: float | None = None,
+    early_stop_min_epochs: int | None = None,
     skip_training: bool | None = None,
 ) -> ResearchRecipe:
     return ResearchRecipe(
@@ -431,6 +670,32 @@ def _clone_recipe(
         ),
         top_k_candidates=(
             recipe.top_k_candidates if top_k_candidates is None else top_k_candidates
+        ),
+        official_eval_every_epochs=(
+            recipe.official_eval_every_epochs
+            if official_eval_every_epochs is None
+            else official_eval_every_epochs
+        ),
+        official_eval_score_threshold=(
+            recipe.official_eval_score_threshold
+            if official_eval_score_threshold is None
+            else official_eval_score_threshold
+        ),
+        official_eval_top_k=(
+            recipe.official_eval_top_k if official_eval_top_k is None else official_eval_top_k
+        ),
+        early_stop_patience=(
+            recipe.early_stop_patience if early_stop_patience is None else early_stop_patience
+        ),
+        early_stop_min_delta=(
+            recipe.early_stop_min_delta
+            if early_stop_min_delta is None
+            else early_stop_min_delta
+        ),
+        early_stop_min_epochs=(
+            recipe.early_stop_min_epochs
+            if early_stop_min_epochs is None
+            else early_stop_min_epochs
         ),
         skip_training=recipe.skip_training if skip_training is None else skip_training,
     )
@@ -518,6 +783,22 @@ def _load_previous_incumbent(artifact_root: Path) -> ResearchRecipe | None:
             float(value) for value in selected.get("score_threshold_candidates", [0.05])
         ),
         top_k_candidates=tuple(int(value) for value in selected.get("top_k_candidates", [112])),
+        official_eval_every_epochs=(
+            int(selected["official_eval_every_epochs"])
+            if selected.get("official_eval_every_epochs") is not None
+            else None
+        ),
+        official_eval_score_threshold=float(
+            selected.get("official_eval_score_threshold", 0.20)
+        ),
+        official_eval_top_k=int(selected.get("official_eval_top_k", 40)),
+        early_stop_patience=(
+            int(selected["early_stop_patience"])
+            if selected.get("early_stop_patience") is not None
+            else None
+        ),
+        early_stop_min_delta=float(selected.get("early_stop_min_delta", 0.0)),
+        early_stop_min_epochs=int(selected.get("early_stop_min_epochs", 0)),
     )
 
 
@@ -757,28 +1038,61 @@ def _boss_policy_from_history(
         assert isinstance(config, dict)
         source_mix = latest.get("source_mix", {})
         assert isinstance(source_mix, dict)
-        if latest.get("use_teacher_provider"):
+        frontier_incumbent = str(config.get("image_backbone", "")).startswith("dinov3_")
+        if frontier_incumbent:
+            force_priority_only = True
+            suppress_tags.extend(
+                [
+                    "teacher_bag",
+                    "anchor_mix",
+                    "query_boost",
+                    "lr_down",
+                    "augmentation",
+                    "focal_hardneg",
+                    "unfreeze",
+                ]
+            )
+            priority_tags = [
+                "quality_rank_finegrid",
+                "world_aligned_distillation",
+                "sam21_offline_support",
+                "dino_v3",
+            ]
+            reasons.append(
+                "the active incumbent is already on the hard-pivot DINOv3 path; keep "
+                "frontier guardrail, distillation, SAM2, and backbone-capacity ablations only"
+            )
+        if latest.get("use_teacher_provider") and not frontier_incumbent:
             priority_tags.append("teacher_bag")
             priority_tags.append("teacher_off_control")
         if (
+            not frontier_incumbent
+            and
             latest.get("use_teacher_provider")
             and str(config.get("ranking_mode")) != "quality_class_only"
         ):
             priority_tags.append("quality_rank")
             reasons.append("ranking is still misaligned with the quality-aware target")
         if (
-            float(source_mix.get("lidar", 0.0)) >= 0.8
-            or float(source_mix.get("proposal", 0.0)) < 0.1
+            not frontier_incumbent
+            and (
+                float(source_mix.get("lidar", 0.0)) >= 0.8
+                or float(source_mix.get("proposal", 0.0)) < 0.1
+            )
         ):
             priority_tags.append("anchor_mix")
             reasons.append("source mix is still collapsing toward LiDAR anchors")
         if (
+            not frontier_incumbent
+            and
             latest.get("use_teacher_provider")
             and _metric_float(latest.get("teacher_anchor_quality_class_weight"), 0.0) <= 0.0
         ):
             priority_tags.append("teacher_quality")
             reasons.append("teacher quality supervision is not yet active on the incumbent")
         if (
+            not frontier_incumbent
+            and
             latest.get("use_teacher_provider")
             and str(config.get("ranking_mode")) == "quality_class_only"
             and _metric_float(latest.get("teacher_anchor_quality_class_weight"), 0.0) > 0.0
@@ -954,7 +1268,56 @@ def _initial_recipes(
                 for tag, recipe in filtered
                 if tag in allowed_tags
             ]
-        return [recipe for _tag, recipe in filtered]
+        deduped: list[ResearchRecipe] = []
+        seen_names: set[str] = set()
+        for _tag, recipe in filtered:
+            if recipe.name in seen_names:
+                continue
+            seen_names.add(recipe.name)
+            deduped.append(recipe)
+        return deduped
+
+    if _priority_tags_request_frontier(priority_tags):
+        frontier_vits = _frontier_vits16_recipe(
+            teacher_provider_available=teacher_provider_available
+        )
+        frontier_tagged: list[tuple[str, ResearchRecipe]] = [
+            ("dino_v3", frontier_vits),
+            ("bevformer_v2_perspective_supervision", frontier_vits),
+            ("sparse4d_efficiency", frontier_vits),
+            ("sam21_offline_support", frontier_vits),
+        ]
+        if teacher_provider_available:
+            frontier_tagged.extend(
+                [
+                    (
+                        "world_aligned_distillation",
+                        _make_frontier_world_distill_recipe(frontier_vits),
+                    ),
+                    ("openpcdet_teacher", frontier_vits),
+                    ("bevfusion_teacher", frontier_vits),
+                ]
+            )
+        frontier_tagged.append(("dino_v3", _make_frontier_vitb16_recipe(frontier_vits)))
+        frontier_tagged.append(
+            ("sam21_offline_support", _make_frontier_sam2_ablation_recipe(frontier_vits))
+        )
+        if teacher_provider_available:
+            frontier_tagged.append(
+                ("world_aligned_distillation", _make_frontier_teacher_control_recipe(frontier_vits))
+            )
+        else:
+            frontier_tagged.append(
+                ("dino_v3", _make_frontier_teacher_control_recipe(frontier_vits))
+            )
+        recipes = filter_tagged(frontier_tagged)
+        if recipes:
+            return recipes
+        if force_priority_only:
+            raise RuntimeError(
+                "frontier launch tags were requested, but no executable hard-pivot recipes "
+                "survived filtering"
+            )
 
     carryover = _load_previous_incumbent(artifact_root)
     if carryover is not None:
@@ -1439,6 +1802,59 @@ def _build_exploitation_recipes(
 ) -> list[ResearchRecipe]:
     if remaining_budget <= 0:
         return []
+    if _is_frontier_recipe(incumbent_recipe):
+        tagged_candidates: list[tuple[str, ResearchRecipe]] = [
+            ("quality_rank_finegrid", _make_frontier_official_guardrail_recipe(incumbent_recipe)),
+            ("dino_v3", _make_frontier_vitb16_recipe(incumbent_recipe)),
+            (
+                "sam21_offline_support",
+                _make_frontier_sam2_ablation_recipe(incumbent_recipe),
+            ),
+        ]
+        if incumbent_recipe.use_teacher_provider:
+            tagged_candidates.extend(
+                [
+                    (
+                        "world_aligned_distillation",
+                        _make_frontier_world_distill_recipe(incumbent_recipe),
+                    ),
+                    (
+                        "openpcdet_teacher",
+                        _make_frontier_teacher_control_recipe(incumbent_recipe),
+                    ),
+                ]
+            )
+        if boss_policy is not None:
+            suppress_tags = {str(tag) for tag in boss_policy.get("suppress_tags", [])}
+            priority_tags = [str(tag) for tag in boss_policy.get("priority_tags", [])]
+            force_priority_only = bool(boss_policy.get("force_priority_only", False))
+            if suppress_tags:
+                tagged_candidates = [
+                    (tag, candidate)
+                    for tag, candidate in tagged_candidates
+                    if tag not in suppress_tags
+                ]
+            if priority_tags:
+                priority_order = {tag: index for index, tag in enumerate(priority_tags)}
+                tagged_candidates = sorted(
+                    tagged_candidates,
+                    key=lambda item: priority_order.get(item[0], len(priority_order)),
+                )
+            if force_priority_only and priority_tags:
+                allowed_tags = set(priority_tags)
+                tagged_candidates = [
+                    (tag, candidate)
+                    for tag, candidate in tagged_candidates
+                    if tag in allowed_tags
+                ]
+        deduped: list[ResearchRecipe] = []
+        seen_names: set[str] = set()
+        for _tag, candidate in tagged_candidates:
+            if candidate.name in seen_names:
+                continue
+            seen_names.add(candidate.name)
+            deduped.append(candidate)
+        return deduped[:remaining_budget]
     source_mix = incumbent_record.get("source_mix", {})
     assert isinstance(source_mix, dict)
     tagged_candidates: list[tuple[str, ResearchRecipe]] = []
@@ -1556,6 +1972,12 @@ def _serialize_recipe(recipe: ResearchRecipe) -> dict[str, Any]:
         "teacher_region_radius_m": recipe.teacher_region_radius_m,
         "score_threshold_candidates": list(recipe.score_threshold_candidates),
         "top_k_candidates": list(recipe.top_k_candidates),
+        "official_eval_every_epochs": recipe.official_eval_every_epochs,
+        "official_eval_score_threshold": recipe.official_eval_score_threshold,
+        "official_eval_top_k": recipe.official_eval_top_k,
+        "early_stop_patience": recipe.early_stop_patience,
+        "early_stop_min_delta": recipe.early_stop_min_delta,
+        "early_stop_min_epochs": recipe.early_stop_min_epochs,
         "skip_training": recipe.skip_training,
     }
 
@@ -1652,6 +2074,20 @@ def _metric_int(value: object, default: int = 0) -> int:
         except ValueError:
             return default
     return default
+
+
+def _catastrophic_training_failure(train_result: dict[str, Any]) -> tuple[bool, dict[str, Any]]:
+    latest_official = train_result.get("latest_official_eval")
+    metrics = latest_official if isinstance(latest_official, dict) else {}
+    early_stop_reason = str(train_result.get("early_stop_reason") or "")
+    if "catastrophic official-eval failure" in early_stop_reason:
+        return True, metrics
+    nds = _metric_float(metrics.get("nuscenes_nds"), 0.0)
+    mean_ap = _metric_float(metrics.get("nuscenes_map"), 0.0)
+    sanity_ok = _metric_float(metrics.get("nuscenes_export_sanity_ok"), 1.0)
+    if nds <= 0.0 and mean_ap <= 0.0 and sanity_ok <= 0.0:
+        return True, metrics
+    return False, metrics
 
 
 def _current_git_sha() -> str:
@@ -1836,6 +2272,8 @@ def _measure_source_mix(
 
 
 def _root_cause_verdict(record: dict[str, Any]) -> str:
+    if bool(record.get("catastrophic_failure", False)):
+        return "catastrophic_geometry_failure"
     evaluation = record.get("evaluation", {})
     assert isinstance(evaluation, dict)
     train = record.get("train", {})
@@ -2325,6 +2763,7 @@ def run_bounded_research_loop(
 
     while recipe_index < len(candidate_queue) and recipe_index < max_experiments:
         recipe = candidate_queue[recipe_index]
+        stop_after_current = False
         run_id = recipe_index + 1
         run_dir = artifact_root / recipe.name
         run_teacher_provider_config = (
@@ -2370,6 +2809,12 @@ def run_bounded_research_loop(
                     "batch_size": recipe.batch_size,
                     "num_workers": recipe.num_workers,
                     "augmentation_mode": recipe.augmentation_mode,
+                    "official_eval_every_epochs": recipe.official_eval_every_epochs,
+                    "official_eval_score_threshold": recipe.official_eval_score_threshold,
+                    "official_eval_top_k": recipe.official_eval_top_k,
+                    "early_stop_patience": recipe.early_stop_patience,
+                    "early_stop_min_delta": recipe.early_stop_min_delta,
+                    "early_stop_min_epochs": recipe.early_stop_min_epochs,
                     "teacher_anchor_quality_class_weight": (
                         recipe.teacher_anchor_quality_class_weight
                     ),
@@ -2488,11 +2933,94 @@ def run_bounded_research_loop(
                     teacher_region_objectness_weight=recipe.teacher_region_objectness_weight,
                     teacher_region_class_weight=recipe.teacher_region_class_weight,
                     teacher_region_radius_m=recipe.teacher_region_radius_m,
+                    early_stop_patience=recipe.early_stop_patience,
+                    early_stop_min_delta=recipe.early_stop_min_delta,
+                    early_stop_min_epochs=recipe.early_stop_min_epochs,
+                    official_eval_every_epochs=recipe.official_eval_every_epochs,
+                    official_eval_score_threshold=recipe.official_eval_score_threshold,
+                    official_eval_top_k=recipe.official_eval_top_k,
                     tracker=tracker,
                 )
                 durations_s["train"] = time.perf_counter() - start_time
                 checkpoint_path = Path(str(train_result["checkpoint_path"]))
-                model, _ = load_model_from_checkpoint(checkpoint_path)
+
+            catastrophic_failure, catastrophic_metrics = _catastrophic_training_failure(
+                cast(dict[str, Any], train_result)
+            )
+            if catastrophic_failure:
+                record.update(
+                    {
+                        "status": "catastrophic_stop",
+                        "interim_decision": "reject",
+                        "decision_reason": (
+                            "catastrophic official-eval failure; stop this invocation and "
+                            "reassess before spending more GPU"
+                        ),
+                        "train": train_result.get("selected_train", {}),
+                        "val": train_result.get("selected_val", {}),
+                        "last_train": train_result.get("last_train", {}),
+                        "last_val": train_result.get("last_val", {}),
+                        "checkpoint_path": str(checkpoint_path),
+                        "epochs": train_result.get("epochs"),
+                        "selected_epoch": train_result.get("selected_epoch"),
+                        "best_epoch": train_result.get("best_epoch"),
+                        "latest_official_eval": catastrophic_metrics,
+                        "early_stop_triggered": bool(
+                            train_result.get("early_stop_triggered", False)
+                        ),
+                        "early_stop_reason": train_result.get("early_stop_reason"),
+                        "catastrophic_failure": True,
+                        "evaluation": {
+                            "nd_score": _metric_float(
+                                catastrophic_metrics.get("nuscenes_nds"),
+                                0.0,
+                            ),
+                            "mean_ap": _metric_float(
+                                catastrophic_metrics.get("nuscenes_map"),
+                                0.0,
+                            ),
+                            "label_aps": {},
+                            "tp_errors": {},
+                        },
+                        "prediction_geometry": {
+                            "boxes_per_sample_mean": _metric_float(
+                                catastrophic_metrics.get("nuscenes_boxes_per_sample"), 0.0
+                            ),
+                            "boxes_per_sample_p95": _metric_float(
+                                catastrophic_metrics.get("nuscenes_boxes_per_sample"), 0.0
+                            ),
+                            "boxes_per_sample_max": _metric_float(
+                                catastrophic_metrics.get("nuscenes_boxes_per_sample"), 0.0
+                            ),
+                            "ego_translation_norm_p99": _metric_float(
+                                catastrophic_metrics.get("nuscenes_ego_translation_norm_p99"),
+                                0.0,
+                            ),
+                            "ego_translation_norm_max": _metric_float(
+                                catastrophic_metrics.get("nuscenes_ego_translation_norm_max"),
+                                0.0,
+                            ),
+                            "max_box_size_m": _metric_float(
+                                catastrophic_metrics.get("nuscenes_max_box_size_m"),
+                                0.0,
+                            ),
+                            "score_mean": _metric_float(
+                                catastrophic_metrics.get("nuscenes_score_mean"),
+                                0.0,
+                            ),
+                        },
+                        "source_mix": {"lidar": 0.0, "proposal": 0.0, "global": 0.0},
+                        "durations_s": durations_s,
+                        "train_samples": train_result.get("train_samples", 0),
+                        "val_samples": train_result.get("val_samples", 0),
+                    }
+                )
+                record["root_cause_verdict"] = _root_cause_verdict(record)
+                stop_after_current = True
+                raise RuntimeError(
+                    str(train_result.get("early_stop_reason") or "catastrophic_stop")
+                )
+            model, _ = load_model_from_checkpoint(checkpoint_path)
 
             start_time = time.perf_counter()
             bench = benchmark_forward(
@@ -2555,6 +3083,7 @@ def run_bounded_research_loop(
                     "last_val": train_result["last_val"],
                     "benchmark": bench,
                     "checkpoint_path": str(checkpoint_path),
+                    "epochs": train_result.get("epochs"),
                     "selected_epoch": train_result.get("selected_epoch"),
                     "best_epoch": train_result.get("best_epoch"),
                     "prediction_path": str(prediction_path),
@@ -2604,15 +3133,16 @@ def run_bounded_research_loop(
                 step=epochs_run,
             )
         except Exception as exc:
-            record.update(
-                {
-                    "status": "error",
-                    "error": repr(exc),
-                    "interim_decision": "crash",
-                    "decision_reason": "runtime error during bounded research invocation",
-                }
-            )
-            tracker.summary({"error": repr(exc)})
+            if record.get("status") != "catastrophic_stop":
+                record.update(
+                    {
+                        "status": "error",
+                        "error": repr(exc),
+                        "interim_decision": "crash",
+                        "decision_reason": "runtime error during bounded research invocation",
+                    }
+                )
+                tracker.summary({"error": repr(exc)})
         records.append(record)
         _write_run_manifest(
             run_dir,
@@ -2654,6 +3184,9 @@ def run_bounded_research_loop(
             f"val_total={_metric_float(val_metrics.get('total', 0.0)):.4f}"
         )
         tracker.finish(status="completed" if record.get("status") == "completed" else "failed")
+
+        if stop_after_current:
+            break
 
         if (
             recipe_index + 1 == initial_recipe_count

@@ -10,6 +10,11 @@ Reference workflow:
 This repo is allowed to run a bounded local research loop, but only under the stricter contract
 below.
 
+Behavioral standard:
+
+- [SOUL.md](SOUL.md)
+- [docs/hard-pivot-execution.md](docs/hard-pivot-execution.md)
+
 ## Standing Research Directives
 
 These instructions are durable repo policy, not one-off chat guidance.
@@ -48,6 +53,8 @@ These instructions are durable repo policy, not one-off chat guidance.
 - fix small blockers immediately when they are clearly slowing the loop
 - do not stop after one run if the next step is clear and bounded
 - stop and reassess when the direction becomes a rabbit hole
+- stop immediately on catastrophic official-eval or export-sanity failure; capture the failure
+  signature and relaunch only after the diagnosis changes the next move
 - hydrate the local research-memory brief before planning the next bounded move
 - publish PI-readable reports and machine-readable sync artifacts after each invocation
 - treat lane work as an explicit secondary bootstrap track: prove the isolated OpenLane lane path,
@@ -114,6 +121,7 @@ Allowed mutation surfaces:
 - optional cached external LiDAR teacher guidance, including full seed replacement
 - teacher-anchor selection policy inside the fixed seed budget
 - activation checkpointing and GPU auto-fit policy for large frozen teachers
+- launch execution strategy and recipe family selection
 
 Read-only surfaces during the loop:
 
@@ -132,6 +140,8 @@ Follow the strongest transferable ideas from `karpathy/autoresearch`, adapted to
 - log every run to an append-only ledger
 - record the hypothesis and mutation reason for every run
 - advance only when official metrics improve
+- if the active proposal requests a frontier pivot, the executor must launch a concrete recipe in
+  that family or fail loudly; it must not silently reopen legacy carryover recipes
 - emit a `boss_progress_verdict` that compares the promoted run against the previous incumbent and
   the best historical mini result
 - if repeated `incremental_progress`, `schedule_checkpoint_drift`, or regression appears, suppress

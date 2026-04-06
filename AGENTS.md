@@ -3,6 +3,11 @@
 This file captures standing research instructions for this repo so they do not need to be
 repeated in chat.
 
+Read [SOUL.md](SOUL.md) alongside this file. `AGENTS.md` is the contract; `SOUL.md` is the
+behavioral standard for how that contract should be executed.
+
+Hard-pivot launch mechanics are defined in [docs/hard-pivot-execution.md](docs/hard-pivot-execution.md).
+
 ## Core Research Stance
 
 - question every design decision from first principles before extending it
@@ -12,6 +17,8 @@ repeated in chat.
 - do not stop at a single result; continue to the next highest-ROI step unless a boundary is hit
 - if a public upstream stack or teacher suite is materially better grounded than the current
   custom path, pivot to that stack rather than deepening the custom path
+- if the active thesis says "hard pivot", the executor must launch a real recipe in that family or
+  fail loudly; silent fallback to legacy carryover recipes is not allowed
 - read the local research brief before planning new bounded work
 - write back distilled findings and PI-facing reports after each completed invocation
 - keep lane work explicit and staged: isolated OpenLane sanity first, then export/eval, then only
@@ -170,6 +177,8 @@ The bounded research loop must:
   augmentation branch before opening a broader search fanout
 - after two stalled winner-line runs, stop local weight nudges and pivot to a new architecture or
   teacher family with primary-source support
+- stop immediately on catastrophic official-eval or export-sanity failure, capture the failure
+  signature, and reassess before relaunching
 
 ## Repo Update Rule
 

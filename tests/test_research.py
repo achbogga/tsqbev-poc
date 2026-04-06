@@ -215,6 +215,94 @@ def test_run_bounded_research_loop_writes_autoresearch_ledgers(
     assert manifest["recipe"]["recipe"] == "mini_propheavy_effb0_frozen_query_boost"
 
 
+def test_run_bounded_research_loop_stops_on_catastrophic_training_failure(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    artifact_dir = tmp_path / "artifacts"
+    dataset_root = tmp_path / "nuscenes"
+    dataset_root.mkdir()
+
+    monkeypatch.setattr(research, "ensure_research_loop_enabled", lambda: None)
+    monkeypatch.setattr(
+        research,
+        "safe_build_research_brief",
+        lambda *args, **kwargs: {"current_state": [], "open_blockers": []},
+    )
+
+    def fake_fit_nuscenes(**kwargs: object) -> dict[str, object]:
+        run_dir = Path(str(kwargs["artifact_dir"]))
+        run_dir.mkdir(parents=True, exist_ok=True)
+        checkpoint = run_dir / "checkpoint_last.pt"
+        checkpoint.write_text("checkpoint")
+        return {
+            "checkpoint_path": str(checkpoint),
+            "selected_checkpoint_path": str(checkpoint),
+            "best_checkpoint_path": str(checkpoint),
+            "selected_epoch": 5,
+            "best_epoch": 5,
+            "epochs": 5,
+            "selected_train": {"total": 18.0},
+            "selected_val": {"total": 16.0},
+            "last_train": {"total": 18.0},
+            "last_val": {"total": 16.0},
+            "train_samples": 16,
+            "val_samples": 8,
+            "early_stop_triggered": True,
+            "early_stop_reason": (
+                "catastrophic official-eval failure: epoch=5 nds=0.0000 map=0.0000 "
+                "sanity_ok=0 max_box_size_m=1200.00 score_mean=0.9999"
+            ),
+            "latest_official_eval": {
+                "nuscenes_nds": 0.0,
+                "nuscenes_map": 0.0,
+                "nuscenes_export_sanity_ok": 0.0,
+                "nuscenes_boxes_per_sample": 40.0,
+                "nuscenes_ego_translation_norm_p99": 25.0,
+                "nuscenes_ego_translation_norm_max": 30.0,
+                "nuscenes_max_box_size_m": 1200.0,
+                "nuscenes_score_mean": 0.9999,
+            },
+        }
+
+    monkeypatch.setattr(research, "fit_nuscenes", fake_fit_nuscenes)
+    monkeypatch.setattr(
+        research,
+        "benchmark_forward",
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("should not benchmark")),
+    )
+    monkeypatch.setattr(
+        research,
+        "export_and_evaluate_nuscenes_grid",
+        lambda **kwargs: (_ for _ in ()).throw(AssertionError("should not export/eval")),
+    )
+    monkeypatch.setattr(research, "_current_git_sha", lambda: "deadbee")
+
+    summary = research.run_bounded_research_loop(
+        dataroot=dataset_root,
+        artifact_dir=artifact_dir,
+        device="cpu",
+        max_experiments=1,
+        proposal={
+            "proposal_id": "catastrophe-test",
+            "objective": "test",
+            "launch_tags": ["dino_v3"],
+            "exploitation_tags": ["dino_v3"],
+            "suppress_tags": [],
+            "rationale": [],
+            "kill_conditions": [],
+            "force_tags_only": True,
+        },
+    )
+
+    assert summary["status"] == "failed"
+    results_path = artifact_dir / "research_loop" / "results.jsonl"
+    records = [json.loads(line) for line in results_path.read_text().splitlines()]
+    assert len(records) == 1
+    assert records[0]["status"] == "catastrophic_stop"
+    assert records[0]["root_cause_verdict"] == "catastrophic_geometry_failure"
+
+
 def test_initial_recipes_can_carry_forward_previous_incumbent(tmp_path: Path) -> None:
     research_root = tmp_path / "repo"
     research_root.mkdir(parents=True)
@@ -325,6 +413,57 @@ def test_initial_recipes_obey_boss_priority_only(tmp_path: Path) -> None:
     )
 
     assert [recipe.name for recipe in recipes] == ["carryover_mini_teacher_quality"]
+
+
+def test_initial_recipes_launch_frontier_family_when_hard_pivot_requested(
+    tmp_path: Path,
+) -> None:
+    artifact_root = tmp_path / "research_loop"
+    artifact_root.mkdir()
+
+    recipes = research._initial_recipes(
+        artifact_root,
+        teacher_provider_available=True,
+        boss_policy={
+            "force_priority_only": True,
+            "priority_tags": [
+                "dino_v3",
+                "sam21_offline_support",
+                "world_aligned_distillation",
+            ],
+            "suppress_tags": ["query_boost", "lr_down", "teacher_bag"],
+        },
+    )
+
+    assert recipes[0].name == "frontier_dinov3_teacher_distill_vits16"
+    assert recipes[0].config.image_backbone == "dinov3_vits16"
+    assert recipes[0].use_teacher_provider is True
+    assert recipes[0].enable_teacher_distillation is True
+    assert recipes[0].official_eval_every_epochs == 5
+    assert recipes[0].early_stop_patience == 3
+    assert all("carryover_" not in recipe.name for recipe in recipes)
+
+
+def test_initial_recipes_fail_loudly_when_frontier_tags_filter_everything(
+    tmp_path: Path,
+) -> None:
+    artifact_root = tmp_path / "research_loop"
+    artifact_root.mkdir()
+
+    try:
+        research._initial_recipes(
+            artifact_root,
+            teacher_provider_available=True,
+            boss_policy={
+                "force_priority_only": True,
+                "priority_tags": ["shared_world_latent"],
+                "suppress_tags": ["dino_v3", "sam21_offline_support", "world_aligned_distillation"],
+            },
+        )
+    except RuntimeError as exc:
+        assert "frontier launch tags" in str(exc)
+    else:  # pragma: no cover - defensive
+        raise AssertionError("expected frontier launch selection to fail loudly")
 
 
 def test_boss_progress_verdict_marks_breakthrough_against_previous_incumbent(
@@ -885,6 +1024,43 @@ def test_exploitation_candidates_add_teacher_off_control_and_anchor_mix_for_lida
     candidate_names = [candidate.name for candidate in candidates]
     assert f"{incumbent.name}_teacher_off_control" in candidate_names
     assert f"{incumbent.name}_anchor_mix" in candidate_names
+
+
+def test_frontier_exploitation_candidates_stay_on_frontier_family() -> None:
+    incumbent = research._frontier_vits16_recipe(teacher_provider_available=True)
+    incumbent_record = {
+        "recipe": incumbent.name,
+        "source_mix": {"lidar": 0.55, "proposal": 0.30, "global": 0.15},
+        "checkpoint_path": "/tmp/frontier.pt",
+        "evaluation": _fake_eval(0.12, 0.10, car_ap_4m=0.25),
+        "val": {"total": 11.4},
+    }
+    teacher_provider = research.TeacherProviderConfig(kind="cache", cache_dir="/tmp/cache")
+
+    candidates = research._build_exploitation_recipes(
+        incumbent,
+        incumbent_record,
+        teacher_provider,
+        remaining_budget=5,
+        boss_policy={
+            "force_priority_only": True,
+            "priority_tags": [
+                "quality_rank_finegrid",
+                "world_aligned_distillation",
+                "sam21_offline_support",
+                "dino_v3",
+            ],
+            "suppress_tags": ["query_boost", "lr_down", "teacher_bag", "anchor_mix"],
+        },
+    )
+
+    candidate_names = [candidate.name for candidate in candidates]
+    assert f"{incumbent.name}_official_guardrail" in candidate_names
+    assert f"{incumbent.name}_world_distill" in candidate_names
+    assert f"{incumbent.name}_no_sam2" in candidate_names
+    assert f"{incumbent.name}_vitb16" in candidate_names
+    assert all("query_boost" not in name for name in candidate_names)
+    assert all("teacher_bag" not in name for name in candidate_names)
 
 
 def test_boss_policy_suppresses_losing_branches_for_quality_rank_winner(
