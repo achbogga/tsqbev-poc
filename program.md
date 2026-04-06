@@ -14,6 +14,7 @@ Behavioral standard:
 
 - [SOUL.md](SOUL.md)
 - [docs/hard-pivot-execution.md](docs/hard-pivot-execution.md)
+- [docs/think-while-training.md](docs/think-while-training.md)
 
 ## Standing Research Directives
 
@@ -59,6 +60,8 @@ These instructions are durable repo policy, not one-off chat guidance.
 - publish PI-readable reports and machine-readable sync artifacts after each invocation
 - treat lane work as an explicit secondary bootstrap track: prove the isolated OpenLane lane path,
   export, and evaluation first, then consider mixing it into the main detection loop
+- while active runs are on GPU, keep at least one CPU-only confidence-building task alive that
+  produces a tangible artifact for the next decision
 
 ## Token-Burn Discipline
 
@@ -93,6 +96,8 @@ Before any invocation:
 4. preserve all prior experiment artifacts
 5. if W&B is available, mirror the run there under the stable entity `achbogga-track`
 6. refresh the local research-memory state and pre-run brief before the next invocation
+7. if another run is already active, use the idle CPU budget for a tangible planning or retrieval
+   artifact instead of waiting passively
 
 ## In-Scope Surface
 

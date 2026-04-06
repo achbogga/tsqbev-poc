@@ -7,6 +7,8 @@ Read [SOUL.md](SOUL.md) alongside this file. `AGENTS.md` is the contract; `SOUL.
 behavioral standard for how that contract should be executed.
 
 Hard-pivot launch mechanics are defined in [docs/hard-pivot-execution.md](docs/hard-pivot-execution.md).
+Parallel CPU-side planning practice during active runs is defined in
+[docs/think-while-training.md](docs/think-while-training.md).
 
 ## Core Research Stance
 
@@ -25,6 +27,10 @@ Hard-pivot launch mechanics are defined in [docs/hard-pivot-execution.md](docs/h
   later consider joint detection+lane work if both branches are healthy
 - keep a separate CPU-only maintenance agent alive daily; it should run repo health checks,
   memory/report sync, and tech-debt triage even when the main research agent is doing other work
+- while GPU experiments run, keep one CPU-only confidence-building task alive as common practice:
+  retrieval audit, confidence review, next-step shortlist, or infra-gap note
+- planning during active runs must produce a tangible artifact that changes what we run, stop,
+  retrieve, measure, or publish next; otherwise it is not good research work
 
 ## Target Stack Bias
 
