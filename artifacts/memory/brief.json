@@ -1,11 +1,11 @@
 {
-  "generated_at_utc": "2026-04-07T09:57:25.980045+00:00",
+  "generated_at_utc": "2026-04-07T21:37:22.609758+00:00",
   "current_state": [
     "Local incumbent: `carryover_carryover_carryover_carryover_carryover_carryover_recovery_v14_teacher_anchor_quality_focal_teacher_quality_query_boost_quality_rank_teacher_quality_plus_quality_rank_finegrid` with NDS `0.1833`, mAP `0.1814`, val total `10.6925` from [artifacts/research_v29_continuation_v1/research_loop/results.jsonl](artifacts/research_v29_continuation_v1/research_loop/results.jsonl).",
     "Best local overfit frontier: `recovery_v14_teacher_anchor_quality_focal` with NDS `0.1553`, mAP `0.1992`, train_total_ratio `0.3624`, car AP@4m `0.4958` from [artifacts/gates/recovery_v14_teacher_anchor_quality_focal/overfit_gate/summary.json](artifacts/gates/recovery_v14_teacher_anchor_quality_focal/overfit_gate/summary.json).",
     "Best ratio-passing overfit candidate: `recovery_v14_teacher_anchor_quality_focal` with NDS `0.1553`, mAP `0.1992`, train_total_ratio `0.3624` from [artifacts/gates/recovery_v14_teacher_anchor_quality_focal/overfit_gate/summary.json](artifacts/gates/recovery_v14_teacher_anchor_quality_focal/overfit_gate/summary.json).",
     "Best reproduced upstream baseline: `bevfusion:convfuser` with NDS `0.7072` and mAP `0.6730` from [artifacts/bevfusion_repro/bevfusion_bbox_summary.json](artifacts/bevfusion_repro/bevfusion_bbox_summary.json).",
-    "Latest supervisor invocation: objective `improve official mini-val NDS without reopening dead exploit families` targeting `quality-vs-calibration-boundary` from [artifacts/autoresearch_frontier_v4/invocation_002_20260406-223637/post_run_context_summary.json](artifacts/autoresearch_frontier_v4/invocation_002_20260406-223637/post_run_context_summary.json).",
+    "Latest supervisor invocation: objective `improve official mini-val NDS without reopening dead exploit families` targeting `quality-vs-calibration-boundary` from [artifacts/autoresearch_frontier_v4/invocation_003_20260407-095738/post_run_context_summary.json](artifacts/autoresearch_frontier_v4/invocation_003_20260407-095738/post_run_context_summary.json).",
     "Active steering file present at [docs/steering.md](docs/steering.md)."
   ],
   "delta_since_last": [

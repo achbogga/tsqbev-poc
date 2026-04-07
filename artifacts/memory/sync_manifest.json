@@ -1,11 +1,11 @@
 {
-  "generated_at_utc": "2026-04-07T09:57:18.547077+00:00",
-  "build_id": "20260407T092541Z-1bcb120",
-  "build_dir": "/home/achbogga/projects/tsqbev-poc/.local/research-memory/builds/20260407T092541Z-1bcb120",
-  "repo_sha": "1bcb120",
+  "generated_at_utc": "2026-04-07T21:37:15.192109+00:00",
+  "build_id": "20260407T210534Z-e354f03",
+  "build_dir": "/home/achbogga/projects/tsqbev-poc/.local/research-memory/builds/20260407T210534Z-e354f03",
+  "repo_sha": "e354f03",
   "repo_root": "/home/achbogga/projects/tsqbev-poc",
-  "catalog_path": "/home/achbogga/projects/tsqbev-poc/.local/research-memory/builds/20260407T092541Z-1bcb120/catalog.duckdb",
-  "event_count": 2683,
+  "catalog_path": "/home/achbogga/projects/tsqbev-poc/.local/research-memory/builds/20260407T210534Z-e354f03/catalog.duckdb",
+  "event_count": 2689,
   "evidence_count": 1470,
   "fact_count": 67,
   "qdrant": {
@@ -14,8 +14,8 @@
     "reason": null,
     "indexed_chunks": 1470,
     "embedder_provider": "fastembed",
-    "evidence_collection": "tsqbev_evidence_20260407T092541Z-1bcb120",
-    "memory_collection": "tsqbev_memories_20260407T092541Z-1bcb120"
+    "evidence_collection": "tsqbev_evidence_20260407T210534Z-e354f03",
+    "memory_collection": "tsqbev_memories_20260407T210534Z-e354f03"
   },
   "reranker": {
     "enabled": true,
@@ -35,37 +35,37 @@
       "flushed": 0,
       "remaining": 0
     },
-    "collection_name": "tsqbev_mem0_20260407T092541Z-1bcb120"
+    "collection_name": "tsqbev_mem0_20260407T210534Z-e354f03"
   },
   "knowledge_base": {
     "knowledge_fact_count": 57,
     "knowledge_pack_count": 7
   },
   "phase_timings_s": {
-    "collect_events": 4.1376,
-    "collect_chunks": 0.153,
-    "derive_facts": 0.0025,
-    "upsert_events": 9.8556,
-    "upsert_chunks": 2.8118,
-    "upsert_facts": 0.1698,
-    "qdrant_sync": 1872.05,
-    "mem0_sync": 7.692
+    "collect_events": 4.1865,
+    "collect_chunks": 0.1505,
+    "derive_facts": 0.0026,
+    "upsert_events": 9.9471,
+    "upsert_chunks": 2.8722,
+    "upsert_facts": 0.189,
+    "qdrant_sync": 1876.2431,
+    "mem0_sync": 7.0234
   },
-  "build_root": "/home/achbogga/projects/tsqbev-poc/.local/research-memory/builds/20260407T092541Z-1bcb120",
-  "qdrant_evidence_collection": "tsqbev_evidence_20260407T092541Z-1bcb120",
-  "qdrant_memory_collection": "tsqbev_memories_20260407T092541Z-1bcb120",
-  "mem0_qdrant_collection": "tsqbev_mem0_20260407T092541Z-1bcb120",
+  "build_root": "/home/achbogga/projects/tsqbev-poc/.local/research-memory/builds/20260407T210534Z-e354f03",
+  "qdrant_evidence_collection": "tsqbev_evidence_20260407T210534Z-e354f03",
+  "qdrant_memory_collection": "tsqbev_memories_20260407T210534Z-e354f03",
+  "mem0_qdrant_collection": "tsqbev_mem0_20260407T210534Z-e354f03",
   "current_build": {
-    "build_id": "20260407T092541Z-1bcb120",
-    "generated_at_utc": "2026-04-07T09:57:18.547077+00:00",
-    "build_root": "/home/achbogga/projects/tsqbev-poc/.local/research-memory/builds/20260407T092541Z-1bcb120",
-    "catalog_path": "/home/achbogga/projects/tsqbev-poc/.local/research-memory/builds/20260407T092541Z-1bcb120/catalog.duckdb",
-    "qdrant_evidence_collection": "tsqbev_evidence_20260407T092541Z-1bcb120",
-    "qdrant_memory_collection": "tsqbev_memories_20260407T092541Z-1bcb120",
-    "mem0_qdrant_collection": "tsqbev_mem0_20260407T092541Z-1bcb120",
-    "repo_sha": "1bcb120",
+    "build_id": "20260407T210534Z-e354f03",
+    "generated_at_utc": "2026-04-07T21:37:15.192109+00:00",
+    "build_root": "/home/achbogga/projects/tsqbev-poc/.local/research-memory/builds/20260407T210534Z-e354f03",
+    "catalog_path": "/home/achbogga/projects/tsqbev-poc/.local/research-memory/builds/20260407T210534Z-e354f03/catalog.duckdb",
+    "qdrant_evidence_collection": "tsqbev_evidence_20260407T210534Z-e354f03",
+    "qdrant_memory_collection": "tsqbev_memories_20260407T210534Z-e354f03",
+    "mem0_qdrant_collection": "tsqbev_mem0_20260407T210534Z-e354f03",
+    "repo_sha": "e354f03",
     "fact_count": 67,
-    "event_count": 2683,
+    "event_count": 2689,
     "evidence_count": 1470
   }
 }
