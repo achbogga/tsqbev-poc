@@ -31,6 +31,15 @@ from tsqbev.eval_nuscenes import evaluate_nuscenes_predictions, export_nuscenes_
 from tsqbev.eval_openlane import evaluate_openlane_predictions, export_openlane_predictions
 from tsqbev.export import export_core_to_onnx
 from tsqbev.gap_analysis import analyze_reset_gap
+from tsqbev.harness_v2 import (
+    DEFAULT_HARNESS_ROOT,
+    render_harness_report,
+    run_harness_benchmark,
+    run_harness_promote,
+    run_harness_search,
+    run_harness_shadow,
+    sync_harness_memory,
+)
 from tsqbev.knowledge_assets import knowledge_asset_status, mirror_knowledge_assets
 from tsqbev.latency import LatencyPredictor, features_from_config
 from tsqbev.maintenance_supervisor import run_maintenance_once, run_maintenance_supervisor
@@ -290,6 +299,97 @@ def knowledge_assets_status_report() -> None:
     print(knowledge_asset_status())
 
 
+def _resolve_harness_artifact_dir(path: Path) -> Path:
+    return DEFAULT_HARNESS_ROOT if path == Path("artifacts/baselines") else path
+
+
+def harness_benchmark_report(
+    *,
+    artifact_dir: Path,
+    candidate_path: Path | None,
+    proposal_path: Path | None,
+    budget_chars: int,
+) -> None:
+    print(
+        run_harness_benchmark(
+            artifact_dir=_resolve_harness_artifact_dir(artifact_dir),
+            candidate_path=candidate_path,
+            proposal_path=proposal_path,
+            budget_chars=budget_chars,
+        )
+    )
+
+
+def harness_search_report(
+    *,
+    artifact_dir: Path,
+    proposal_path: Path | None,
+    iterations: int,
+    provider: str | None,
+    budget_chars: int,
+) -> None:
+    print(
+        run_harness_search(
+            artifact_dir=_resolve_harness_artifact_dir(artifact_dir),
+            proposal_path=proposal_path,
+            iterations=iterations,
+            provider=provider,
+            budget_chars=budget_chars,
+        )
+    )
+
+
+def harness_shadow_report(
+    *,
+    artifact_dir: Path,
+    candidate_path: Path,
+    proposal_path: Path | None,
+    budget_chars: int,
+) -> None:
+    print(
+        run_harness_shadow(
+            artifact_dir=_resolve_harness_artifact_dir(artifact_dir),
+            candidate_path=candidate_path,
+            proposal_path=proposal_path,
+            budget_chars=budget_chars,
+        )
+    )
+
+
+def harness_promote_report(
+    *,
+    artifact_dir: Path,
+    candidate_path: Path,
+    proposal_path: Path | None,
+    budget_chars: int,
+) -> None:
+    print(
+        run_harness_promote(
+            artifact_dir=_resolve_harness_artifact_dir(artifact_dir),
+            candidate_path=candidate_path,
+            proposal_path=proposal_path,
+            budget_chars=budget_chars,
+        )
+    )
+
+
+def harness_report_sync_report(
+    *,
+    artifact_dir: Path,
+    report_path: Path,
+) -> None:
+    print(
+        render_harness_report(
+            artifact_dir=_resolve_harness_artifact_dir(artifact_dir),
+            report_path=report_path,
+        )
+    )
+
+
+def harness_memory_sync_report(*, artifact_dir: Path) -> None:
+    print(sync_harness_memory(artifact_dir=_resolve_harness_artifact_dir(artifact_dir)))
+
+
 def memory_service_report(action: Literal["up", "down"]) -> None:
     print(manage_research_memory_services(action))
 
@@ -427,6 +527,12 @@ def _make_parser() -> argparse.ArgumentParser:
             "check-sam2-assets",
             "knowledge-assets-sync",
             "knowledge-assets-status",
+            "harness-benchmark",
+            "harness-search",
+            "harness-shadow",
+            "harness-promote",
+            "harness-report",
+            "harness-memory-sync",
             "memory-up",
             "memory-health",
             "memory-down",
@@ -444,6 +550,7 @@ def _make_parser() -> argparse.ArgumentParser:
     parser.add_argument("--output-path", type=Path, default=Path("artifacts/eval/predictions.json"))
     parser.add_argument("--output-dir", type=Path, default=Path("artifacts/eval"))
     parser.add_argument("--proposal-path", type=Path, default=None)
+    parser.add_argument("--candidate-path", type=Path, default=None)
     parser.add_argument("--checkpoint", type=Path, default=None)
     parser.add_argument("--init-checkpoint", type=Path, default=None)
     parser.add_argument("--result-json", type=Path, default=None)
@@ -638,6 +745,18 @@ def _make_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--query", type=str, default=None)
     parser.add_argument("--limit", type=int, default=8)
+    parser.add_argument("--iterations", type=int, default=3)
+    parser.add_argument(
+        "--harness-provider",
+        choices=("heuristic", "openai", "mcp"),
+        default=None,
+    )
+    parser.add_argument("--budget-chars", type=int, default=16000)
+    parser.add_argument(
+        "--harness-report-path",
+        type=Path,
+        default=Path("docs/reports/harness_v2.md"),
+    )
     parser.add_argument("--archive-key", type=str, nargs="*", default=None)
     parser.add_argument(
         "--extract-openlanev2",
@@ -769,6 +888,52 @@ def main() -> None:
         return
     if args.command == "knowledge-assets-status":
         knowledge_assets_status_report()
+        return
+    if args.command == "harness-benchmark":
+        harness_benchmark_report(
+            artifact_dir=args.artifact_dir,
+            candidate_path=args.candidate_path,
+            proposal_path=args.proposal_path,
+            budget_chars=args.budget_chars,
+        )
+        return
+    if args.command == "harness-search":
+        harness_search_report(
+            artifact_dir=args.artifact_dir,
+            proposal_path=args.proposal_path,
+            iterations=args.iterations,
+            provider=args.harness_provider,
+            budget_chars=args.budget_chars,
+        )
+        return
+    if args.command == "harness-shadow":
+        if args.candidate_path is None:
+            raise ValueError("--candidate-path is required for harness-shadow")
+        harness_shadow_report(
+            artifact_dir=args.artifact_dir,
+            candidate_path=args.candidate_path,
+            proposal_path=args.proposal_path,
+            budget_chars=args.budget_chars,
+        )
+        return
+    if args.command == "harness-promote":
+        if args.candidate_path is None:
+            raise ValueError("--candidate-path is required for harness-promote")
+        harness_promote_report(
+            artifact_dir=args.artifact_dir,
+            candidate_path=args.candidate_path,
+            proposal_path=args.proposal_path,
+            budget_chars=args.budget_chars,
+        )
+        return
+    if args.command == "harness-report":
+        harness_report_sync_report(
+            artifact_dir=args.artifact_dir,
+            report_path=args.harness_report_path,
+        )
+        return
+    if args.command == "harness-memory-sync":
+        harness_memory_sync_report(artifact_dir=args.artifact_dir)
         return
     if args.command == "memory-up":
         memory_service_report("up")

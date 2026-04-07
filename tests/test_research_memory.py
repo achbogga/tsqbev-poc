@@ -7,7 +7,9 @@ from tsqbev.research_memory import (
     QdrantEvidenceIndex,
     ResearchMemoryConfig,
     _artifact_files,
+    _collect_events,
     _collect_knowledge_facts,
+    _derive_memory_facts,
     _Embedder,
     _evidence_source_files,
     _semantic_rank_key,
@@ -792,3 +794,29 @@ def test_query_research_memory_returns_knowledge_facts(tmp_path: Path) -> None:
     )
 
     assert any("AWQ" in item["claim"] for item in result["exact_facts"])
+
+
+def test_collect_events_and_facts_ingest_harness_summaries(tmp_path: Path) -> None:
+    repo_root = _make_repo_fixture(tmp_path)
+    harness_summary = {
+        "kind": "harness_benchmark",
+        "candidate_id": "proposal_aligned_v1",
+        "status": "completed",
+        "scorecard": {"total_score": 78.5},
+        "selected_recipe": "proposal_aligned_v1",
+    }
+    _write(
+        repo_root
+        / "artifacts"
+        / "harness_v2"
+        / "benchmarks"
+        / "proposal_aligned_v1"
+        / "summary.json",
+        json.dumps(harness_summary, indent=2),
+    )
+
+    events = _collect_events(repo_root)
+    facts = _derive_memory_facts(events, repo_root)
+
+    assert any(event.event_type == "harness_benchmark" for event in events)
+    assert any("harness_v2 benchmark candidate" in fact.claim for fact in facts)

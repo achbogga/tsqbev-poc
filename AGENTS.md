@@ -9,6 +9,8 @@ behavioral standard for how that contract should be executed.
 Hard-pivot launch mechanics are defined in [docs/hard-pivot-execution.md](docs/hard-pivot-execution.md).
 Parallel CPU-side planning practice during active runs is defined in
 [docs/think-while-training.md](docs/think-while-training.md).
+The parallel harness-search control plane is defined in
+[docs/meta-harness-v2.md](docs/meta-harness-v2.md).
 
 ## Core Research Stance
 
@@ -31,6 +33,10 @@ Parallel CPU-side planning practice during active runs is defined in
   retrieval audit, confidence review, next-step shortlist, or infra-gap note
 - planning during active runs must produce a tangible artifact that changes what we run, stop,
   retrieve, measure, or publish next; otherwise it is not good research work
+- treat `harness_v2` as the preferred place to search over prompts, retrieval, memory usage,
+  orchestration, and stop/pivot policy without destabilizing the live supervisor
+- new control-plane ideas should enter the repo through replay benchmarks and shadow mode before
+  they are allowed to steer live GPU execution
 
 ## Target Stack Bias
 

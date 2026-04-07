@@ -15,6 +15,7 @@ Behavioral standard:
 - [SOUL.md](SOUL.md)
 - [docs/hard-pivot-execution.md](docs/hard-pivot-execution.md)
 - [docs/think-while-training.md](docs/think-while-training.md)
+- [docs/meta-harness-v2.md](docs/meta-harness-v2.md)
 
 ## Standing Research Directives
 
@@ -98,6 +99,8 @@ Before any invocation:
 6. refresh the local research-memory state and pre-run brief before the next invocation
 7. if another run is already active, use the idle CPU budget for a tangible planning or retrieval
    artifact instead of waiting passively
+8. route new control-plane ideas through `harness_v2` replay benchmarks and shadow mode before
+   letting them steer live execution
 
 ## In-Scope Surface
 
@@ -193,6 +196,14 @@ The bounded loop is not enough by itself. A Karpathy-style lab workflow in this 
 
 The intended entrypoint is `tsqbev research-supervisor`, not manual one-off screens, whenever the
 goal is continuous unattended progress.
+
+In parallel, the repo now supports `tsqbev harness-search` as a higher-level control-plane search
+loop. That system searches over single-file harness candidates that mutate prompting, retrieval,
+memory compression, and orchestration logic. It must stay offline-first:
+
+1. replay benchmark first
+2. shadow against the incumbent harness second
+3. promote only when the scorecard and shadow gates pass
 
 Separate from the GPU research supervisor, the repo should keep a CPU-only daily maintenance agent
 alive via `tsqbev maintenance-supervisor`. That process is responsible for repo hygiene checks,

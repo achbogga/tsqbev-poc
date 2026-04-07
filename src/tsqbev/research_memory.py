@@ -1452,6 +1452,31 @@ def _parse_summary_json(path: Path, repo_root: Path) -> list[ResearchEvent]:
     elif "coverage" in payload:
         event_type = "teacher_cache_audit"
         status = "completed"
+    elif _as_opt_str(payload.get("kind")) == "harness_benchmark":
+        event_type = "harness_benchmark"
+        dataset = "research control plane"
+        status = _as_opt_str(payload.get("status")) or "completed"
+        recipe = _as_opt_str(payload.get("candidate_id"))
+        scorecard = payload.get("scorecard", {})
+        if isinstance(scorecard, dict):
+            val_total = _safe_float(scorecard.get("total_score"))
+    elif _as_opt_str(payload.get("kind")) == "harness_shadow":
+        event_type = "harness_shadow"
+        dataset = "research control plane"
+        status = _as_opt_str(payload.get("status")) or "completed"
+        recipe = _as_opt_str(payload.get("candidate_id"))
+        val_total = _safe_float(payload.get("score_gap"))
+    elif _as_opt_str(payload.get("kind")) == "harness_promotion":
+        event_type = "harness_promotion"
+        dataset = "research control plane"
+        status = _as_opt_str(payload.get("status")) or "completed"
+        recipe = _as_opt_str(payload.get("candidate_id"))
+        val_total = _safe_float(payload.get("benchmark_total_score"))
+    elif _as_opt_str(payload.get("kind")) == "harness_context_summary":
+        event_type = "harness_context_summary"
+        dataset = "research control plane"
+        status = "completed"
+        recipe = _as_opt_str(payload.get("candidate_id"))
     elif _as_opt_str(payload.get("kind")) == "supervisor_invocation":
         event_type = "supervisor_invocation"
         dataset = "nuScenes v1.0-mini"
@@ -1723,6 +1748,66 @@ def _derive_memory_facts(events: list[ResearchEvent], repo_root: Path) -> list[M
                 git_sha=event.git_sha,
                 run_id=event.run_id,
                 payload={"recipe": recipe, "objective": objective},
+            )
+        )
+
+    harness_benchmarks = by_type.get("harness_benchmark", [])
+    if harness_benchmarks:
+        scored: list[tuple[float, ResearchEvent]] = []
+        for event in harness_benchmarks:
+            score = _safe_float(_nested_get(event.payload, "scorecard", "total_score"))
+            if score is not None:
+                scored.append((score, event))
+        scored.sort(key=lambda item: item[0], reverse=True)
+        if scored:
+            score, event = scored[0]
+            claim = (
+                f"Best harness_v2 benchmark candidate is `{event.recipe}` with total score "
+                f"`{score:.3f}`."
+            )
+            facts.append(
+                MemoryFact(
+                    fact_id=_sha1(f"harness:{claim}:{event.source_path}"),
+                    kind="harness_benchmark",
+                    claim=claim,
+                    confidence=0.58,
+                    source_refs=[event.source_path],
+                    dataset=event.dataset,
+                    architecture_family="research-control-plane",
+                    bottleneck="control-plane-quality",
+                    git_sha=event.git_sha,
+                    run_id=event.run_id,
+                    payload={"candidate_id": event.recipe, "total_score": score},
+                )
+            )
+
+    harness_promotions = [
+        event
+        for event in by_type.get("harness_promotion", [])
+        if event.status == "promoted"
+    ]
+    if harness_promotions:
+        event = harness_promotions[-1]
+        benchmark_score = _safe_float(event.payload.get("benchmark_total_score"))
+        claim = (
+            f"Promoted harness_v2 candidate is `{event.recipe}` with benchmark total score "
+            f"`{benchmark_score:.3f}`."
+            if benchmark_score is not None
+            else f"Promoted harness_v2 candidate is `{event.recipe}`."
+        )
+        facts.append(
+            MemoryFact(
+                fact_id=_sha1(f"harness-promotion:{claim}:{event.source_path}"),
+                kind="harness_promotion",
+                claim=claim,
+                confidence=0.63,
+                source_refs=[event.source_path],
+                dataset=event.dataset,
+                architecture_family="research-control-plane",
+                bottleneck="control-plane-quality",
+                git_sha=event.git_sha,
+                run_id=event.run_id,
+                payload={"candidate_id": event.recipe},
             )
         )
 
