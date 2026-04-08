@@ -18,6 +18,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from tsqbev.harness_v2 import DEFAULT_HARNESS_ROOT, load_promoted_harness_plan
 from tsqbev.research import ResearchProposal, run_bounded_research_loop
 from tsqbev.research_guard import ensure_research_loop_enabled
 from tsqbev.research_memory import (
@@ -484,7 +485,44 @@ def _planner_decision_from_brief(
     brief: dict[str, Any],
     *,
     proposal_context: str = "",
+    proposal_path: Path | None = None,
+    runtime_root: Path | None = None,
 ) -> PlannerDecision:
+    if _env_bool("TSQBEV_SUPERVISOR_USE_PROMOTED_HARNESS", True):
+        try:
+            harness_payload = load_promoted_harness_plan(
+                brief=brief,
+                proposal_path=proposal_path or DEFAULT_PROPOSAL_PATH,
+                artifact_dir=Path(os.getenv("TSQBEV_HARNESS_ROOT", str(DEFAULT_HARNESS_ROOT))),
+                budget_chars=int(
+                    os.getenv("TSQBEV_HARNESS_CONTEXT_BUDGET_CHARS", "16000")
+                ),
+                runtime_root=runtime_root,
+            )
+        except Exception:
+            harness_payload = None
+        if harness_payload is not None:
+            plan = harness_payload.get("plan", {})
+            if isinstance(plan, dict):
+                return PlannerDecision(
+                    provider=f"harness:{harness_payload['candidate_id']}",
+                    model=None,
+                    active_bottleneck=str(
+                        plan.get("targeted_bottleneck", "frontier-hard-pivot")
+                    ),
+                    objective=str(
+                        plan.get(
+                            "objective",
+                            "execute the promoted frontier harness on the hard-pivot stack",
+                        )
+                    ),
+                    priority_tags=_as_str_list(plan.get("priority_tags", [])),
+                    suppress_tags=_as_str_list(plan.get("suppress_tags", [])),
+                    force_priority_only=bool(plan.get("force_priority_only", True)),
+                    token_burn_score=0,
+                    rationale=_as_str_list(plan.get("rationale", [])),
+                    kill_conditions=_as_str_list(plan.get("kill_conditions", [])),
+                )
     model = os.getenv("TSQBEV_SUPERVISOR_PLANNER_MODEL", "gpt-5.4")
     prompt = (
         "You are the planner for an autonomous perception research lab. "
@@ -917,6 +955,8 @@ def run_research_supervisor(
         planner_decision = _planner_decision_from_brief(
             pre_run_brief,
             proposal_context=proposal_context,
+            proposal_path=resolved_proposal_path,
+            runtime_root=invocation_root / "harness_runtime",
         )
         critic_decision = _critic_decision_from_planner(
             pre_run_brief,

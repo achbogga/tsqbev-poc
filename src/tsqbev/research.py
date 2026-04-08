@@ -1289,6 +1289,8 @@ def _initial_recipes(
             ("bevformer_v2_perspective_supervision", frontier_vits),
             ("sparse4d_efficiency", frontier_vits),
             ("sam21_offline_support", frontier_vits),
+            ("geometry_sanity", _make_frontier_official_guardrail_recipe(frontier_vits)),
+            ("official_metric_only", _make_frontier_official_guardrail_recipe(frontier_vits)),
         ]
         if teacher_provider_available:
             frontier_tagged.extend(
@@ -1812,6 +1814,8 @@ def _build_exploitation_recipes(
     if _is_frontier_recipe(incumbent_recipe):
         tagged_candidates: list[tuple[str, ResearchRecipe]] = [
             ("quality_rank_finegrid", _make_frontier_official_guardrail_recipe(incumbent_recipe)),
+            ("geometry_sanity", _make_frontier_official_guardrail_recipe(incumbent_recipe)),
+            ("official_metric_only", _make_frontier_official_guardrail_recipe(incumbent_recipe)),
             ("dino_v3", _make_frontier_vitb16_recipe(incumbent_recipe)),
             ("dino_v3_bridge", _make_frontier_vitb16_recipe(incumbent_recipe)),
             (

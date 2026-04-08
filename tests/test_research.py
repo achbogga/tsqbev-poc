@@ -428,8 +428,11 @@ def test_initial_recipes_launch_frontier_family_when_hard_pivot_requested(
             "force_priority_only": True,
             "priority_tags": [
                 "dino_v3",
+                "dino_v3_bridge",
                 "sam21_offline_support",
                 "world_aligned_distillation",
+                "geometry_sanity",
+                "official_metric_only",
             ],
             "suppress_tags": ["query_boost", "lr_down", "teacher_bag"],
         },
@@ -441,6 +444,12 @@ def test_initial_recipes_launch_frontier_family_when_hard_pivot_requested(
     assert recipes[0].enable_teacher_distillation is True
     assert recipes[0].official_eval_every_epochs == 5
     assert recipes[0].early_stop_patience == 3
+    recipe_names = [recipe.name for recipe in recipes]
+    assert "frontier_dinov3_teacher_distill_vits16_official_guardrail" in recipe_names
+    assert "frontier_dinov3_teacher_distill_vits16_world_distill" in recipe_names
+    assert "frontier_dinov3_teacher_distill_vits16_vitb16" in recipe_names
+    assert "frontier_dinov3_teacher_distill_vits16_no_sam2" in recipe_names
+    assert "frontier_dinov3_teacher_distill_vits16_teacher_control" in recipe_names
     assert all("carryover_" not in recipe.name for recipe in recipes)
 
 

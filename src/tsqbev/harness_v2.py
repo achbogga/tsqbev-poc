@@ -390,11 +390,15 @@ def run_harness(task: dict) -> dict:
     catastrophic = "0.0000" in state_text or "sanity" in blockers or "geometry" in blockers
     joint_collapse = "joint" in state_text and "0.0000" in state_text
     frontier_tags = [
+        "dino_v3",
         "dino_v3_bridge",
         "bevformer_v2_perspective_supervision",
+        "sam21_offline_support",
+        "world_aligned_distillation",
         "world_latent_distillation",
         "bevfusion_teacher",
         "openpcdet_teacher",
+        "sparse4d_efficiency",
         "geometry_sanity",
         "official_metric_only",
     ]
@@ -1134,6 +1138,59 @@ def run_harness_promote(
         "promotion_root": str(promotion_root),
         "summary": summary,
     }
+
+
+def load_promoted_harness_plan(
+    *,
+    brief: dict[str, Any],
+    proposal_path: str | Path | None = DEFAULT_PROPOSAL_PATH,
+    artifact_dir: str | Path = DEFAULT_HARNESS_ROOT,
+    budget_chars: int = DEFAULT_CONTEXT_BUDGET_CHARS,
+    runtime_root: str | Path | None = None,
+) -> dict[str, Any] | None:
+    root = Path(artifact_dir)
+    promoted_path = root / "promoted" / "current.json"
+    if not promoted_path.exists():
+        return None
+    promoted = json.loads(promoted_path.read_text(encoding="utf-8"))
+    current_candidate = root / "promoted" / "candidate.py"
+    source_path = current_candidate if current_candidate.exists() else Path(
+        str(promoted["source_path"])
+    )
+    spec = _load_candidate(source_path)
+    runtime_dir = (
+        Path(runtime_root)
+        if runtime_root is not None
+        else root / "runtime" / f"{spec.candidate_id}_{_timestamp_tag()}"
+    )
+    runtime_dir.mkdir(parents=True, exist_ok=True)
+    task = {
+        "task_id": f"live_control_{_timestamp_tag()}",
+        "candidate_id": spec.candidate_id,
+        "title": "Live research control decision",
+        "brief": brief,
+        "proposal_context": _load_text(
+            Path(proposal_path) if proposal_path is not None else None
+        ),
+    }
+    summary = _persist_context_summary_if_needed(
+        artifact_root=runtime_dir,
+        phase="live_control",
+        task=task,
+        budget_chars=budget_chars,
+    )
+    plan = _run_candidate(spec, task)
+    payload = {
+        "candidate_id": spec.candidate_id,
+        "candidate_path": str(spec.source_path),
+        "runtime_root": str(runtime_dir),
+        "plan": plan,
+        "context_summary_path": (
+            str(runtime_dir / "live_control_context_summary.json") if summary is not None else None
+        ),
+    }
+    _write_json(runtime_dir / "plan.json", payload)
+    return payload
 
 
 def run_harness_search(

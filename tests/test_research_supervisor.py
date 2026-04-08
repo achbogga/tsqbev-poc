@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from subprocess import CompletedProcess
 
@@ -13,6 +14,7 @@ from tsqbev.research_supervisor import (
     _heuristic_planner,
     _linux_process_name,
     _load_proposal_context,
+    _planner_decision_from_brief,
     _render_supervisor_report,
     _write_context_refresh_summary,
 )
@@ -190,3 +192,50 @@ def test_external_research_loop_processes_ignores_pt_data_workers(monkeypatch) -
             "cmd": "/home/user/.venv/bin/python tsqbev research-loop --artifact-dir /tmp/a",
         }
     ]
+
+
+def test_planner_uses_promoted_harness_when_available(tmp_path: Path, monkeypatch) -> None:
+    harness_root = tmp_path / "harness_v2"
+    promoted_root = harness_root / "promoted"
+    promoted_root.mkdir(parents=True)
+    (promoted_root / "candidate.py").write_text(
+        """
+from __future__ import annotations
+
+CANDIDATE_METADATA = {"candidate_id": "candidate_live"}
+
+def run_harness(task: dict) -> dict:
+    return {
+        "objective": "frontier only",
+        "targeted_bottleneck": "geometry-bridge-gap",
+        "priority_tags": ["dino_v3", "sam21_offline_support", "world_aligned_distillation"],
+        "suppress_tags": ["quality_rank_finegrid"],
+        "force_priority_only": True,
+        "rationale": ["use the promoted harness"],
+        "kill_conditions": ["stop on zero official metrics"],
+    }
+""",
+        encoding="utf-8",
+    )
+    (promoted_root / "current.json").write_text(
+        json.dumps(
+            {
+                "candidate_id": "candidate_live",
+                "source_path": str(promoted_root / "candidate.py"),
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("TSQBEV_HARNESS_ROOT", str(harness_root))
+    monkeypatch.setenv("TSQBEV_SUPERVISOR_USE_PROMOTED_HARNESS", "1")
+
+    decision = _planner_decision_from_brief(
+        {"current_state": ["catastrophic geometry failure happened"]},
+        proposal_context="proposal thesis",
+        proposal_path=None,
+        runtime_root=tmp_path / "runtime",
+    )
+
+    assert decision.provider == "harness:candidate_live"
+    assert decision.force_priority_only is True
+    assert "dino_v3" in decision.priority_tags
