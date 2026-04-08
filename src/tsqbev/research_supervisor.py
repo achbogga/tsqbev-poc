@@ -787,8 +787,11 @@ def run_research_supervisor(
     """Run a continuous bounded research supervisor with memory + report publishing."""
 
     ensure_research_loop_enabled()
-    dataset_root = Path(dataroot)
-    supervisor_root = Path(artifact_dir)
+    dataset_root = Path(dataroot).expanduser().resolve()
+    supervisor_root = Path(artifact_dir).expanduser()
+    if not supervisor_root.is_absolute():
+        supervisor_root = REPO_ROOT / supervisor_root
+    supervisor_root = supervisor_root.resolve()
     supervisor_root.mkdir(parents=True, exist_ok=True)
     ledger_path = supervisor_root / "ledger.jsonl"
     stop_path = supervisor_root / "STOP"
@@ -806,7 +809,12 @@ def run_research_supervisor(
     pre_run_sync_enabled = _env_bool("TSQBEV_SUPERVISOR_PRE_RUN_SYNC", False)
     run_on_reject = _env_bool("TSQBEV_SUPERVISOR_RUN_ON_REJECT", True)
     memory_cfg = ResearchMemoryConfig.from_env()
-    resolved_proposal_path = Path(proposal_path) if proposal_path is not None else None
+    resolved_proposal_path = None
+    if proposal_path is not None:
+        resolved_proposal_path = Path(proposal_path).expanduser()
+        if not resolved_proposal_path.is_absolute():
+            resolved_proposal_path = REPO_ROOT / resolved_proposal_path
+        resolved_proposal_path = resolved_proposal_path.resolve()
 
     while max_invocations is None or attempted_invocations < max_invocations:
         print("[supervisor] heartbeat: checking memory health", flush=True)
