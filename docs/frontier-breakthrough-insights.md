@@ -25,6 +25,12 @@ features into the world model needs:
 
 Without that bridge, rich image features remain semantically strong but geometrically weak.
 
+For the deployable student, the practical implication is stronger:
+
+- keep `DINOv3` and `SAM 2.1` on the teacher side first
+- let the embedded student stay lightweight
+- change the student bridge/fusion path before changing the student backbone again
+
 ## 3. Use SAM 2.1 As Dense Supervision, Not As The Trunk
 
 `SAM 2.1` is valuable when box-only supervision is too sparse and the student is losing object
@@ -66,12 +72,12 @@ planner serving. Then control-plane efficiency work is justified.
 
 The current high-conviction architectural hypothesis is:
 
-1. `DINOv3` multi-view camera backbone
-2. view-aware latent/query bottleneck only if compute requires it
-3. deformable or gated cross-attention for spatial fusion
-4. perspective supervision before world aggregation
+1. lightweight student camera backbone (`MobileNetV3` / `EfficientNet-B0`)
+2. gated latent cross-attention bridge on the student
+3. perspective supervision before world aggregation
+4. teacher-side `DINOv3` / `SAM 2.1` / BEV supervision
 5. teacher BEV / quality-map / region-prior distillation
-6. selective SSM for temporal memory
+6. selective SSM for temporal memory only after geometry is stable
 7. staged lane/vector head only after detection is stable
 
 This is the smallest frontier-consistent step that is meaningfully different from the local

@@ -48,3 +48,11 @@ def test_rtx5000_teacher_quality_plus_matches_winner_line_shape() -> None:
     assert config.q_lidar == 96
     assert config.q_2d == 80
     assert config.max_object_queries == 112
+
+
+def test_rtx5000_bridge_teacher_preset_stays_lightweight() -> None:
+    config = ModelConfig.rtx5000_nuscenes_bridge_teacher()
+    assert config.image_backbone == "mobilenet_v3_large"
+    assert config.fusion_style == "gated_latent_cross_attn"
+    assert config.teacher_seed_mode == "off"
+    assert config.latent_bridge_slots == 8

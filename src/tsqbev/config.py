@@ -50,6 +50,8 @@ class ModelConfig(BaseModel):
     sam2_checkpoint: str | None = None
     sam2_region_prior_mode: Literal["off", "proposal_boxes"] = "off"
     sam2_region_prior_weight: float = 0.0
+    fusion_style: Literal["residual_mlp", "gated_latent_cross_attn"] = "residual_mlp"
+    latent_bridge_slots: int = 8
     router_mode: Literal["tri_source", "anchor_first"] = "tri_source"
     views: int = 6
     model_dim: int = 256
@@ -100,6 +102,8 @@ class ModelConfig(BaseModel):
             raise ValueError("sam2_region_prior_weight requires a non-off sam2_region_prior_mode")
         if self.foundation_patch_multiple <= 0:
             raise ValueError("foundation_patch_multiple must be positive")
+        if self.latent_bridge_slots <= 0:
+            raise ValueError("latent_bridge_slots must be positive")
         low_layer, high_layer = self.foundation_intermediate_layers
         if low_layer < 0 or high_layer < 0:
             raise ValueError("foundation_intermediate_layers must be non-negative")
@@ -256,6 +260,45 @@ class ModelConfig(BaseModel):
             sam2_checkpoint="/home/achbogga/projects/research/sam2_weights/sam2.1_hiera_base_plus.pt",
             sam2_region_prior_mode="proposal_boxes",
             sam2_region_prior_weight=0.05,
+        )
+
+    @classmethod
+    def rtx5000_nuscenes_bridge_teacher(cls) -> ModelConfig:
+        """Return the lightweight gated-bridge student with teacher-only frontier guidance.
+
+        References:
+        - BEVFormer v2 perspective supervision:
+          https://openaccess.thecvf.com/content/CVPR2023/papers/Yang_BEVFormer_v2_Adapting_Modern_Image_Backbones_to_Birds-Eye-View_Recognition_via_CVPR_2023_paper.pdf
+        - Sparse4D:
+          https://arxiv.org/pdf/2211.10581
+        - Gated/deformable cross-modal fusion patterns:
+          https://arxiv.org/abs/2204.14198
+        """
+
+        return cls(
+            image_backbone="mobilenet_v3_large",
+            pretrained_image_backbone=True,
+            freeze_image_backbone=True,
+            activation_checkpointing=False,
+            attention_backend="auto",
+            auto_vram_fit=True,
+            fusion_style="gated_latent_cross_attn",
+            latent_bridge_slots=8,
+            router_mode="tri_source",
+            teacher_seed_mode="off",
+            teacher_seed_selection_mode="score_topk",
+            ranking_mode="class_times_objectness",
+            model_dim=128,
+            q_lidar=96,
+            q_2d=80,
+            q_global=32,
+            max_object_queries=112,
+            lane_queries=32,
+            lane_points=12,
+            proposals_per_view=24,
+            num_depth_bins=6,
+            map_input_dim=128,
+            pillar=PillarConfig(q_lidar=96),
         )
 
     @classmethod

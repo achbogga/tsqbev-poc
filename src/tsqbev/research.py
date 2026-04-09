@@ -204,6 +204,9 @@ _FRONTIER_LAUNCH_TAGS = {
     "dino_v3",
     "dino_v3_bridge",
     "bevformer_v2_perspective_supervision",
+    "lightweight_bridge",
+    "gated_cross_attention",
+    "teacher_side_foundation",
     "shared_world_latent",
     "world_aligned_distillation",
     "world_latent_distillation",
@@ -299,6 +302,88 @@ def _frontier_vits16_recipe(*, teacher_provider_available: bool) -> ResearchReci
         early_stop_patience=3,
         early_stop_min_delta=0.02,
         early_stop_min_epochs=10,
+    )
+
+
+def _frontier_light_bridge_recipe(*, teacher_provider_available: bool) -> ResearchRecipe:
+    base = ModelConfig.rtx5000_nuscenes_bridge_teacher()
+    if not teacher_provider_available:
+        base = base.model_copy(update={"teacher_seed_mode": "off"})
+    return ResearchRecipe(
+        name=(
+            "frontier_light_bridge_teacher"
+            if teacher_provider_available
+            else "frontier_light_bridge_camera_only"
+        ),
+        note=(
+            "embedded-first hard pivot: lightweight student backbone, gated latent camera bridge, "
+            "teacher-side frontier supervision, and official-metric guardrails"
+        ),
+        hypothesis=(
+            "the repeated DINOv3-on-student collapse means foundation models should stay on the "
+            "teacher side while the deployable student learns a lighter geometry bridge"
+        ),
+        mutation_reason=(
+            "move frontier foundations to the teacher side and replace the student fusion path "
+            "with a lightweight gated latent bridge under the same official-eval contract"
+        ),
+        config=base,
+        stage="baseline",
+        use_teacher_provider=teacher_provider_available,
+        batch_size=2,
+        grad_accum_steps=2,
+        lr=2e-4,
+        weight_decay=1e-4,
+        epochs=30,
+        max_train_steps=None,
+        num_workers=4,
+        score_threshold=0.20,
+        top_k=40,
+        optimizer_schedule="cosine",
+        grad_clip_norm=1.0,
+        keep_best_checkpoint=True,
+        augmentation_mode="off",
+        enable_teacher_distillation=teacher_provider_available,
+        loss_mode="quality_focal",
+        teacher_anchor_quality_class_weight=0.20 if teacher_provider_available else 0.0,
+        teacher_region_objectness_weight=0.10 if teacher_provider_available else 0.0,
+        teacher_region_class_weight=0.10 if teacher_provider_available else 0.0,
+        teacher_region_radius_m=4.0,
+        score_threshold_candidates=(0.16, 0.20, 0.24, 0.28),
+        top_k_candidates=(32, 40, 48),
+        official_eval_every_epochs=5,
+        official_eval_score_threshold=0.20,
+        official_eval_top_k=40,
+        early_stop_patience=2,
+        early_stop_min_delta=0.02,
+        early_stop_min_epochs=5,
+    )
+
+
+def _make_frontier_light_bridge_effb0_recipe(recipe: ResearchRecipe) -> ResearchRecipe:
+    return _clone_recipe(
+        recipe,
+        name=f"{recipe.name}_effb0",
+        note=(
+            "scale the lightweight bridge from MobileNetV3 to EfficientNet-B0 without "
+            "changing the bridge contract"
+        ),
+        hypothesis=(
+            "if the lightweight bridge is representation-limited, EfficientNet-B0 is the "
+            "smallest camera-scale increase that still respects embedded deployment"
+        ),
+        mutation_reason=(
+            "swap to EfficientNet-B0 while preserving lightweight gated bridge and "
+            "teacher-only frontier guidance"
+        ),
+        config=recipe.config.model_copy(
+            update={
+                "image_backbone": "efficientnet_b0",
+                "pretrained_image_backbone": True,
+                "freeze_image_backbone": True,
+            }
+        ),
+        stage="explore",
     )
 
 
@@ -1280,8 +1365,14 @@ def _initial_recipes(
         return deduped
 
     if _priority_tags_request_frontier(priority_tags):
-        frontier_vits = _frontier_vits16_recipe(
-            teacher_provider_available=teacher_provider_available
+        use_light_bridge = any(
+            tag in {"lightweight_bridge", "gated_cross_attention", "teacher_side_foundation"}
+            for tag in priority_tags
+        )
+        frontier_vits = (
+            _frontier_light_bridge_recipe(teacher_provider_available=teacher_provider_available)
+            if use_light_bridge
+            else _frontier_vits16_recipe(teacher_provider_available=teacher_provider_available)
         )
         frontier_tagged: list[tuple[str, ResearchRecipe]] = [
             ("dino_v3", frontier_vits),
@@ -1292,6 +1383,18 @@ def _initial_recipes(
             ("geometry_sanity", _make_frontier_official_guardrail_recipe(frontier_vits)),
             ("official_metric_only", _make_frontier_official_guardrail_recipe(frontier_vits)),
         ]
+        if use_light_bridge:
+            frontier_tagged.extend(
+                [
+                    ("lightweight_bridge", frontier_vits),
+                    ("gated_cross_attention", frontier_vits),
+                    ("teacher_side_foundation", frontier_vits),
+                    (
+                        "lightweight_bridge",
+                        _make_frontier_light_bridge_effb0_recipe(frontier_vits),
+                    ),
+                ]
+            )
         if teacher_provider_available:
             frontier_tagged.extend(
                 [
@@ -1307,10 +1410,15 @@ def _initial_recipes(
                     ("bevfusion_teacher", frontier_vits),
                 ]
             )
-        frontier_tagged.append(("dino_v3", _make_frontier_vitb16_recipe(frontier_vits)))
-        frontier_tagged.append(
-            ("sam21_offline_support", _make_frontier_sam2_ablation_recipe(frontier_vits))
-        )
+        if use_light_bridge:
+            frontier_tagged.append(
+                ("teacher_side_foundation", _make_frontier_teacher_control_recipe(frontier_vits))
+            )
+        else:
+            frontier_tagged.append(("dino_v3", _make_frontier_vitb16_recipe(frontier_vits)))
+            frontier_tagged.append(
+                ("sam21_offline_support", _make_frontier_sam2_ablation_recipe(frontier_vits))
+            )
         if teacher_provider_available:
             frontier_tagged.append(
                 ("world_aligned_distillation", _make_frontier_teacher_control_recipe(frontier_vits))
@@ -1816,13 +1924,31 @@ def _build_exploitation_recipes(
             ("quality_rank_finegrid", _make_frontier_official_guardrail_recipe(incumbent_recipe)),
             ("geometry_sanity", _make_frontier_official_guardrail_recipe(incumbent_recipe)),
             ("official_metric_only", _make_frontier_official_guardrail_recipe(incumbent_recipe)),
-            ("dino_v3", _make_frontier_vitb16_recipe(incumbent_recipe)),
-            ("dino_v3_bridge", _make_frontier_vitb16_recipe(incumbent_recipe)),
-            (
-                "sam21_offline_support",
-                _make_frontier_sam2_ablation_recipe(incumbent_recipe),
-            ),
         ]
+        if incumbent_recipe.config.fusion_style == "gated_latent_cross_attn":
+            tagged_candidates.extend(
+                [
+                    (
+                        "lightweight_bridge",
+                        _make_frontier_light_bridge_effb0_recipe(incumbent_recipe),
+                    ),
+                    (
+                        "teacher_side_foundation",
+                        _make_frontier_teacher_control_recipe(incumbent_recipe),
+                    ),
+                ]
+            )
+        else:
+            tagged_candidates.extend(
+                [
+                    ("dino_v3", _make_frontier_vitb16_recipe(incumbent_recipe)),
+                    ("dino_v3_bridge", _make_frontier_vitb16_recipe(incumbent_recipe)),
+                    (
+                        "sam21_offline_support",
+                        _make_frontier_sam2_ablation_recipe(incumbent_recipe),
+                    ),
+                ]
+            )
         if incumbent_recipe.use_teacher_provider:
             tagged_candidates.extend(
                 [

@@ -238,3 +238,17 @@ def test_model_supports_dinov3_projected_backbone(monkeypatch, synthetic_batch, 
     assert fake_dino.last_input_shape is not None
     assert fake_dino.last_input_shape[-2] % 16 == 0
     assert fake_dino.last_input_shape[-1] % 16 == 0
+
+
+def test_model_supports_gated_latent_bridge_fusion(synthetic_batch) -> None:
+    config = ModelConfig.small().model_copy(
+        update={
+            "fusion_style": "gated_latent_cross_attn",
+            "latent_bridge_slots": 4,
+            "attention_backend": "math",
+        }
+    )
+    model = TSQBEVModel(config)
+    outputs = model(synthetic_batch)
+    assert outputs["object_logits"].shape[0] == synthetic_batch.batch_size
+    assert torch.isfinite(outputs["object_boxes"]).all()

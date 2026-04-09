@@ -62,15 +62,23 @@ Why:
 - The memory layer shows the repo already has too many low-signal local mutations.
 - The control must stay stable while frontier branches are judged against it.
 
-### B. Continue only the `DINOv3` branch that includes teacher distillation
+### B. Replace the runtime `DINOv3` branch with a lightweight bridge student
 
-- Continue the `DINOv3` path only when it includes teacher distillation and official periodic eval.
-- Judge it on official `mini_val` metrics, not training loss.
+- Stop treating `DINOv3` as the embedded student backbone.
+- Move foundation models to the teacher side first.
+- Continue only a lightweight student branch that adds:
+  - gated latent cross-attention for camera fusion
+  - perspective supervision
+  - official periodic eval and hard geometry guardrails
 
 Why:
 
-- The `DINOv3` probe already shows that backbone strength alone is not enough.
-- The KB supports `DINOv3` as a foundation branch, but only with a geometry-aware bridge.
+- Two consecutive hard-pivot `DINOv3` student runs reached lower loss while collapsing to
+  `NDS 0.0000 / mAP 0.0000` on official eval.
+- That is direct evidence that the student backbone swap is the wrong first pivot under embedded
+  constraints.
+- The KB supports `DINOv3` and `SAM 2.1`, but as teacher-side assets unless the student already
+  has a stable geometry bridge.
 
 Primary evidence:
 
@@ -90,7 +98,7 @@ Why:
 
 ## Next Agenda
 
-### 1. Add `BEVFormer v2`-style perspective supervision to the `DINOv3` branch
+### 1. Add `BEVFormer v2`-style perspective supervision to the lightweight bridge student
 
 This is the highest-ROI missing bridge between stronger image priors and better 3D geometry.
 
@@ -129,6 +137,15 @@ Do not use it as:
 
 - the primary runtime trunk
 - a substitute for world-coordinate teacher supervision
+
+### 4. Add selective SSM temporal memory only after the bridge is metric-safe
+
+The KB is clear that SSMs and Mamba-like blocks help with temporal carry, not spatial fusion.
+
+So:
+
+- do not introduce SSMs until the student has nonzero, sane official detection metrics
+- once the lightweight bridge is stable, replace only the temporal updater, not the whole fusion path
 
 ## Strategic Agenda
 

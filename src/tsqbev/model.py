@@ -469,19 +469,50 @@ class CrossViewSparseSampler(nn.Module):
 
 
 class QueryFusionBlock(nn.Module):
-    """Minimal query-update block using sampled camera features."""
+    """Query-update block with a lightweight gated latent cross-attention bridge."""
 
-    def __init__(self, model_dim: int) -> None:
+    def __init__(self, config: ModelConfig) -> None:
         super().__init__()
+        self.config = config
+        model_dim = config.model_dim
+        self.style = config.fusion_style
+        if self.style == "residual_mlp":
+            self.update = nn.Sequential(
+                nn.Linear(model_dim * 2, model_dim),
+                nn.ReLU(),
+                nn.Linear(model_dim, model_dim),
+            )
+            return
+        self.query_norm = nn.LayerNorm(model_dim)
+        self.context_norm = nn.LayerNorm(model_dim)
+        self.context_proj = nn.Linear(model_dim, model_dim)
+        self.latents = nn.Parameter(torch.randn(config.latent_bridge_slots, model_dim) * 0.02)
+        self.attn = SDPACrossAttention(
+            model_dim,
+            num_heads=4,
+            backend=config.attention_backend,
+            activation_checkpointing=config.activation_checkpointing,
+        )
+        self.gate = nn.Linear(model_dim * 2, model_dim)
         self.update = nn.Sequential(
-            nn.Linear(model_dim * 2, model_dim),
-            nn.ReLU(),
+            nn.Linear(model_dim * 3, model_dim),
+            nn.GELU(),
             nn.Linear(model_dim, model_dim),
         )
+        self.camera_scale = nn.Parameter(torch.tensor(0.25))
 
     def forward(self, queries: Tensor, sampled_features: Tensor) -> Tensor:
-        updated = self.update(torch.cat((queries, sampled_features), dim=-1))
-        return queries + updated
+        if self.style == "residual_mlp":
+            updated = self.update(torch.cat((queries, sampled_features), dim=-1))
+            return queries + updated
+        batch = queries.shape[0]
+        latent_tokens = self.latents.unsqueeze(0).expand(batch, -1, -1)
+        context_tokens = self.context_proj(self.context_norm(sampled_features))
+        context = torch.cat((latent_tokens, context_tokens), dim=1)
+        attended = self.attn(self.query_norm(queries), context)
+        gate = torch.sigmoid(self.gate(torch.cat((queries, sampled_features), dim=-1)))
+        updated = self.update(torch.cat((queries, sampled_features, attended), dim=-1))
+        return queries + gate * (updated + self.camera_scale * attended)
 
 
 class TemporalStateUpdater(nn.Module):
@@ -687,7 +718,7 @@ class TSQBEVCore(nn.Module):
         self.global_seeds = LearnedGlobalSeeds(config)
         self.router = TriSourceQueryRouter(config)
         self.sampler = CrossViewSparseSampler(config)
-        self.fusion = QueryFusionBlock(config.model_dim)
+        self.fusion = QueryFusionBlock(config)
         self.temporal = TemporalStateUpdater(config)
         self.object_head = ObjectHead(config)
         self.lane_head = LaneHead(config)

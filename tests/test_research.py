@@ -453,6 +453,39 @@ def test_initial_recipes_launch_frontier_family_when_hard_pivot_requested(
     assert all("carryover_" not in recipe.name for recipe in recipes)
 
 
+def test_initial_recipes_launch_lightweight_bridge_family_when_requested(
+    tmp_path: Path,
+) -> None:
+    artifact_root = tmp_path / "research_loop"
+    artifact_root.mkdir()
+
+    recipes = research._initial_recipes(
+        artifact_root,
+        teacher_provider_available=True,
+        boss_policy={
+            "force_priority_only": True,
+            "priority_tags": [
+                "lightweight_bridge",
+                "gated_cross_attention",
+                "teacher_side_foundation",
+                "world_aligned_distillation",
+                "geometry_sanity",
+                "official_metric_only",
+            ],
+            "suppress_tags": ["query_boost", "lr_down", "teacher_bag"],
+        },
+    )
+
+    assert recipes[0].name == "frontier_light_bridge_teacher"
+    assert recipes[0].config.fusion_style == "gated_latent_cross_attn"
+    assert recipes[0].config.teacher_seed_mode == "off"
+    recipe_names = [recipe.name for recipe in recipes]
+    assert "frontier_light_bridge_teacher_official_guardrail" in recipe_names
+    assert "frontier_light_bridge_teacher_world_distill" in recipe_names
+    assert "frontier_light_bridge_teacher_effb0" in recipe_names
+    assert "frontier_light_bridge_teacher_teacher_control" in recipe_names
+
+
 def test_initial_recipes_fail_loudly_when_frontier_tags_filter_everything(
     tmp_path: Path,
 ) -> None:

@@ -390,14 +390,11 @@ def run_harness(task: dict) -> dict:
     catastrophic = "0.0000" in state_text or "sanity" in blockers or "geometry" in blockers
     joint_collapse = "joint" in state_text and "0.0000" in state_text
     frontier_tags = [
-        "dino_v3",
-        "dino_v3_bridge",
+        "lightweight_bridge",
+        "gated_cross_attention",
+        "teacher_side_foundation",
         "bevformer_v2_perspective_supervision",
-        "sam21_offline_support",
         "world_aligned_distillation",
-        "world_latent_distillation",
-        "bevfusion_teacher",
-        "openpcdet_teacher",
         "sparse4d_efficiency",
         "geometry_sanity",
         "official_metric_only",
@@ -431,8 +428,8 @@ def run_harness(task: dict) -> dict:
     elif "world latent" in proposal_context or "dino" in proposal_context:
         bottleneck = "geometry-bridge-gap"
         objective = (
-            "implement the proposal thesis with explicit geometry bridge "
-            "and teacher world alignment"
+            "replace the failing DINO-on-student path with a lightweight gated bridge "
+            "student and teacher-side frontier supervision"
         )
     return {
         "objective": objective,
