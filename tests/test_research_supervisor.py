@@ -5,6 +5,7 @@ import subprocess
 from pathlib import Path
 from subprocess import CompletedProcess
 
+from tsqbev.research_memory import ResearchMemoryConfig
 from tsqbev.research_supervisor import (
     SupervisorState,
     _active_checklist_item_for_phase,
@@ -12,10 +13,12 @@ from tsqbev.research_supervisor import (
     _build_supervisor_proposal,
     _critic_decision_from_planner,
     _external_research_loop_processes,
+    _fallback_pre_run_brief,
     _heuristic_planner,
     _linux_process_name,
     _load_proposal_context,
     _planner_decision_from_brief,
+    _prepare_pre_run_brief,
     _render_supervisor_report,
     _run_maintenance_cli,
     _write_context_refresh_summary,
@@ -275,3 +278,56 @@ def test_run_maintenance_cli_reports_timeout(monkeypatch) -> None:
 
     assert result["status"] == "timeout"
     assert result["command"] == ["research-brief"]
+
+
+def test_prepare_pre_run_brief_uses_persisted_brief_on_refresh_timeout(
+    monkeypatch, tmp_path: Path
+) -> None:
+    monkeypatch.setattr(
+        "tsqbev.research_supervisor._run_maintenance_cli",
+        lambda command, timeout_seconds: {
+            "status": "timeout",
+            "command": command,
+            "duration_s": 12.0,
+        },
+    )
+    monkeypatch.setattr(
+        "tsqbev.research_supervisor._load_live_brief",
+        lambda: {"current_state": ["persisted brief"], "open_blockers": []},
+    )
+    cfg = ResearchMemoryConfig(root=tmp_path)
+
+    brief, notes = _prepare_pre_run_brief(
+        pre_run_sync_enabled=False,
+        memory_cfg=cfg,
+        sync_timeout_seconds=1,
+        brief_timeout_seconds=1,
+    )
+
+    assert brief["current_state"] == ["persisted brief"]
+    assert any("using last successful persisted brief" in note for note in notes)
+
+
+def test_prepare_pre_run_brief_falls_back_when_no_persisted_brief(
+    monkeypatch, tmp_path: Path
+) -> None:
+    monkeypatch.setattr(
+        "tsqbev.research_supervisor._run_maintenance_cli",
+        lambda command, timeout_seconds: {
+            "status": "error",
+            "command": command,
+            "duration_s": 0.5,
+        },
+    )
+    monkeypatch.setattr("tsqbev.research_supervisor._load_live_brief", lambda: None)
+    cfg = ResearchMemoryConfig(root=tmp_path)
+
+    brief, notes = _prepare_pre_run_brief(
+        pre_run_sync_enabled=False,
+        memory_cfg=cfg,
+        sync_timeout_seconds=1,
+        brief_timeout_seconds=1,
+    )
+
+    assert brief == _fallback_pre_run_brief("brief_refresh_failed")
+    assert any("no persisted brief available" in note for note in notes)

@@ -43,6 +43,7 @@ DEFAULT_SUPERVISOR_REPORT = REPO_ROOT / "docs" / "reports" / "autoresearch.md"
 DEFAULT_PROPOSAL_PATH = REPO_ROOT / "docs" / "paper" / "tsqbev_frontier_program.md"
 DEFAULT_SYNC_TIMEOUT_SECONDS = 180
 DEFAULT_BRIEF_TIMEOUT_SECONDS = 120
+DEFAULT_LIVE_BRIEF_PATH = REPO_ROOT / "artifacts" / "memory" / "brief.json"
 
 
 @dataclass(slots=True)
@@ -273,6 +274,67 @@ def _run_maintenance_cli(command: list[str], *, timeout_seconds: int) -> dict[st
         "stdout": completed.stdout[-2000:],
         "stderr": completed.stderr[-2000:],
     }
+
+
+def _load_live_brief(path: Path = DEFAULT_LIVE_BRIEF_PATH) -> dict[str, Any] | None:
+    if not path.exists():
+        return None
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    return payload if isinstance(payload, dict) else None
+
+
+def _fallback_pre_run_brief(reason: str) -> dict[str, Any]:
+    return {
+        "current_state": [
+            "Pre-run brief generation failed; using fail-safe frontier planning context.",
+        ],
+        "open_blockers": [reason],
+        "recommended_next_steps": [
+            "Run the highest-priority frontier recipe with aggressive official-metric guards.",
+        ],
+        "evidence_refs": [],
+    }
+
+
+def _prepare_pre_run_brief(
+    *,
+    pre_run_sync_enabled: bool,
+    memory_cfg: ResearchMemoryConfig,
+    sync_timeout_seconds: int,
+    brief_timeout_seconds: int,
+) -> tuple[dict[str, Any], list[str]]:
+    notes: list[str] = []
+    if pre_run_sync_enabled or not memory_cfg.catalog_path.exists():
+        sync_result = _run_maintenance_cli(
+            ["research-sync"],
+            timeout_seconds=sync_timeout_seconds,
+        )
+        notes.append(
+            "pre-run memory sync status="
+            f"`{sync_result['status']}` duration_s=`{sync_result.get('duration_s', 0.0):.1f}`"
+        )
+    brief_result = _run_maintenance_cli(
+        ["research-brief"],
+        timeout_seconds=brief_timeout_seconds,
+    )
+    notes.append(
+        "pre-run brief refresh status="
+        f"`{brief_result['status']}` duration_s=`{brief_result.get('duration_s', 0.0):.1f}`"
+    )
+    live_brief = _load_live_brief()
+    if live_brief is not None:
+        if brief_result["status"] != "ok":
+            notes.append("using last successful persisted brief after refresh failure")
+        return live_brief, notes
+    notes.append("no persisted brief available; using fail-safe frontier brief")
+    return _fallback_pre_run_brief(
+        "brief_refresh_failed"
+        if brief_result["status"] != "ok"
+        else "brief_missing_after_refresh"
+    ), notes
 
 
 def _load_proposal_context(proposal_path: Path | None, *, max_chars: int = 7000) -> str:
@@ -847,6 +909,12 @@ def run_research_supervisor(
     critic_provider: str | None = None
     pre_run_sync_enabled = _env_bool("TSQBEV_SUPERVISOR_PRE_RUN_SYNC", False)
     run_on_reject = _env_bool("TSQBEV_SUPERVISOR_RUN_ON_REJECT", True)
+    pre_run_sync_timeout_seconds = int(
+        os.getenv("TSQBEV_SUPERVISOR_PRE_RUN_SYNC_TIMEOUT_SECONDS", DEFAULT_SYNC_TIMEOUT_SECONDS)
+    )
+    pre_run_brief_timeout_seconds = int(
+        os.getenv("TSQBEV_SUPERVISOR_PRE_RUN_BRIEF_TIMEOUT_SECONDS", DEFAULT_BRIEF_TIMEOUT_SECONDS)
+    )
     memory_cfg = ResearchMemoryConfig.from_env()
     resolved_proposal_path = None
     if proposal_path is not None:
@@ -986,13 +1054,13 @@ def run_research_supervisor(
             f"pre-run sync {'on' if pre_run_sync_enabled else 'off'}",
             flush=True,
         )
-        if pre_run_sync_enabled or not memory_cfg.catalog_path.exists():
-            safe_sync_research_memory(REPO_ROOT, config=memory_cfg)
-            print(
-                f"[supervisor] invocation {attempted_invocations}: memory sync complete",
-                flush=True,
-            )
-        pre_run_brief = safe_build_research_brief(REPO_ROOT, persist_log=False)
+        pre_run_brief, pre_run_maintenance_notes = _prepare_pre_run_brief(
+            pre_run_sync_enabled=pre_run_sync_enabled,
+            memory_cfg=memory_cfg,
+            sync_timeout_seconds=pre_run_sync_timeout_seconds,
+            brief_timeout_seconds=pre_run_brief_timeout_seconds,
+        )
+        pre_run_notes.extend(pre_run_maintenance_notes)
         print(
             f"[supervisor] invocation {attempted_invocations}: built pre-run brief",
             flush=True,
