@@ -1,21 +1,21 @@
 {
-  "generated_at_utc": "2026-04-09T03:07:42.430231+00:00",
-  "build_id": "20260409T023522Z-3de19ed",
-  "build_dir": "/home/achbogga/projects/tsqbev-poc/.local/research-memory/builds/20260409T023522Z-3de19ed",
-  "repo_sha": "3de19ed",
+  "generated_at_utc": "2026-04-09T16:45:08.318290+00:00",
+  "build_id": "20260409T161052Z-03882d7",
+  "build_dir": "/home/achbogga/projects/tsqbev-poc/.local/research-memory/builds/20260409T161052Z-03882d7",
+  "repo_sha": "03882d7",
   "repo_root": "/home/achbogga/projects/tsqbev-poc",
-  "catalog_path": "/home/achbogga/projects/tsqbev-poc/.local/research-memory/builds/20260409T023522Z-3de19ed/catalog.duckdb",
-  "event_count": 2724,
-  "evidence_count": 1474,
+  "catalog_path": "/home/achbogga/projects/tsqbev-poc/.local/research-memory/builds/20260409T161052Z-03882d7/catalog.duckdb",
+  "event_count": 2736,
+  "evidence_count": 1483,
   "fact_count": 69,
   "qdrant": {
     "enabled": true,
     "mode": "server",
     "reason": null,
-    "indexed_chunks": 1474,
+    "indexed_chunks": 1483,
     "embedder_provider": "fastembed",
-    "evidence_collection": "tsqbev_evidence_20260409T023522Z-3de19ed",
-    "memory_collection": "tsqbev_memories_20260409T023522Z-3de19ed"
+    "evidence_collection": "tsqbev_evidence_20260409T161052Z-03882d7",
+    "memory_collection": "tsqbev_memories_20260409T161052Z-03882d7"
   },
   "reranker": {
     "enabled": true,
@@ -35,37 +35,37 @@
       "flushed": 0,
       "remaining": 0
     },
-    "collection_name": "tsqbev_mem0_20260409T023522Z-3de19ed"
+    "collection_name": "tsqbev_mem0_20260409T161052Z-03882d7"
   },
   "knowledge_base": {
     "knowledge_fact_count": 57,
     "knowledge_pack_count": 7
   },
   "phase_timings_s": {
-    "collect_events": 4.2684,
-    "collect_chunks": 0.1525,
-    "derive_facts": 0.0028,
-    "upsert_events": 10.0652,
-    "upsert_chunks": 2.8634,
-    "upsert_facts": 0.1775,
-    "qdrant_sync": 1914.7237,
-    "mem0_sync": 7.2553
+    "collect_events": 4.4147,
+    "collect_chunks": 0.1591,
+    "derive_facts": 0.0029,
+    "upsert_events": 10.8012,
+    "upsert_chunks": 3.0064,
+    "upsert_facts": 0.1767,
+    "qdrant_sync": 2030.0128,
+    "mem0_sync": 7.3523
   },
-  "build_root": "/home/achbogga/projects/tsqbev-poc/.local/research-memory/builds/20260409T023522Z-3de19ed",
-  "qdrant_evidence_collection": "tsqbev_evidence_20260409T023522Z-3de19ed",
-  "qdrant_memory_collection": "tsqbev_memories_20260409T023522Z-3de19ed",
-  "mem0_qdrant_collection": "tsqbev_mem0_20260409T023522Z-3de19ed",
+  "build_root": "/home/achbogga/projects/tsqbev-poc/.local/research-memory/builds/20260409T161052Z-03882d7",
+  "qdrant_evidence_collection": "tsqbev_evidence_20260409T161052Z-03882d7",
+  "qdrant_memory_collection": "tsqbev_memories_20260409T161052Z-03882d7",
+  "mem0_qdrant_collection": "tsqbev_mem0_20260409T161052Z-03882d7",
   "current_build": {
-    "build_id": "20260409T023522Z-3de19ed",
-    "generated_at_utc": "2026-04-09T03:07:42.430231+00:00",
-    "build_root": "/home/achbogga/projects/tsqbev-poc/.local/research-memory/builds/20260409T023522Z-3de19ed",
-    "catalog_path": "/home/achbogga/projects/tsqbev-poc/.local/research-memory/builds/20260409T023522Z-3de19ed/catalog.duckdb",
-    "qdrant_evidence_collection": "tsqbev_evidence_20260409T023522Z-3de19ed",
-    "qdrant_memory_collection": "tsqbev_memories_20260409T023522Z-3de19ed",
-    "mem0_qdrant_collection": "tsqbev_mem0_20260409T023522Z-3de19ed",
-    "repo_sha": "3de19ed",
+    "build_id": "20260409T161052Z-03882d7",
+    "generated_at_utc": "2026-04-09T16:45:08.318290+00:00",
+    "build_root": "/home/achbogga/projects/tsqbev-poc/.local/research-memory/builds/20260409T161052Z-03882d7",
+    "catalog_path": "/home/achbogga/projects/tsqbev-poc/.local/research-memory/builds/20260409T161052Z-03882d7/catalog.duckdb",
+    "qdrant_evidence_collection": "tsqbev_evidence_20260409T161052Z-03882d7",
+    "qdrant_memory_collection": "tsqbev_memories_20260409T161052Z-03882d7",
+    "mem0_qdrant_collection": "tsqbev_mem0_20260409T161052Z-03882d7",
+    "repo_sha": "03882d7",
     "fact_count": 69,
-    "event_count": 2724,
-    "evidence_count": 1474
+    "event_count": 2736,
+    "evidence_count": 1483
   }
 }
