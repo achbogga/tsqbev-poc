@@ -44,6 +44,8 @@ DEFAULT_PROPOSAL_PATH = REPO_ROOT / "docs" / "paper" / "tsqbev_frontier_program.
 DEFAULT_SYNC_TIMEOUT_SECONDS = 180
 DEFAULT_BRIEF_TIMEOUT_SECONDS = 120
 DEFAULT_LIVE_BRIEF_PATH = REPO_ROOT / "artifacts" / "memory" / "brief.json"
+DEFAULT_PRE_RUN_SYNC_TIMEOUT_SECONDS = 60
+DEFAULT_PRE_RUN_BRIEF_TIMEOUT_SECONDS = 30
 
 
 @dataclass(slots=True)
@@ -910,10 +912,16 @@ def run_research_supervisor(
     pre_run_sync_enabled = _env_bool("TSQBEV_SUPERVISOR_PRE_RUN_SYNC", False)
     run_on_reject = _env_bool("TSQBEV_SUPERVISOR_RUN_ON_REJECT", True)
     pre_run_sync_timeout_seconds = int(
-        os.getenv("TSQBEV_SUPERVISOR_PRE_RUN_SYNC_TIMEOUT_SECONDS", DEFAULT_SYNC_TIMEOUT_SECONDS)
+        os.getenv(
+            "TSQBEV_SUPERVISOR_PRE_RUN_SYNC_TIMEOUT_SECONDS",
+            DEFAULT_PRE_RUN_SYNC_TIMEOUT_SECONDS,
+        )
     )
     pre_run_brief_timeout_seconds = int(
-        os.getenv("TSQBEV_SUPERVISOR_PRE_RUN_BRIEF_TIMEOUT_SECONDS", DEFAULT_BRIEF_TIMEOUT_SECONDS)
+        os.getenv(
+            "TSQBEV_SUPERVISOR_PRE_RUN_BRIEF_TIMEOUT_SECONDS",
+            DEFAULT_PRE_RUN_BRIEF_TIMEOUT_SECONDS,
+        )
     )
     memory_cfg = ResearchMemoryConfig.from_env()
     resolved_proposal_path = None
