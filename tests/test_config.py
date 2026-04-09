@@ -56,3 +56,13 @@ def test_rtx5000_bridge_teacher_preset_stays_lightweight() -> None:
     assert config.fusion_style == "gated_latent_cross_attn"
     assert config.teacher_seed_mode == "off"
     assert config.latent_bridge_slots == 8
+
+
+def test_rtx5000_bridge_teacher_bootstrap_restores_teacher_anchor_bootstrap() -> None:
+    config = ModelConfig.rtx5000_nuscenes_bridge_teacher_bootstrap()
+    assert config.image_backbone == "mobilenet_v3_large"
+    assert config.fusion_style == "gated_latent_cross_attn"
+    assert config.teacher_seed_mode == "replace_lidar"
+    assert config.teacher_seed_selection_mode == "class_balanced_round_robin"
+    assert config.router_mode == "anchor_first"
+    assert config.ranking_mode == "quality_class_only"

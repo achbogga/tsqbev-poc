@@ -302,6 +302,27 @@ class ModelConfig(BaseModel):
         )
 
     @classmethod
+    def rtx5000_nuscenes_bridge_teacher_bootstrap(cls) -> ModelConfig:
+        """Return the lightweight gated-bridge student with teacher-anchor bootstrap enabled.
+
+        This keeps the embedded student lightweight while restoring the teacher-anchor
+        bootstrap path that earlier local winners relied on for stable class/objectness
+        supervision. At runtime without teacher targets, the model still falls back to the
+        regular LiDAR seed encoder.
+        """
+
+        return cls.rtx5000_nuscenes_bridge_teacher().model_copy(
+            update={
+                "router_mode": "anchor_first",
+                "teacher_seed_mode": "replace_lidar",
+                "teacher_seed_selection_mode": "class_balanced_round_robin",
+                "ranking_mode": "quality_class_only",
+                "anchor_first_min_proposal": 16,
+                "anchor_first_min_global": 8,
+            }
+        )
+
+    @classmethod
     def rtx5000_nuscenes_query_boost(cls) -> ModelConfig:
         """Return the current best local mini recipe configuration.
 

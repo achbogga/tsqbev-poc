@@ -41,6 +41,8 @@ OpenAIClient: Any = _OpenAI
 DEFAULT_SUPERVISOR_ROOT = REPO_ROOT / "artifacts" / "autoresearch"
 DEFAULT_SUPERVISOR_REPORT = REPO_ROOT / "docs" / "reports" / "autoresearch.md"
 DEFAULT_PROPOSAL_PATH = REPO_ROOT / "docs" / "paper" / "tsqbev_frontier_program.md"
+DEFAULT_SYNC_TIMEOUT_SECONDS = 180
+DEFAULT_BRIEF_TIMEOUT_SECONDS = 120
 
 
 @dataclass(slots=True)
@@ -234,6 +236,43 @@ def _write_first_principles_checkpoint(
     path = invocation_root / "first_principles_checkpoint.json"
     path.write_text(json.dumps(payload, indent=2))
     return path
+
+
+def _tsqbev_cli() -> list[str]:
+    candidate = REPO_ROOT / ".venv" / "bin" / "tsqbev"
+    if candidate.exists():
+        return [str(candidate)]
+    return ["uv", "run", "tsqbev"]
+
+
+def _run_maintenance_cli(command: list[str], *, timeout_seconds: int) -> dict[str, Any]:
+    started = time.monotonic()
+    try:
+        completed = subprocess.run(
+            [*_tsqbev_cli(), *command],
+            check=False,
+            cwd=REPO_ROOT,
+            capture_output=True,
+            text=True,
+            timeout=timeout_seconds,
+        )
+    except subprocess.TimeoutExpired as exc:
+        return {
+            "status": "timeout",
+            "command": command,
+            "timeout_seconds": timeout_seconds,
+            "duration_s": time.monotonic() - started,
+            "stdout": (exc.stdout or "")[-2000:],
+            "stderr": (exc.stderr or "")[-2000:],
+        }
+    return {
+        "status": "ok" if completed.returncode == 0 else "error",
+        "command": command,
+        "returncode": completed.returncode,
+        "duration_s": time.monotonic() - started,
+        "stdout": completed.stdout[-2000:],
+        "stderr": completed.stderr[-2000:],
+    }
 
 
 def _load_proposal_context(proposal_path: Path | None, *, max_chars: int = 7000) -> str:
@@ -1185,10 +1224,64 @@ def run_research_supervisor(
             notes=notes,
             summary=summary if isinstance(summary, dict) else {"summary": summary},
         )
-        safe_sync_research_memory(REPO_ROOT, config=memory_cfg)
-        safe_build_research_brief(REPO_ROOT, persist_log=True)
+        sync_timeout_seconds = int(
+            os.getenv("TSQBEV_SUPERVISOR_SYNC_TIMEOUT_SECONDS", DEFAULT_SYNC_TIMEOUT_SECONDS)
+        )
+        brief_timeout_seconds = int(
+            os.getenv("TSQBEV_SUPERVISOR_BRIEF_TIMEOUT_SECONDS", DEFAULT_BRIEF_TIMEOUT_SECONDS)
+        )
+        pre_publish_state = SupervisorState(
+            status="running",
+            generated_at_utc=datetime.now(tz=UTC).isoformat(),
+            repo_sha=current_git_sha(REPO_ROOT),
+            current_branch=_git_current_branch(REPO_ROOT),
+            dataset_root=str(dataset_root),
+            artifact_root=str(supervisor_root),
+            attempted_invocations=attempted_invocations,
+            completed_invocations=completed_invocations,
+            last_invocation_dir=str(last_invocation_dir) if last_invocation_dir else None,
+            last_selected_recipe=last_selected_recipe,
+            last_nds=last_nds,
+            last_map=last_map,
+            last_publish_status=last_publish_status,
+            last_publish_message=last_publish_message,
+            memory_mode=memory_mode,
+            memory_embedder=memory_embedder,
+            planner_provider=planner_provider,
+            critic_provider=critic_provider,
+            notes=notes + ["starting bounded post-run maintenance"],
+            active_phase="post_run_sync",
+            active_checklist_item=_active_checklist_item_for_phase("post_run_sync"),
+            planner_bottleneck=planner_decision.active_bottleneck,
+            planner_objective=planner_decision.objective,
+            planner_decision_path=str(planner_decision_path),
+            critic_decision_path=str(critic_decision_path),
+            proposal_path=str(resolved_proposal_path) if resolved_proposal_path else None,
+        )
+        _write_supervisor_outputs(
+            pre_publish_state,
+            artifact_root=supervisor_root,
+            report_path=DEFAULT_SUPERVISOR_REPORT,
+        )
+        sync_result = _run_maintenance_cli(
+            ["research-sync"],
+            timeout_seconds=sync_timeout_seconds,
+        )
+        brief_result = _run_maintenance_cli(
+            ["research-brief"],
+            timeout_seconds=brief_timeout_seconds,
+        )
+        notes.append(
+            "post-run memory sync status="
+            f"`{sync_result['status']}` duration_s=`{sync_result.get('duration_s', 0.0):.1f}`"
+        )
+        notes.append(
+            "post-run brief rebuild status="
+            f"`{brief_result['status']}` duration_s=`{brief_result.get('duration_s', 0.0):.1f}`"
+        )
         print(
-            f"[supervisor] invocation {attempted_invocations}: post-run memory sync complete",
+            f"[supervisor] invocation {attempted_invocations}: post-run maintenance "
+            f"sync={sync_result['status']} brief={brief_result['status']}",
             flush=True,
         )
 
@@ -1216,6 +1309,10 @@ def run_research_supervisor(
             "nds": last_nds,
             "mean_ap": last_map,
             "publish": publish_result,
+            "maintenance": {
+                "sync": sync_result,
+                "brief": brief_result,
+            },
             "summary": summary,
             "planner_decision": asdict(planner_decision),
             "critic_decision": asdict(critic_decision),

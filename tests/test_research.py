@@ -476,14 +476,15 @@ def test_initial_recipes_launch_lightweight_bridge_family_when_requested(
         },
     )
 
-    assert recipes[0].name == "frontier_light_bridge_teacher"
+    assert recipes[0].name == "frontier_light_bridge_teacher_bootstrap"
     assert recipes[0].config.fusion_style == "gated_latent_cross_attn"
-    assert recipes[0].config.teacher_seed_mode == "off"
+    assert recipes[0].config.teacher_seed_mode == "replace_lidar"
+    assert recipes[0].config.router_mode == "anchor_first"
     recipe_names = [recipe.name for recipe in recipes]
-    assert "frontier_light_bridge_teacher_official_guardrail" in recipe_names
-    assert "frontier_light_bridge_teacher_world_distill" in recipe_names
-    assert "frontier_light_bridge_teacher_effb0" in recipe_names
-    assert "frontier_light_bridge_teacher_teacher_control" in recipe_names
+    assert "frontier_light_bridge_teacher_bootstrap_official_guardrail" in recipe_names
+    assert "frontier_light_bridge_teacher_bootstrap_world_distill" in recipe_names
+    assert "frontier_light_bridge_teacher_bootstrap_effb0" in recipe_names
+    assert "frontier_light_bridge_teacher_bootstrap_teacher_control" in recipe_names
 
 
 def test_initial_recipes_fail_loudly_when_frontier_tags_filter_everything(

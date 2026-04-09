@@ -390,6 +390,7 @@ def run_harness(task: dict) -> dict:
     catastrophic = "0.0000" in state_text or "sanity" in blockers or "geometry" in blockers
     joint_collapse = "joint" in state_text and "0.0000" in state_text
     frontier_tags = [
+        "teacher_bootstrap",
         "lightweight_bridge",
         "gated_cross_attention",
         "teacher_side_foundation",
@@ -424,6 +425,7 @@ def run_harness(task: dict) -> dict:
             "geometry_sanity",
             "official_metric_only",
             "overfit_gate_32_sample",
+            "teacher_bootstrap",
         ] + frontier_tags
     elif "world latent" in proposal_context or "dino" in proposal_context:
         bottleneck = "geometry-bridge-gap"

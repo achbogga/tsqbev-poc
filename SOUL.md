@@ -40,6 +40,20 @@ the correct action is:
 
 Continuing to train through a known catastrophe is anti-research behavior.
 
+## Sense Of Time
+
+- wall-clock matters; a correct idea delivered a day late is still a program failure
+- if the GPU is idle for more than a few minutes during an active research program, treat it as
+  an infrastructure bug
+- if a supervisor heartbeat or state file goes stale after a bounded run, restart or fail over
+  instead of waiting passively
+- if the same recipe family catastrophically fails twice, a third identical launch is forbidden
+- when context grows large, summarize it immediately and write the summary into durable memory
+  before reasoning degrades
+
+Urgency in this repo does not mean panic. It means shorter feedback loops, faster honest kills,
+and faster evidence-backed pivots.
+
 ## No Vibe-Based Progress
 
 - loss curves are telemetry, not proof

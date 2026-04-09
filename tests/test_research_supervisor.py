@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import subprocess
 from pathlib import Path
 from subprocess import CompletedProcess
 
@@ -16,6 +17,7 @@ from tsqbev.research_supervisor import (
     _load_proposal_context,
     _planner_decision_from_brief,
     _render_supervisor_report,
+    _run_maintenance_cli,
     _write_context_refresh_summary,
 )
 
@@ -239,3 +241,37 @@ def run_harness(task: dict) -> dict:
     assert decision.provider == "harness:candidate_live"
     assert decision.force_priority_only is True
     assert "dino_v3" in decision.priority_tags
+
+
+def test_run_maintenance_cli_reports_completed_process(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "tsqbev.research_supervisor.subprocess.run",
+        lambda *args, **kwargs: CompletedProcess(
+            args=args[0],
+            returncode=0,
+            stdout="ok\n",
+            stderr="",
+        ),
+    )
+
+    result = _run_maintenance_cli(["research-sync"], timeout_seconds=3)
+
+    assert result["status"] == "ok"
+    assert result["command"] == ["research-sync"]
+
+
+def test_run_maintenance_cli_reports_timeout(monkeypatch) -> None:
+    def raise_timeout(*args, **kwargs):
+        raise subprocess.TimeoutExpired(
+            cmd=args[0],
+            timeout=5,
+            output="partial",
+            stderr="still running",
+        )
+
+    monkeypatch.setattr("tsqbev.research_supervisor.subprocess.run", raise_timeout)
+
+    result = _run_maintenance_cli(["research-brief"], timeout_seconds=5)
+
+    assert result["status"] == "timeout"
+    assert result["command"] == ["research-brief"]

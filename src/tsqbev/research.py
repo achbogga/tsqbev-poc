@@ -204,6 +204,7 @@ _FRONTIER_LAUNCH_TAGS = {
     "dino_v3",
     "dino_v3_bridge",
     "bevformer_v2_perspective_supervision",
+    "teacher_bootstrap",
     "lightweight_bridge",
     "gated_cross_attention",
     "teacher_side_foundation",
@@ -222,8 +223,10 @@ def _priority_tags_request_frontier(priority_tags: list[str]) -> bool:
 
 
 def _is_frontier_recipe(recipe: ResearchRecipe) -> bool:
-    return recipe.config.image_backbone.startswith("dinov3_") or (
-        recipe.config.sam2_region_prior_mode != "off"
+    return (
+        recipe.config.image_backbone.startswith("dinov3_")
+        or recipe.config.sam2_region_prior_mode != "off"
+        or recipe.config.fusion_style == "gated_latent_cross_attn"
     )
 
 
@@ -306,26 +309,31 @@ def _frontier_vits16_recipe(*, teacher_provider_available: bool) -> ResearchReci
 
 
 def _frontier_light_bridge_recipe(*, teacher_provider_available: bool) -> ResearchRecipe:
-    base = ModelConfig.rtx5000_nuscenes_bridge_teacher()
-    if not teacher_provider_available:
-        base = base.model_copy(update={"teacher_seed_mode": "off"})
+    if teacher_provider_available:
+        base = ModelConfig.rtx5000_nuscenes_bridge_teacher_bootstrap()
+    else:
+        base = ModelConfig.rtx5000_nuscenes_bridge_teacher().model_copy(
+            update={"teacher_seed_mode": "off"}
+        )
     return ResearchRecipe(
         name=(
-            "frontier_light_bridge_teacher"
+            "frontier_light_bridge_teacher_bootstrap"
             if teacher_provider_available
             else "frontier_light_bridge_camera_only"
         ),
         note=(
             "embedded-first hard pivot: lightweight student backbone, gated latent camera bridge, "
-            "teacher-side frontier supervision, and official-metric guardrails"
+            "teacher-anchor bootstrap, and official-metric guardrails"
         ),
         hypothesis=(
             "the repeated DINOv3-on-student collapse means foundation models should stay on the "
-            "teacher side while the deployable student learns a lighter geometry bridge"
+            "teacher side while the deployable student learns a lighter geometry bridge and uses "
+            "teacher-anchor bootstrap to stabilize classes and objectness"
         ),
         mutation_reason=(
-            "move frontier foundations to the teacher side and replace the student fusion path "
-            "with a lightweight gated latent bridge under the same official-eval contract"
+            "move frontier foundations to the teacher side, restore teacher-anchor bootstrap, "
+            "and replace the student fusion path with a lightweight gated latent bridge under "
+            "the same official-eval contract"
         ),
         config=base,
         stage="baseline",
@@ -1386,6 +1394,7 @@ def _initial_recipes(
         if use_light_bridge:
             frontier_tagged.extend(
                 [
+                    ("teacher_bootstrap", frontier_vits),
                     ("lightweight_bridge", frontier_vits),
                     ("gated_cross_attention", frontier_vits),
                     ("teacher_side_foundation", frontier_vits),
