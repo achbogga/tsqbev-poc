@@ -34,6 +34,15 @@ for line in source:
         )
     if "mirrors.aliyun.com" in line:
         line = line.replace("mirrors.aliyun.com", "archive.ubuntu.com")
+    if "/opt/conda/bin/conda install -y" in line:
+        line = line.replace(
+            "/opt/conda/bin/conda install -y",
+            "/opt/conda/bin/conda tos accept --override-channels --channel "
+            "https://repo.anaconda.com/pkgs/main && "
+            "/opt/conda/bin/conda tos accept --override-channels --channel "
+            "https://repo.anaconda.com/pkgs/r && "
+            "/opt/conda/bin/conda install -y",
+        )
     patched.append(line)
 target.write_text("\n".join(patched) + "\n", encoding="utf-8")
 PY
