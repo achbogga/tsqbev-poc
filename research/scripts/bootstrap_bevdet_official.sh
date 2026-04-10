@@ -34,6 +34,16 @@ for line in source:
         )
     if "mirrors.aliyun.com" in line:
         line = line.replace("mirrors.aliyun.com", "archive.ubuntu.com")
+    if "Miniconda3-latest-Linux-x86_64.sh" in line:
+        line = line.replace(
+            "https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh",
+            "https://repo.anaconda.com/miniconda/Miniconda3-py38_23.11.0-2-Linux-x86_64.sh",
+        )
+    if "/opt/conda/bin/conda install -y python=${PYTHON_VERSION}" in line:
+        line = line.replace(
+            "/opt/conda/bin/conda install -y python=${PYTHON_VERSION}",
+            "/opt/conda/bin/conda install -y",
+        )
     if "/opt/conda/bin/conda install -y" in line:
         line = line.replace(
             "/opt/conda/bin/conda install -y",
