@@ -29,7 +29,7 @@ for line in source:
     if "tuna.tsinghua.edu.cn" in line:
         line = line.replace("https://pypi.tuna.tsinghua.edu.cn/simple", "https://pypi.org/simple")
         line = line.replace(
-            "https://mirrors.tuna.tsinghua.edu.cn/anaconda/cloud/pytorch/linux-64/",
+            "-c https://mirrors.tuna.tsinghua.edu.cn/anaconda/cloud/pytorch/linux-64/",
             "-c pytorch",
         )
     if "mirrors.aliyun.com" in line:
