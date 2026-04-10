@@ -58,8 +58,15 @@ docker run --rm --gpus all --shm-size 16g \
   -v "${TSQBEV_ROOT}:/workspace/tsqbev-poc" \
   -w /workspace/BEVDet \
   "${BEVDET_IMAGE_TAG}" \
-  /bin/bash -lc "set -euo pipefail && \
+  /bin/bash -lc "export SETUPTOOLS_USE_DISTUTILS=stdlib && set -euo pipefail && \
+    mkdir -p /tmp/tsqbev_pyfix && \
+    printf '%s\n' 'import distutils' 'from distutils import version as _version' \"if not hasattr(distutils, 'version'):\" '    distutils.version = _version' > /tmp/tsqbev_pyfix/sitecustomize.py && \
+    export PYTHONPATH=/tmp/tsqbev_pyfix:\${PYTHONPATH:-} && \
     mkdir -p data && ln -sfn /dataset data/nuscenes && \
+    python -m pip install --no-cache-dir 'setuptools<60' >/tmp/bevdet_setuptools_fix.log 2>&1 && \
+    python -m pip install --no-cache-dir 'numpy<1.24' >/tmp/bevdet_numpy_fix.log 2>&1 && \
+    python -m pip install --no-cache-dir cumm-cu113 spconv-cu113 >/tmp/bevdet_spconv_fix.log 2>&1 && \
+    python -m pip install --no-cache-dir 'yapf<0.40' >/tmp/bevdet_yapf_fix.log 2>&1 && \
     if ! python -m pip install -v -e . >/tmp/bevdet_editable_install.log 2>&1; then \
       cat /tmp/bevdet_editable_install.log; \
       exit 1; \
@@ -85,8 +92,15 @@ docker run --rm --gpus all --shm-size 16g \
   -v "${TSQBEV_ROOT}:/workspace/tsqbev-poc" \
   -w /workspace/BEVDet \
   "${BEVDET_IMAGE_TAG}" \
-  /bin/bash -lc "set -euo pipefail && \
+  /bin/bash -lc "export SETUPTOOLS_USE_DISTUTILS=stdlib && set -euo pipefail && \
+    mkdir -p /tmp/tsqbev_pyfix && \
+    printf '%s\n' 'import distutils' 'from distutils import version as _version' \"if not hasattr(distutils, 'version'):\" '    distutils.version = _version' > /tmp/tsqbev_pyfix/sitecustomize.py && \
+    export PYTHONPATH=/tmp/tsqbev_pyfix:\${PYTHONPATH:-} && \
     mkdir -p data && ln -sfn /dataset data/nuscenes && \
+    python -m pip install --no-cache-dir 'setuptools<60' >/tmp/bevdet_setuptools_fix.log 2>&1 && \
+    python -m pip install --no-cache-dir 'numpy<1.24' >/tmp/bevdet_numpy_fix.log 2>&1 && \
+    python -m pip install --no-cache-dir cumm-cu113 spconv-cu113 >/tmp/bevdet_spconv_fix.log 2>&1 && \
+    python -m pip install --no-cache-dir 'yapf<0.40' >/tmp/bevdet_yapf_fix.log 2>&1 && \
     if ! python -m pip install -v -e . >/tmp/bevdet_editable_install.log 2>&1; then \
       cat /tmp/bevdet_editable_install.log; \
       exit 1; \

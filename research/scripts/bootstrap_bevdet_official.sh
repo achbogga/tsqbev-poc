@@ -22,8 +22,21 @@ import sys
 source = Path(sys.argv[1]).read_text(encoding="utf-8").splitlines()
 target = Path(sys.argv[2])
 patched = []
+skip_deployment_block = False
 for line in source:
     stripped = line.strip()
+    if stripped == "### get onnxruntime":
+        skip_deployment_block = True
+        patched.append(
+            "### TSQBEV patch: skip deployment-only ONNXRuntime/MMDeploy bootstrap; "
+            "official BEVDet training follows the plain MMDetection3D install path."
+        )
+        continue
+    if skip_deployment_block:
+        if stripped.startswith("RUN pip install mmdet==2.25.1"):
+            skip_deployment_block = False
+        else:
+            continue
     if stripped.startswith("RUN sed -i s:/archive.ubuntu.com:"):
         continue
     if "tuna.tsinghua.edu.cn" in line:
@@ -49,6 +62,11 @@ for line in source:
             "/opt/conda/bin/conda install pytorch==",
             "/opt/conda/bin/conda install -y pytorch==",
         )
+    if stripped.startswith("RUN pip install pycuda"):
+        line = line.replace("pycuda \\\n", "")
+        line = line.replace("pycuda ", "")
+    if "networkx==2.2" in line:
+        line = line.replace("numpy \\", "numpy<1.24 \\")
     patched.append(line)
 target.write_text("\n".join(patched) + "\n", encoding="utf-8")
 PY

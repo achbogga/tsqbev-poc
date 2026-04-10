@@ -24,7 +24,9 @@ if docker image inspect "${BEVDET_IMAGE_TAG}" >/dev/null 2>&1; then
     -v "${TSQBEV_ROOT}:/workspace/tsqbev-poc" \
     -w /workspace/BEVDet \
     "${BEVDET_IMAGE_TAG}" \
-    /bin/bash -lc "python /workspace/tsqbev-poc/research/scripts/prepare_bevdet_nuscenes_infos.py \
+    /bin/bash -lc "set -euo pipefail && \
+      python -m pip install --no-cache-dir 'numpy<1.24' >/tmp/bevdet_numpy_fix.log 2>&1 && \
+      python /workspace/tsqbev-poc/research/scripts/prepare_bevdet_nuscenes_infos.py \
       --bevdet-root /workspace/BEVDet \
       --dataset-root /dataset \
       --version '${VERSION}' \
