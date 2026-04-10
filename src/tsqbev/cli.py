@@ -19,6 +19,14 @@ from typing import Literal
 
 from rich import print
 
+from tsqbev.bevdet_env import (
+    DEFAULT_BEVDET_IMAGE_TAG,
+    PRIMARY_BEVDET_CONFIG,
+    bevdet_official_commands,
+    check_bevdet_environment,
+    render_bevdet_runbook_markdown,
+    run_bevdet_public_student,
+)
 from tsqbev.bevfusion_env import (
     bevfusion_official_commands,
     check_bevfusion_environment,
@@ -205,6 +213,96 @@ def bevfusion_runbook_report(
         dataset_root=dataset_root,
         image_tag=image_tag,
         gpu_count=gpu_count,
+    )
+
+
+def bevdet_env_report(
+    repo_root: Path,
+    dataset_root: Path,
+    image_tag: str,
+    config_relpath: str,
+    epochs: int,
+    samples_per_gpu: int,
+    workers_per_gpu: int,
+) -> None:
+    print(
+        {
+            "status": check_bevdet_environment(
+                repo_root=repo_root,
+                dataset_root=dataset_root,
+            ).to_dict(),
+            "commands": bevdet_official_commands(
+                repo_root=repo_root,
+                dataset_root=dataset_root,
+                image_tag=image_tag,
+                config_relpath=config_relpath,
+                epochs=epochs,
+                samples_per_gpu=samples_per_gpu,
+                workers_per_gpu=workers_per_gpu,
+            ),
+        }
+    )
+
+
+def bevdet_runbook_report(
+    repo_root: Path,
+    dataset_root: Path,
+    image_tag: str,
+    config_relpath: str,
+    epochs: int,
+    samples_per_gpu: int,
+    workers_per_gpu: int,
+    report_format: str,
+) -> None:
+    if report_format == "markdown":
+        print(
+            render_bevdet_runbook_markdown(
+                repo_root=repo_root,
+                dataset_root=dataset_root,
+                image_tag=image_tag,
+                config_relpath=config_relpath,
+                epochs=epochs,
+                samples_per_gpu=samples_per_gpu,
+                workers_per_gpu=workers_per_gpu,
+            )
+        )
+        return
+    bevdet_env_report(
+        repo_root=repo_root,
+        dataset_root=dataset_root,
+        image_tag=image_tag,
+        config_relpath=config_relpath,
+        epochs=epochs,
+        samples_per_gpu=samples_per_gpu,
+        workers_per_gpu=workers_per_gpu,
+    )
+
+
+def bevdet_public_student_report(
+    repo_root: Path,
+    dataset_root: Path,
+    artifact_dir: Path,
+    config_relpath: str,
+    image_tag: str,
+    version: str,
+    epochs: int,
+    samples_per_gpu: int,
+    workers_per_gpu: int,
+    load_from: Path | None,
+) -> None:
+    print(
+        run_bevdet_public_student(
+            repo_root=repo_root,
+            dataset_root=dataset_root,
+            artifact_dir=artifact_dir,
+            config_relpath=config_relpath,
+            version=version,
+            epochs=epochs,
+            samples_per_gpu=samples_per_gpu,
+            workers_per_gpu=workers_per_gpu,
+            image_tag=image_tag,
+            load_from=load_from,
+        )
     )
 
 
@@ -519,6 +617,9 @@ def _make_parser() -> argparse.ArgumentParser:
             "upstream-registry",
             "check-upstream-stack",
             "upstream-baselines",
+            "check-bevdet-env",
+            "bevdet-runbook",
+            "run-bevdet-public-student",
             "check-bevfusion-env",
             "bevfusion-runbook",
             "list-openlanev2-archives",
@@ -637,7 +738,14 @@ def _make_parser() -> argparse.ArgumentParser:
         type=Path,
         default=Path("/home/achbogga/projects/bevfusion"),
     )
+    parser.add_argument(
+        "--bevdet-repo-root",
+        type=Path,
+        default=Path("/home/achbogga/projects/BEVDet"),
+    )
     parser.add_argument("--docker-image-tag", type=str, default="tsqbev-bevfusion-official:latest")
+    parser.add_argument("--bevdet-docker-image-tag", type=str, default=DEFAULT_BEVDET_IMAGE_TAG)
+    parser.add_argument("--bevdet-config-rel", type=str, default=PRIMARY_BEVDET_CONFIG)
     parser.add_argument("--num-gpus", type=int, default=1)
     parser.add_argument("--version", type=str, default="v1.0-mini")
     parser.add_argument("--train-split", type=str, default=None)
@@ -830,6 +938,49 @@ def main() -> None:
         return
     if args.command == "upstream-baselines":
         upstream_baselines_report(args.projects_root)
+        return
+    if args.command == "check-bevdet-env":
+        if args.dataset_root is None:
+            raise ValueError("--dataset-root is required for check-bevdet-env")
+        bevdet_env_report(
+            repo_root=args.bevdet_repo_root,
+            dataset_root=args.dataset_root,
+            image_tag=args.bevdet_docker_image_tag,
+            config_relpath=args.bevdet_config_rel,
+            epochs=args.epochs,
+            samples_per_gpu=args.batch_size,
+            workers_per_gpu=args.num_workers,
+        )
+        return
+    if args.command == "bevdet-runbook":
+        if args.dataset_root is None:
+            raise ValueError("--dataset-root is required for bevdet-runbook")
+        bevdet_runbook_report(
+            repo_root=args.bevdet_repo_root,
+            dataset_root=args.dataset_root,
+            image_tag=args.bevdet_docker_image_tag,
+            config_relpath=args.bevdet_config_rel,
+            epochs=args.epochs,
+            samples_per_gpu=args.batch_size,
+            workers_per_gpu=args.num_workers,
+            report_format=args.report_format,
+        )
+        return
+    if args.command == "run-bevdet-public-student":
+        if args.dataset_root is None:
+            raise ValueError("--dataset-root is required for run-bevdet-public-student")
+        bevdet_public_student_report(
+            repo_root=args.bevdet_repo_root,
+            dataset_root=args.dataset_root,
+            artifact_dir=args.artifact_dir / "bevdet_public_student",
+            config_relpath=args.bevdet_config_rel,
+            image_tag=args.bevdet_docker_image_tag,
+            version=args.version,
+            epochs=args.epochs,
+            samples_per_gpu=args.batch_size,
+            workers_per_gpu=args.num_workers,
+            load_from=args.init_checkpoint,
+        )
         return
     if args.command == "check-bevfusion-env":
         if args.dataset_root is None:

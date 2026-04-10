@@ -24,6 +24,12 @@ from typing import Any, Literal, cast
 import torch
 from torch.utils.data import DataLoader, Dataset
 
+from tsqbev.bevdet_env import (
+    CONTROL_BEVDET_CONFIG,
+    DEFAULT_BEVDET_IMAGE_TAG,
+    PRIMARY_BEVDET_CONFIG,
+    run_bevdet_public_student,
+)
 from tsqbev.checkpoints import load_model_from_checkpoint
 from tsqbev.config import ModelConfig
 from tsqbev.datasets import NuScenesDataset, collate_scene_examples
@@ -111,6 +117,11 @@ class ResearchRecipe:
     early_stop_min_delta: float = 0.0
     early_stop_min_epochs: int = 0
     skip_training: bool = False
+    execution_backend: Literal["tsqbev_local", "bevdet_official"] = "tsqbev_local"
+    external_repo_root: str | None = None
+    external_config_relpath: str | None = None
+    external_image_tag: str | None = None
+    external_version: str | None = None
 
 
 @dataclass(slots=True)
@@ -217,16 +228,120 @@ _FRONTIER_LAUNCH_TAGS = {
     "sam21_offline_support",
 }
 
+_PUBLIC_STUDENT_LAUNCH_TAGS = {
+    "public_student_replacement",
+    "bevdet_public_student",
+    "bevdepth_temporal_student",
+    "official_box_coder",
+    "camera_bev_working_baseline",
+}
+
 
 def _priority_tags_request_frontier(priority_tags: list[str]) -> bool:
     return any(tag in _FRONTIER_LAUNCH_TAGS for tag in priority_tags)
 
 
+def _priority_tags_request_public_student(priority_tags: list[str]) -> bool:
+    return any(tag in _PUBLIC_STUDENT_LAUNCH_TAGS for tag in priority_tags)
+
+
 def _is_frontier_recipe(recipe: ResearchRecipe) -> bool:
-    return (
+    return recipe.execution_backend == "bevdet_official" or (
         recipe.config.image_backbone.startswith("dinov3_")
         or recipe.config.sam2_region_prior_mode != "off"
         or recipe.config.fusion_style == "gated_latent_cross_attn"
+    )
+
+
+def _public_student_base_config() -> ModelConfig:
+    return ModelConfig.rtx5000_nuscenes_baseline().model_copy(
+        update={"freeze_image_backbone": True}
+    )
+
+
+def _public_bevdet_primary_recipe() -> ResearchRecipe:
+    return ResearchRecipe(
+        name="public_bevdet_r50_cbgs",
+        note=(
+            "full public-student replacement using the official BEVDet R50-CBGS deployment "
+            "baseline with its native box coder, decoder, and postprocess"
+        ),
+        hypothesis=(
+            "a public working student with a proven detector head/decoder contract should beat "
+            "the custom TSQBEV student on correctness immediately, even before teacher tricks"
+        ),
+        mutation_reason=(
+            "replace the custom student family with the official BEVDet deployment baseline "
+            "because the TSQBEV head/decoder contract is fundamentally broken"
+        ),
+        config=_public_student_base_config(),
+        stage="baseline",
+        use_teacher_provider=False,
+        batch_size=1,
+        grad_accum_steps=1,
+        lr=2e-4,
+        weight_decay=1e-2,
+        epochs=4,
+        max_train_steps=None,
+        num_workers=2,
+        score_threshold=0.10,
+        top_k=500,
+        keep_best_checkpoint=True,
+        enable_teacher_distillation=False,
+        loss_mode="baseline",
+        official_eval_every_epochs=1,
+        official_eval_score_threshold=0.10,
+        official_eval_top_k=500,
+        early_stop_patience=None,
+        execution_backend="bevdet_official",
+        external_repo_root="/home/achbogga/projects/BEVDet",
+        external_config_relpath=PRIMARY_BEVDET_CONFIG,
+        external_image_tag=DEFAULT_BEVDET_IMAGE_TAG,
+        external_version="v1.0-mini",
+    )
+
+
+def _make_public_bevdet_temporal_recipe(recipe: ResearchRecipe) -> ResearchRecipe:
+    return _clone_recipe(
+        recipe,
+        name="public_bevdet_r50_4d_depth_cbgs",
+        note=(
+            "official BEVDet temporal-depth upgrade once the plain deployment baseline proves "
+            "the public student contract"
+        ),
+        hypothesis=(
+            "once the public baseline is stable, temporal depth lifting is the cleanest official "
+            "next step with a stronger published NDS than the plain BEVDet deployment baseline"
+        ),
+        mutation_reason=(
+            "advance from BEVDet R50-CBGS to the official BEVDet R50-4D-Depth-CBGS temporal "
+            "student after establishing a nonzero public baseline"
+        ),
+        epochs=4,
+        execution_backend="bevdet_official",
+        external_repo_root="/home/achbogga/projects/BEVDet",
+        external_config_relpath=CONTROL_BEVDET_CONFIG,
+        external_image_tag=DEFAULT_BEVDET_IMAGE_TAG,
+        external_version="v1.0-mini",
+    )
+
+
+def _make_public_bevdet_primary_rerun(recipe: ResearchRecipe) -> ResearchRecipe:
+    return _clone_recipe(
+        recipe,
+        name="public_bevdet_r50_cbgs_rerun",
+        note="rerun the official BEVDet deployment baseline to verify it is a real control line",
+        hypothesis=(
+            "a public student replacement should reproduce nonzero official metrics before we "
+            "layer on temporal or teacher-side complexity"
+        ),
+        mutation_reason="repeat the BEVDet baseline under the same mini protocol",
+        epochs=4,
+        execution_backend="bevdet_official",
+        external_repo_root="/home/achbogga/projects/BEVDet",
+        external_config_relpath=PRIMARY_BEVDET_CONFIG,
+        external_image_tag=DEFAULT_BEVDET_IMAGE_TAG,
+        external_version="v1.0-mini",
     )
 
 
@@ -694,6 +809,11 @@ def _clone_recipe(
     early_stop_min_delta: float | None = None,
     early_stop_min_epochs: int | None = None,
     skip_training: bool | None = None,
+    execution_backend: Literal["tsqbev_local", "bevdet_official"] | None = None,
+    external_repo_root: str | None = None,
+    external_config_relpath: str | None = None,
+    external_image_tag: str | None = None,
+    external_version: str | None = None,
 ) -> ResearchRecipe:
     return ResearchRecipe(
         name=name,
@@ -793,6 +913,23 @@ def _clone_recipe(
             else early_stop_min_epochs
         ),
         skip_training=recipe.skip_training if skip_training is None else skip_training,
+        execution_backend=(
+            recipe.execution_backend if execution_backend is None else execution_backend
+        ),
+        external_repo_root=(
+            recipe.external_repo_root if external_repo_root is None else external_repo_root
+        ),
+        external_config_relpath=(
+            recipe.external_config_relpath
+            if external_config_relpath is None
+            else external_config_relpath
+        ),
+        external_image_tag=(
+            recipe.external_image_tag if external_image_tag is None else external_image_tag
+        ),
+        external_version=(
+            recipe.external_version if external_version is None else external_version
+        ),
     )
 
 
@@ -894,6 +1031,14 @@ def _load_previous_incumbent(artifact_root: Path) -> ResearchRecipe | None:
         ),
         early_stop_min_delta=float(selected.get("early_stop_min_delta", 0.0)),
         early_stop_min_epochs=int(selected.get("early_stop_min_epochs", 0)),
+        execution_backend=cast(
+            Literal["tsqbev_local", "bevdet_official"],
+            selected.get("execution_backend", "tsqbev_local"),
+        ),
+        external_repo_root=cast(str | None, selected.get("external_repo_root")),
+        external_config_relpath=cast(str | None, selected.get("external_config_relpath")),
+        external_image_tag=cast(str | None, selected.get("external_image_tag")),
+        external_version=cast(str | None, selected.get("external_version")),
     )
 
 
@@ -1371,6 +1516,26 @@ def _initial_recipes(
             seen_names.add(recipe.name)
             deduped.append(recipe)
         return deduped
+
+    if _priority_tags_request_public_student(priority_tags):
+        public_primary = _public_bevdet_primary_recipe()
+        public_temporal = _make_public_bevdet_temporal_recipe(public_primary)
+        tagged_public: list[tuple[str, ResearchRecipe]] = [
+            ("public_student_replacement", public_primary),
+            ("bevdet_public_student", public_primary),
+            ("camera_bev_working_baseline", public_primary),
+            ("official_box_coder", public_primary),
+            ("bevdepth_temporal_student", public_temporal),
+            ("bevdet_public_student", public_temporal),
+        ]
+        recipes = filter_tagged(tagged_public)
+        if recipes:
+            return recipes
+        if force_priority_only:
+            raise RuntimeError(
+                "public-student launch tags were requested, but no executable public-student "
+                "recipes survived filtering"
+            )
 
     if _priority_tags_request_frontier(priority_tags):
         use_light_bridge = any(
@@ -1928,6 +2093,42 @@ def _build_exploitation_recipes(
 ) -> list[ResearchRecipe]:
     if remaining_budget <= 0:
         return []
+    if incumbent_recipe.execution_backend == "bevdet_official":
+        tagged_candidates: list[tuple[str, ResearchRecipe]] = [
+            ("bevdet_public_student", _make_public_bevdet_primary_rerun(incumbent_recipe)),
+            ("bevdepth_temporal_student", _make_public_bevdet_temporal_recipe(incumbent_recipe)),
+        ]
+        if boss_policy is not None:
+            suppress_tags = {str(tag) for tag in boss_policy.get("suppress_tags", [])}
+            priority_tags = [str(tag) for tag in boss_policy.get("priority_tags", [])]
+            force_priority_only = bool(boss_policy.get("force_priority_only", False))
+            if suppress_tags:
+                tagged_candidates = [
+                    (tag, candidate)
+                    for tag, candidate in tagged_candidates
+                    if tag not in suppress_tags
+                ]
+            if priority_tags:
+                priority_order = {tag: index for index, tag in enumerate(priority_tags)}
+                tagged_candidates = sorted(
+                    tagged_candidates,
+                    key=lambda item: priority_order.get(item[0], len(priority_order)),
+                )
+            if force_priority_only and priority_tags:
+                allowed_tags = set(priority_tags)
+                tagged_candidates = [
+                    (tag, candidate)
+                    for tag, candidate in tagged_candidates
+                    if tag in allowed_tags
+                ]
+        deduped: list[ResearchRecipe] = []
+        seen_names: set[str] = set()
+        for _tag, candidate in tagged_candidates:
+            if candidate.name in seen_names:
+                continue
+            seen_names.add(candidate.name)
+            deduped.append(candidate)
+        return deduped[:remaining_budget]
     if _is_frontier_recipe(incumbent_recipe):
         tagged_candidates: list[tuple[str, ResearchRecipe]] = [
             ("quality_rank_finegrid", _make_frontier_official_guardrail_recipe(incumbent_recipe)),
@@ -2130,7 +2331,19 @@ def _serialize_recipe(recipe: ResearchRecipe) -> dict[str, Any]:
         "early_stop_min_delta": recipe.early_stop_min_delta,
         "early_stop_min_epochs": recipe.early_stop_min_epochs,
         "skip_training": recipe.skip_training,
+        "execution_backend": recipe.execution_backend,
+        "external_repo_root": recipe.external_repo_root,
+        "external_config_relpath": recipe.external_config_relpath,
+        "external_image_tag": recipe.external_image_tag,
+        "external_version": recipe.external_version,
     }
+
+
+def _recipe_tracking_backbone(recipe: ResearchRecipe) -> str:
+    if recipe.execution_backend == "bevdet_official":
+        config_relpath = recipe.external_config_relpath or "bevdet"
+        return Path(config_relpath).stem
+    return recipe.config.image_backbone
 
 
 def _warm_start_checkpoint_for_recipe(
@@ -2144,6 +2357,13 @@ def _warm_start_checkpoint_for_recipe(
         return None
     if recipe.stage != "exploit" or recipe.parent_recipe != incumbent_recipe.name:
         return None
+    if recipe.execution_backend != incumbent_recipe.execution_backend:
+        return None
+    if recipe.execution_backend == "bevdet_official":
+        if recipe.external_config_relpath != incumbent_recipe.external_config_relpath:
+            return None
+        checkpoint_path = incumbent_record.get("checkpoint_path")
+        return str(checkpoint_path) if checkpoint_path is not None else None
     if recipe.config.image_backbone != incumbent_recipe.config.image_backbone:
         return None
     if recipe.config.model_dim != incumbent_recipe.config.model_dim:
@@ -2933,7 +3153,7 @@ def run_bounded_research_loop(
                     "research-loop",
                     recipe.stage,
                     "v1.0-mini",
-                    recipe.config.image_backbone,
+                    _recipe_tracking_backbone(recipe),
                     recipe.config.teacher_seed_mode,
                     "teacher-on" if recipe.use_teacher_provider else "teacher-off",
                 ),
@@ -2978,6 +3198,7 @@ def run_bounded_research_loop(
         print(
             "[research] "
             f"starting run_id={run_id} recipe={recipe.name} stage={recipe.stage} "
+            f"backend={recipe.execution_backend} "
             f"teacher_seed_mode={recipe.config.teacher_seed_mode} "
             f"use_teacher_provider={recipe.use_teacher_provider} "
             f"parent={recipe.parent_recipe or '-'}"
@@ -3014,7 +3235,111 @@ def run_bounded_research_loop(
                 incumbent_recipe,
                 incumbent_record,
             )
-            if recipe.skip_training:
+            if recipe.execution_backend == "bevdet_official":
+                if recipe.external_repo_root is None or recipe.external_config_relpath is None:
+                    raise RuntimeError(
+                        f"public student recipe {recipe.name} is missing BEVDet repo/config wiring"
+                    )
+                start_time = time.perf_counter()
+                external_result = run_bevdet_public_student(
+                    repo_root=Path(recipe.external_repo_root),
+                    dataset_root=root,
+                    artifact_dir=run_dir,
+                    config_relpath=recipe.external_config_relpath,
+                    version=recipe.external_version or "v1.0-mini",
+                    epochs=recipe.epochs,
+                    samples_per_gpu=recipe.batch_size,
+                    workers_per_gpu=recipe.num_workers,
+                    image_tag=recipe.external_image_tag or DEFAULT_BEVDET_IMAGE_TAG,
+                    load_from=(
+                        None if warm_start_checkpoint is None else Path(warm_start_checkpoint)
+                    ),
+                    split=(
+                        "mini_val"
+                        if (recipe.external_version or "v1.0-mini") == "v1.0-mini"
+                        else "val"
+                    ),
+                )
+                durations_s["external_public_student"] = time.perf_counter() - start_time
+                evaluation = cast(dict[str, Any], external_result["evaluation"])
+                prediction_geometry = cast(
+                    dict[str, Any], external_result["prediction_geometry"]
+                )
+                record.update(
+                    {
+                        "status": "completed",
+                        "train": {},
+                        "val": {},
+                        "last_train": {},
+                        "last_val": {},
+                        "benchmark": external_result.get("benchmark", {}),
+                        "checkpoint_path": str(external_result["checkpoint_path"]),
+                        "epochs": recipe.epochs,
+                        "selected_epoch": recipe.epochs,
+                        "best_epoch": recipe.epochs,
+                        "prediction_path": str(external_result["prediction_path"]),
+                        "prediction_geometry": prediction_geometry,
+                        "evaluation": evaluation,
+                        "calibration": {"selected": {}},
+                        "source_mix": {"lidar": 0.0, "proposal": 0.0, "global": 0.0},
+                        "source_mix_diagnostics": {
+                            "average": {"lidar": 0.0, "proposal": 0.0, "global": 0.0},
+                            "per_batch": [],
+                            "batches_measured": 0,
+                        },
+                        "durations_s": durations_s,
+                        "train_samples": 0,
+                        "val_samples": 0,
+                        "external_backend": "bevdet_official",
+                        "external_train_log": external_result.get("train_log"),
+                        "external_test_log": external_result.get("test_log"),
+                    }
+                )
+                if (
+                    _metric_float(evaluation.get("nd_score"), 0.0) <= 0.0
+                    and _metric_float(evaluation.get("mean_ap"), 0.0) <= 0.0
+                    and (
+                        _metric_float(prediction_geometry.get("max_box_size_m"), 0.0) > 30.0
+                        or _metric_float(
+                            prediction_geometry.get("ego_translation_norm_p99"), 0.0
+                        )
+                        > 120.0
+                        or _metric_float(
+                            prediction_geometry.get("boxes_per_sample_mean"), 0.0
+                        )
+                        > 80.0
+                    )
+                ):
+                    record["status"] = "catastrophic_stop"
+                    record["interim_decision"] = "reject"
+                    record["decision_reason"] = (
+                        "public student official eval is still zero and geometry sanity failed"
+                    )
+                    record["catastrophic_failure"] = True
+                    record["root_cause_verdict"] = _root_cause_verdict(record)
+                    stop_after_current = True
+                    raise RuntimeError("catastrophic public-student geometry failure")
+                record["root_cause_verdict"] = _root_cause_verdict(record)
+                better, reason = _select_better_record(incumbent_record, record)
+                record["interim_decision"] = "advance" if better else "reject"
+                record["decision_reason"] = reason
+                record["best_so_far"] = bool(better)
+                if better:
+                    incumbent_record = record
+                    incumbent_recipe = recipe
+                tracker.summary(
+                    {
+                        "eval_nds": _metric_float(evaluation.get("nd_score"), 0.0),
+                        "eval_map": _metric_float(evaluation.get("mean_ap"), 0.0),
+                        "prediction_boxes_mean": _metric_float(
+                            prediction_geometry.get("boxes_per_sample_mean", 0.0)
+                        ),
+                        "prediction_ego_translation_p99": _metric_float(
+                            prediction_geometry.get("ego_translation_norm_p99", 0.0)
+                        ),
+                    }
+                )
+            elif recipe.skip_training:
                 if warm_start_checkpoint is None:
                     raise RuntimeError(
                         f"skip_training recipe {recipe.name} requires a warm-start checkpoint"

@@ -375,7 +375,10 @@ def _proposal_aligned_candidate_source() -> str:
 CANDIDATE_METADATA = {
     "candidate_id": "proposal_aligned_v1",
     "kind": "frontier_bootstrap",
-    "description": "Proposal-aligned frontier harness that prioritizes bridge/world-latent work.",
+    "description": (
+        "Proposal-aligned harness that replaces the custom student with a public "
+        "working student."
+    ),
 }
 
 
@@ -390,13 +393,11 @@ def run_harness(task: dict) -> dict:
     catastrophic = "0.0000" in state_text or "sanity" in blockers or "geometry" in blockers
     joint_collapse = "joint" in state_text and "0.0000" in state_text
     frontier_tags = [
-        "teacher_bootstrap",
-        "lightweight_bridge",
-        "gated_cross_attention",
-        "teacher_side_foundation",
-        "bevformer_v2_perspective_supervision",
-        "world_aligned_distillation",
-        "sparse4d_efficiency",
+        "public_student_replacement",
+        "bevdet_public_student",
+        "camera_bev_working_baseline",
+        "official_box_coder",
+        "bevdepth_temporal_student",
         "geometry_sanity",
         "official_metric_only",
     ]
@@ -411,27 +412,38 @@ def run_harness(task: dict) -> dict:
         "schedule_only",
         "incremental_progress",
         "calibration_boundary",
+        "lightweight_bridge",
+        "gated_cross_attention",
+        "teacher_side_foundation",
+        "dino_v3",
+        "dino_v3_bridge",
+        "sam21_offline_support",
+        "world_aligned_distillation",
+        "world_latent_distillation",
+        "sparse4d_efficiency",
     ]
-    bottleneck = "shared-world-latent-missing"
-    objective = "replace legacy query churn with frontier geometry-bridge execution"
+    bottleneck = "custom-student-contract-failure"
+    objective = "replace the broken custom student with a public working BEVDet student"
     if joint_collapse:
         bottleneck = "joint-metric-collapse"
         objective = "stop multitask collapse and restore metric-safe detection control"
-        frontier_tags = frontier_tags + ["overfit_gate_32_sample"]
+        frontier_tags = frontier_tags + ["public_student_replacement"]
     elif catastrophic:
-        bottleneck = "catastrophic-geometry-failure"
-        objective = "halt broken geometry branches and inspect export/bridge failures immediately"
+        bottleneck = "catastrophic-custom-student-failure"
+        objective = "halt custom-student failures and move to a public working detector contract"
         frontier_tags = [
             "geometry_sanity",
             "official_metric_only",
-            "overfit_gate_32_sample",
-            "teacher_bootstrap",
         ] + frontier_tags
-    elif "world latent" in proposal_context or "dino" in proposal_context:
-        bottleneck = "geometry-bridge-gap"
+    elif (
+        "world latent" in proposal_context
+        or "dino" in proposal_context
+        or "public student" in proposal_context
+    ):
+        bottleneck = "public-student-replacement"
         objective = (
-            "replace the failing DINO-on-student path with a lightweight gated bridge "
-            "student and teacher-side frontier supervision"
+            "replace the failing custom student with BEVDet first, then layer temporal "
+            "depth upgrades only after nonzero official metrics are reproduced"
         )
     return {
         "objective": objective,
@@ -441,22 +453,22 @@ def run_harness(task: dict) -> dict:
         "force_priority_only": True,
         "kill_conditions": [
             "any official eval returns zero metrics or export sanity fails",
-            "two consecutive frontier runs fail to improve the frontier scorecard",
-            "the executor launches a legacy branch under a frontier thesis",
+            "two consecutive public student runs fail to establish a nonzero official baseline",
+            "the executor launches a custom-student branch under a public-student thesis",
         ],
         "rationale": [
             (
-                "the current thesis demands a bridge/world-latent pivot "
-                "rather than another local quality-rank mutation"
+                "the custom TSQBEV student head/decoder contract is the current blocker, "
+                "not the lack of another backbone trick"
             ),
             (
-                "whole-cycle progress must be measured by official metrics "
-                "and geometric sanity first"
+                "public working detector contracts should replace custom students before "
+                "more research mutations are considered"
             ),
         ],
         "retrieval_queries": [
-            "current incumbent scale blocker bevfusion baseline geometry sanity",
-            "dino v3 bevformer v2 world latent distillation sam 2.1",
+            "public student replacement BEVDet BEVDepth official box coder",
+            "current incumbent scale blocker custom student head decoder",
             "repeated rabbit hole incremental progress schedule drift",
         ],
         "worker_routes": [
@@ -468,13 +480,13 @@ def run_harness(task: dict) -> dict:
         "report_outline": [
             "Status",
             "Failure Signatures",
-            "Frontier Thesis",
+            "Public Student Thesis",
             "Executable Next Steps",
             "Kill Conditions",
         ],
         "context_summary": (
-            "Prefer frontier bridge/world-latent work, kill catastrophic "
-            "geometry failures early, and suppress repeated low-ROI branches."
+            "Prefer public working student replacement, kill catastrophic custom-student "
+            "failures early, and suppress repeated low-ROI custom mutations."
         ),
     }
 """

@@ -487,6 +487,33 @@ def test_initial_recipes_launch_lightweight_bridge_family_when_requested(
     assert "frontier_light_bridge_teacher_bootstrap_teacher_control" in recipe_names
 
 
+def test_initial_recipes_launch_public_bevdet_family_when_requested(tmp_path: Path) -> None:
+    artifact_root = tmp_path / "research_loop"
+    artifact_root.mkdir()
+
+    recipes = research._initial_recipes(
+        artifact_root,
+        teacher_provider_available=True,
+        boss_policy={
+            "force_priority_only": True,
+            "priority_tags": [
+                "public_student_replacement",
+                "bevdet_public_student",
+                "camera_bev_working_baseline",
+                "official_box_coder",
+                "bevdepth_temporal_student",
+            ],
+            "suppress_tags": ["query_boost", "lr_down", "teacher_bag"],
+        },
+    )
+
+    assert recipes[0].name == "public_bevdet_r50_cbgs"
+    assert recipes[0].execution_backend == "bevdet_official"
+    assert recipes[0].external_config_relpath == "configs/bevdet/bevdet-r50-cbgs.py"
+    assert recipes[1].name == "public_bevdet_r50_4d_depth_cbgs"
+    assert recipes[1].execution_backend == "bevdet_official"
+
+
 def test_initial_recipes_fail_loudly_when_frontier_tags_filter_everything(
     tmp_path: Path,
 ) -> None:

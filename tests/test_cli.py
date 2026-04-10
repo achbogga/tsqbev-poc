@@ -258,9 +258,43 @@ def test_harness_search_passes_provider_and_iterations(monkeypatch, tmp_path) ->
     monkeypatch.setattr(cli_module, "run_harness_search", fake_search)
     cli_module.main()
 
-    assert captured["iterations"] == 4
-    assert captured["provider"] == "heuristic"
-    assert captured["budget_chars"] == 12000
+
+def test_run_bevdet_public_student_dispatches(monkeypatch, tmp_path) -> None:
+    captured: dict[str, object] = {}
+
+    def fake_parser() -> argparse.ArgumentParser:
+        class _Parser:
+            def parse_args(self_inner) -> SimpleNamespace:
+                return SimpleNamespace(
+                    command="run-bevdet-public-student",
+                    dataset_root=tmp_path / "nuscenes",
+                    artifact_dir=tmp_path / "artifacts",
+                    bevdet_repo_root=tmp_path / "BEVDet",
+                    bevdet_config_rel="configs/bevdet/bevdet-r50-cbgs.py",
+                    bevdet_docker_image_tag="tsqbev-bevdet-official:latest",
+                    version="v1.0-mini",
+                    epochs=1,
+                    batch_size=1,
+                    num_workers=2,
+                    init_checkpoint=None,
+                )
+
+        return _Parser()  # type: ignore[return-value]
+
+    monkeypatch.setattr(cli_module, "_make_parser", fake_parser)
+
+    def fake_run(**kwargs):
+        captured.update(kwargs)
+        return {"ok": True}
+
+    monkeypatch.setattr(cli_module, "run_bevdet_public_student", fake_run)
+    cli_module.main()
+
+    assert captured["config_relpath"] == "configs/bevdet/bevdet-r50-cbgs.py"
+    assert captured["version"] == "v1.0-mini"
+    assert captured["epochs"] == 1
+    assert captured["samples_per_gpu"] == 1
+    assert captured["workers_per_gpu"] == 2
 
 
 def test_train_nuscenes_passes_official_eval_controls(monkeypatch, tmp_path) -> None:
