@@ -44,6 +44,11 @@ for line in source:
             "/opt/conda/bin/conda install -y python=${PYTHON_VERSION}",
             "/opt/conda/bin/conda install -y",
         )
+    if "/opt/conda/bin/conda install pytorch==" in line:
+        line = line.replace(
+            "/opt/conda/bin/conda install pytorch==",
+            "/opt/conda/bin/conda install -y pytorch==",
+        )
     patched.append(line)
 target.write_text("\n".join(patched) + "\n", encoding="utf-8")
 PY
