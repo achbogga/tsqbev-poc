@@ -317,20 +317,6 @@ def run_bevdet_public_student(
     train_info = dataset_root / f"{extra_tag}_infos_train.pkl"
     val_info = dataset_root / f"{extra_tag}_infos_val.pkl"
 
-    if not train_info.exists() or not val_info.exists():
-        prep_env = {
-            **os.environ,
-            "BEVDET_ROOT": str(repo_root),
-            "DATASET_ROOT": str(dataset_root),
-            "VERSION": version,
-        }
-        subprocess.run(
-            ["bash", str(REPO_ROOT / "research" / "scripts" / "run_bevdet_nuscenes_prep.sh")],
-            cwd=REPO_ROOT,
-            env=prep_env,
-            check=True,
-        )
-
     if not _docker_image_present(image_tag):
         build_env = {
             **os.environ,
@@ -341,6 +327,21 @@ def run_bevdet_public_student(
             ["bash", str(REPO_ROOT / "research" / "scripts" / "bootstrap_bevdet_official.sh")],
             cwd=REPO_ROOT,
             env=build_env,
+            check=True,
+        )
+
+    if not train_info.exists() or not val_info.exists():
+        prep_env = {
+            **os.environ,
+            "BEVDET_ROOT": str(repo_root),
+            "DATASET_ROOT": str(dataset_root),
+            "BEVDET_IMAGE_TAG": image_tag,
+            "VERSION": version,
+        }
+        subprocess.run(
+            ["bash", str(REPO_ROOT / "research" / "scripts" / "run_bevdet_nuscenes_prep.sh")],
+            cwd=REPO_ROOT,
+            env=prep_env,
             check=True,
         )
 

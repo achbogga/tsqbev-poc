@@ -60,7 +60,10 @@ docker run --rm --gpus all --shm-size 16g \
   "${BEVDET_IMAGE_TAG}" \
   /bin/bash -lc "set -euo pipefail && \
     mkdir -p data && ln -sfn /dataset data/nuscenes && \
-    python -m pip install -v -e . >/tmp/bevdet_editable_install.log 2>&1 || cat /tmp/bevdet_editable_install.log && \
+    if ! python -m pip install -v -e . >/tmp/bevdet_editable_install.log 2>&1; then \
+      cat /tmp/bevdet_editable_install.log; \
+      exit 1; \
+    fi && \
     python tools/train.py ${CONFIG_REL} --gpu-id 0 --work-dir ${WORK_DIR} --validate --cfg-options ${CFG_STRING}" \
   2>&1 | tee "${TRAIN_LOG}"
 train_status=${PIPESTATUS[0]}
@@ -84,7 +87,10 @@ docker run --rm --gpus all --shm-size 16g \
   "${BEVDET_IMAGE_TAG}" \
   /bin/bash -lc "set -euo pipefail && \
     mkdir -p data && ln -sfn /dataset data/nuscenes && \
-    python -m pip install -v -e . >/tmp/bevdet_editable_install.log 2>&1 || cat /tmp/bevdet_editable_install.log && \
+    if ! python -m pip install -v -e . >/tmp/bevdet_editable_install.log 2>&1; then \
+      cat /tmp/bevdet_editable_install.log; \
+      exit 1; \
+    fi && \
     python tools/test.py ${CONFIG_REL} ${CHECKPOINT_PATH} --gpu-id 0 --format-only \
       --eval-options jsonfile_prefix=${RESULT_PREFIX} --cfg-options ${CFG_STRING}" \
   2>&1 | tee "${TEST_LOG}"
