@@ -55,6 +55,11 @@ def _write_text(path: Path, content: str) -> Path:
     return path
 
 
+def _log(message: str) -> None:
+    timestamp = datetime.now(tz=UTC).isoformat()
+    print(f"[codex-loop] {timestamp} {message}", flush=True)
+
+
 def _classify_exception(exc: Exception) -> str:
     text = repr(exc).lower()
     if any(marker in text for marker in _TRIVIAL_INFRA_MARKERS):
@@ -73,6 +78,7 @@ def _render_loop_report(state: dict[str, Any], *, report_path: Path) -> Path:
         f"- cycles_started: `{state['cycles_started']}`",
         f"- cycles_completed: `{state['cycles_completed']}`",
         f"- last_cycle_root: `{state.get('last_cycle_root') or '-'}`",
+        f"- active_phase: `{state.get('active_phase') or '-'}`",
         f"- last_error_kind: `{state.get('last_error_kind') or '-'}`",
         "",
         "## Notes",
@@ -83,6 +89,50 @@ def _render_loop_report(state: dict[str, Any], *, report_path: Path) -> Path:
     else:
         lines.append("- none")
     return _write_text(report_path, "\n".join(lines).rstrip() + "\n")
+
+
+def _persist_state(
+    state_path: Path,
+    report_path: Path,
+    *,
+    status: str,
+    artifact_root: Path,
+    harness_root: Path,
+    dataroot: Path,
+    cycles_started: int,
+    cycles_completed: int,
+    last_cycle_root: str | None,
+    active_phase: str | None,
+    last_error_kind: str | None,
+    notes: list[str],
+) -> dict[str, Any]:
+    state = {
+        "status": status,
+        "generated_at_utc": datetime.now(tz=UTC).isoformat(),
+        "artifact_root": str(artifact_root),
+        "harness_root": str(harness_root),
+        "dataset_root": str(dataroot),
+        "cycles_started": cycles_started,
+        "cycles_completed": cycles_completed,
+        "last_cycle_root": last_cycle_root,
+        "active_phase": active_phase,
+        "last_error_kind": last_error_kind,
+        "notes": notes,
+    }
+    _write_json(state_path, state)
+    _render_loop_report(state, report_path=report_path)
+    return state
+
+
+def _persist_cycle_phase(cycle_root: Path, *, phase: str, notes: list[str]) -> None:
+    _write_json(
+        cycle_root / "phase.json",
+        {
+            "generated_at_utc": datetime.now(tz=UTC).isoformat(),
+            "phase": phase,
+            "notes": notes,
+        },
+    )
 
 
 def run_codex_loop(
@@ -123,21 +173,39 @@ def run_codex_loop(
         cycle_root.mkdir(parents=True, exist_ok=True)
         last_cycle_root = str(cycle_root)
         cycle_notes: list[str] = []
-        state = {
-            "status": "running",
-            "generated_at_utc": datetime.now(tz=UTC).isoformat(),
-            "artifact_root": str(artifact_root),
-            "harness_root": str(harness_root_path),
-            "dataset_root": str(dataroot),
-            "cycles_started": cycles_started,
-            "cycles_completed": cycles_completed,
-            "last_cycle_root": last_cycle_root,
-            "last_error_kind": last_error_kind,
-            "notes": notes,
-        }
-        _write_json(state_path, state)
-        _render_loop_report(state, report_path=report_path)
+        _log(f"cycle={cycles_started} started")
+        _persist_state(
+            state_path,
+            report_path,
+            status="running",
+            artifact_root=artifact_root,
+            harness_root=harness_root_path,
+            dataroot=dataroot,
+            cycles_started=cycles_started,
+            cycles_completed=cycles_completed,
+            last_cycle_root=last_cycle_root,
+            active_phase="starting_cycle",
+            last_error_kind=last_error_kind,
+            notes=notes,
+        )
+        _persist_cycle_phase(cycle_root, phase="starting_cycle", notes=cycle_notes)
         try:
+            _log(f"cycle={cycles_started} phase=harness_search")
+            _persist_state(
+                state_path,
+                report_path,
+                status="running",
+                artifact_root=artifact_root,
+                harness_root=harness_root_path,
+                dataroot=dataroot,
+                cycles_started=cycles_started,
+                cycles_completed=cycles_completed,
+                last_cycle_root=last_cycle_root,
+                active_phase="harness_search",
+                last_error_kind=last_error_kind,
+                notes=notes,
+            )
+            _persist_cycle_phase(cycle_root, phase="harness_search", notes=cycle_notes)
             search = run_harness_search(
                 artifact_dir=harness_root_path,
                 proposal_path=proposal,
@@ -145,16 +213,70 @@ def run_codex_loop(
             )
             best_candidate_path = Path(str(search["best_candidate_path"]))
             cycle_notes.append(f"best_candidate={best_candidate_path.parent.name}")
+            _log(
+                f"cycle={cycles_started} phase=harness_promote best_candidate="
+                f"{best_candidate_path.parent.name}"
+            )
+            _persist_state(
+                state_path,
+                report_path,
+                status="running",
+                artifact_root=artifact_root,
+                harness_root=harness_root_path,
+                dataroot=dataroot,
+                cycles_started=cycles_started,
+                cycles_completed=cycles_completed,
+                last_cycle_root=last_cycle_root,
+                active_phase="harness_promote",
+                last_error_kind=last_error_kind,
+                notes=notes,
+            )
+            _persist_cycle_phase(cycle_root, phase="harness_promote", notes=cycle_notes)
             promotion = run_harness_promote(
                 artifact_dir=harness_root_path,
                 candidate_path=best_candidate_path,
                 proposal_path=proposal,
             )
             cycle_notes.append(f"promotion_status={promotion['summary']['status']}")
+            _log(
+                f"cycle={cycles_started} phase=memory_sync promotion_status="
+                f"{promotion['summary']['status']}"
+            )
+            _persist_state(
+                state_path,
+                report_path,
+                status="running",
+                artifact_root=artifact_root,
+                harness_root=harness_root_path,
+                dataroot=dataroot,
+                cycles_started=cycles_started,
+                cycles_completed=cycles_completed,
+                last_cycle_root=last_cycle_root,
+                active_phase="memory_sync",
+                last_error_kind=last_error_kind,
+                notes=notes,
+            )
+            _persist_cycle_phase(cycle_root, phase="memory_sync", notes=cycle_notes)
             sync_harness_memory(artifact_dir=harness_root_path)
             render_harness_report(artifact_dir=harness_root_path)
             safe_sync_research_memory(REPO_ROOT)
             safe_build_research_brief(REPO_ROOT, persist_log=True)
+            _log(f"cycle={cycles_started} phase=supervisor")
+            _persist_state(
+                state_path,
+                report_path,
+                status="running",
+                artifact_root=artifact_root,
+                harness_root=harness_root_path,
+                dataroot=dataroot,
+                cycles_started=cycles_started,
+                cycles_completed=cycles_completed,
+                last_cycle_root=last_cycle_root,
+                active_phase="supervisor",
+                last_error_kind=last_error_kind,
+                notes=notes,
+            )
+            _persist_cycle_phase(cycle_root, phase="supervisor", notes=cycle_notes)
             supervisor_summary = run_research_supervisor(
                 dataroot=dataroot,
                 artifact_dir=artifact_root / "supervisor",
@@ -183,6 +305,7 @@ def run_codex_loop(
             }
             _write_json(cycle_root / "summary.json", cycle_summary)
             notes = cycle_notes[-6:]
+            _log(f"cycle={cycles_started} completed")
         except Exception as exc:  # pragma: no cover - live loop defense
             last_error_kind = _classify_exception(exc)
             error_payload = {
@@ -197,27 +320,29 @@ def run_codex_loop(
             safe_sync_research_memory(REPO_ROOT)
             safe_build_research_brief(REPO_ROOT, persist_log=True)
             notes = [*cycle_notes, f"error_kind={last_error_kind}"][-6:]
+            _log(f"cycle={cycles_started} error_kind={last_error_kind} error={exc!r}")
 
-        state = {
-            "status": (
+        state = _persist_state(
+            state_path,
+            report_path,
+            status=(
                 "sleeping"
                 if max_cycles is None or cycles_started < max_cycles
                 else "completed"
             ),
-            "generated_at_utc": datetime.now(tz=UTC).isoformat(),
-            "artifact_root": str(artifact_root),
-            "harness_root": str(harness_root_path),
-            "dataset_root": str(dataroot),
-            "cycles_started": cycles_started,
-            "cycles_completed": cycles_completed,
-            "last_cycle_root": last_cycle_root,
-            "last_error_kind": last_error_kind,
-            "notes": notes,
-        }
-        _write_json(state_path, state)
-        _render_loop_report(state, report_path=report_path)
+            artifact_root=artifact_root,
+            harness_root=harness_root_path,
+            dataroot=dataroot,
+            cycles_started=cycles_started,
+            cycles_completed=cycles_completed,
+            last_cycle_root=last_cycle_root,
+            active_phase="sleep",
+            last_error_kind=last_error_kind,
+            notes=notes,
+        )
         if max_cycles is not None and cycles_started >= max_cycles:
             return state
+        _log(f"cycle={cycles_started} sleeping_for={max(sleep_seconds, 0)}s")
         time.sleep(max(sleep_seconds, 0))
 
     final_state = json.loads(state_path.read_text(encoding="utf-8"))

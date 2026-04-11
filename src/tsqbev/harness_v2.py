@@ -39,6 +39,7 @@ OpenAIClient: Any = _OpenAI
 DEFAULT_HARNESS_ROOT = REPO_ROOT / "artifacts" / "harness_v2"
 DEFAULT_HARNESS_REPORT = REPO_ROOT / "docs" / "reports" / "harness_v2.md"
 DEFAULT_PROPOSAL_PATH = REPO_ROOT / "docs" / "paper" / "tsqbev_frontier_program.md"
+DEFAULT_LIVE_BRIEF_PATH = REPO_ROOT / "artifacts" / "memory" / "brief.json"
 DEFAULT_CONTEXT_BUDGET_CHARS = 16000
 SUMMARY_THRESHOLD_RATIO = 0.50
 EXACT_PUBLIC_REPRO_TAG = "exact_public_reproduction"
@@ -118,6 +119,25 @@ def _load_text(path: Path | None, *, max_chars: int = 12000) -> str:
     if len(text) <= max_chars:
         return text
     return text[:max_chars].rstrip() + "\n\n[truncated]"
+
+
+def _load_persisted_brief() -> dict[str, Any] | None:
+    if not DEFAULT_LIVE_BRIEF_PATH.exists():
+        return None
+    try:
+        payload = json.loads(DEFAULT_LIVE_BRIEF_PATH.read_text(encoding="utf-8"))
+    except Exception:
+        return None
+    if isinstance(payload, dict):
+        return payload
+    return None
+
+
+def _preferred_brief() -> dict[str, Any]:
+    live = _load_persisted_brief()
+    if live is not None:
+        return live
+    return safe_build_research_brief(REPO_ROOT, persist_log=False)
 
 
 def _brief_keywords(brief: dict[str, Any]) -> list[str]:
@@ -1241,7 +1261,7 @@ def run_harness_benchmark(
 ) -> dict[str, Any]:
     root = Path(artifact_dir)
     root.mkdir(parents=True, exist_ok=True)
-    brief = safe_build_research_brief(REPO_ROOT, persist_log=False)
+    brief = _preferred_brief()
     proposal_context = _load_text(Path(proposal_path) if proposal_path is not None else None)
     incumbent_path = _bootstrap_candidate(
         root,
@@ -1337,7 +1357,7 @@ def run_harness_shadow(
     budget_chars: int = DEFAULT_CONTEXT_BUDGET_CHARS,
 ) -> dict[str, Any]:
     root = Path(artifact_dir)
-    brief = safe_build_research_brief(REPO_ROOT, persist_log=False)
+    brief = _preferred_brief()
     proposal_context = _load_text(Path(proposal_path) if proposal_path is not None else None)
     incumbent_path = _bootstrap_candidate(
         root,
@@ -1523,7 +1543,7 @@ def run_harness_search(
 ) -> dict[str, Any]:
     root = Path(artifact_dir)
     root.mkdir(parents=True, exist_ok=True)
-    brief = safe_build_research_brief(REPO_ROOT, persist_log=False)
+    brief = _preferred_brief()
     proposal_context = _load_text(Path(proposal_path) if proposal_path is not None else None)
     incumbent_path = _bootstrap_candidate(
         root,
