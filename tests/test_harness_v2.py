@@ -5,6 +5,7 @@ from pathlib import Path
 
 from tsqbev.harness_v2 import (
     _persist_context_summary_if_needed,
+    load_promoted_harness_plan,
     render_harness_report,
     run_harness_benchmark,
     run_harness_promote,
@@ -214,3 +215,57 @@ def test_render_harness_report(monkeypatch, tmp_path: Path) -> None:
         report_path=repo_root / "docs" / "reports" / "harness_v2.md",
     )
     assert Path(report["report_path"]).exists()
+
+
+def test_promoted_harness_plan_is_policy_enforced(tmp_path: Path) -> None:
+    harness_root = tmp_path / "harness_v2"
+    promoted_root = harness_root / "promoted"
+    promoted_root.mkdir(parents=True)
+    (promoted_root / "candidate.py").write_text(
+        """
+from __future__ import annotations
+
+CANDIDATE_METADATA = {"candidate_id": "candidate_live"}
+
+def run_harness(task: dict) -> dict:
+    return {
+        "objective": "public student replacement",
+        "targeted_bottleneck": "custom-student-contract-failure",
+        "priority_tags": ["public_student_replacement", "bevdet_public_student"],
+        "suppress_tags": [],
+        "force_priority_only": True,
+        "kill_conditions": ["legacy branch relaunch"],
+        "rationale": ["use the public student"],
+        "retrieval_queries": ["public student replacement"],
+        "report_outline": ["Status"],
+    }
+""",
+        encoding="utf-8",
+    )
+    (promoted_root / "current.json").write_text(
+        json.dumps(
+            {
+                "candidate_id": "candidate_live",
+                "source_path": str(promoted_root / "candidate.py"),
+            }
+        ),
+        encoding="utf-8",
+    )
+    payload = load_promoted_harness_plan(
+        brief={
+            "current_state": [
+                "public student replacement is active",
+                "non comparable mini run should not count as frontier progress",
+            ]
+        },
+        proposal_path=None,
+        artifact_dir=harness_root,
+        runtime_root=tmp_path / "runtime",
+    )
+    assert payload is not None
+    plan = payload["plan"]
+    assert "exact_public_reproduction" in plan["priority_tags"]
+    assert "mini_smoke_only" in plan["priority_tags"]
+    assert plan["comparison_contract"]["non_comparable_runs_do_not_count"] is True
+    assert plan["execution_contract"]["autofix_trivial_infra"] is True
+    assert plan["loop_contract"]["run_forever"] is True

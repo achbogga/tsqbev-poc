@@ -1208,3 +1208,43 @@ def test_scale_gate_verdict_blocks_pathological_prediction_geometry() -> None:
     assert verdict["gates"]["geometry_sanity"]["passed"] is False
     assert verdict["gates"]["geometry_sanity"]["boxes_per_sample_mean"] == 111.0
     assert verdict["gates"]["geometry_sanity"]["ego_translation_norm_p99"] == 1833.0
+
+
+def test_select_better_record_does_not_promote_smoke_control_over_comparable() -> None:
+    current = {
+        "promotion_eligible": True,
+        "comparison_tier": "frontier_comparable",
+        "evaluation": _fake_eval(0.10, 0.05),
+        "val": {"total": 11.0},
+    }
+    candidate = {
+        "promotion_eligible": False,
+        "comparison_tier": "smoke_control",
+        "evaluation": _fake_eval(0.20, 0.10),
+        "val": {"total": 9.0},
+    }
+
+    better, reason = research._select_better_record(current, candidate)
+
+    assert better is False
+    assert "smoke/control only" in reason
+
+
+def test_select_better_record_prefers_first_comparable_run_over_smoke_baseline() -> None:
+    current = {
+        "promotion_eligible": False,
+        "comparison_tier": "smoke_control",
+        "evaluation": _fake_eval(0.06, 0.03),
+        "val": {"total": 12.0},
+    }
+    candidate = {
+        "promotion_eligible": True,
+        "comparison_tier": "frontier_comparable",
+        "evaluation": _fake_eval(0.03, 0.01),
+        "val": {"total": 15.0},
+    }
+
+    better, reason = research._select_better_record(current, candidate)
+
+    assert better is True
+    assert "replaces the smoke_control baseline" in reason

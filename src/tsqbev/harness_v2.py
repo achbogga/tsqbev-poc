@@ -23,7 +23,10 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, cast
 
-from tsqbev.research import _priority_tags_request_frontier
+from tsqbev.research import (
+    _priority_tags_request_frontier,
+    _priority_tags_request_public_student,
+)
 from tsqbev.research_memory import REPO_ROOT, safe_build_research_brief, safe_sync_research_memory
 
 _OpenAI: Any
@@ -38,6 +41,12 @@ DEFAULT_HARNESS_REPORT = REPO_ROOT / "docs" / "reports" / "harness_v2.md"
 DEFAULT_PROPOSAL_PATH = REPO_ROOT / "docs" / "paper" / "tsqbev_frontier_program.md"
 DEFAULT_CONTEXT_BUDGET_CHARS = 16000
 SUMMARY_THRESHOLD_RATIO = 0.50
+EXACT_PUBLIC_REPRO_TAG = "exact_public_reproduction"
+MINI_SMOKE_ONLY_TAG = "mini_smoke_only"
+ARTIFACT_PERSISTENCE_TAG = "artifact_persistence_required"
+AUTOFIX_TRIVIAL_INFRA_TAG = "autofix_trivial_infra"
+CODEX_LOOP_TAG = "codex_cli_loop"
+NONCOMPARABLE_DO_NOT_COUNT_TAG = "noncomparable_runs_do_not_count"
 
 
 @dataclass(slots=True)
@@ -124,6 +133,19 @@ def _brief_keywords(brief: dict[str, Any]) -> list[str]:
     return tokens
 
 
+def _merge_unique_strings(*groups: list[str]) -> list[str]:
+    merged: list[str] = []
+    seen: set[str] = set()
+    for group in groups:
+        for item in group:
+            value = str(item).strip()
+            if not value or value in seen:
+                continue
+            seen.add(value)
+            merged.append(value)
+    return merged
+
+
 def _estimate_context_chars(task: dict[str, Any]) -> int:
     return len(json.dumps(task, default=str))
 
@@ -190,6 +212,163 @@ def _persist_context_summary_if_needed(
         + "\n",
     )
     return summary
+
+
+def _task_text(task: dict[str, Any]) -> str:
+    brief = task.get("brief", {})
+    parts: list[str] = [str(task.get("proposal_context", ""))]
+    if isinstance(brief, dict):
+        for key in (
+            "current_state",
+            "open_blockers",
+            "recommended_next_steps",
+            "evidence_refs",
+        ):
+            value = brief.get(key, [])
+            if isinstance(value, list):
+                parts.extend(str(item) for item in value)
+    return "\n".join(parts).lower()
+
+
+def _requires_public_reproduction_policy(task: dict[str, Any], plan: dict[str, Any]) -> bool:
+    plan_tags = _normalize_strings(cast(list[Any], plan.get("priority_tags", [])))
+    if _priority_tags_request_public_student(plan_tags):
+        return True
+    text = _task_text(task)
+    keywords = (
+        "public student",
+        "bevdet",
+        "exact public reproduction",
+        "official checkpoint",
+        "official box coder",
+        "custom student",
+        "non comparable",
+    )
+    return any(keyword in text for keyword in keywords)
+
+
+def _enforce_repo_law(plan: dict[str, Any], task: dict[str, Any]) -> dict[str, Any]:
+    enforced = dict(plan)
+    priority_tags = _normalize_strings(cast(list[Any], enforced.get("priority_tags", [])))
+    suppress_tags = _normalize_strings(cast(list[Any], enforced.get("suppress_tags", [])))
+    rationale = _normalize_strings(cast(list[Any], enforced.get("rationale", [])))
+    kill_conditions = _normalize_strings(cast(list[Any], enforced.get("kill_conditions", [])))
+    retrieval_queries = _normalize_strings(cast(list[Any], enforced.get("retrieval_queries", [])))
+    report_outline = _normalize_strings(cast(list[Any], enforced.get("report_outline", [])))
+
+    priority_tags = _merge_unique_strings(
+        priority_tags,
+        [AUTOFIX_TRIVIAL_INFRA_TAG, CODEX_LOOP_TAG],
+    )
+    kill_conditions = _merge_unique_strings(
+        kill_conditions,
+        [
+            "trivial infra issues must be repaired autonomously instead of surfacing as blockers",
+            (
+                "context must be summarized into durable memory once it crosses the "
+                "configured budget threshold"
+            ),
+        ],
+    )
+    rationale = _merge_unique_strings(
+        rationale,
+        [
+            "the harness must behave like a persistent codex loop, not a one-shot planner",
+            "trivial infra fixes are execution work and should not stop the loop",
+        ],
+    )
+
+    if _requires_public_reproduction_policy(task, enforced):
+        priority_tags = _merge_unique_strings(
+            priority_tags,
+            [
+                "public_student_replacement",
+                "bevdet_public_student",
+                "camera_bev_working_baseline",
+                "official_box_coder",
+                EXACT_PUBLIC_REPRO_TAG,
+                MINI_SMOKE_ONLY_TAG,
+                ARTIFACT_PERSISTENCE_TAG,
+                NONCOMPARABLE_DO_NOT_COUNT_TAG,
+            ],
+        )
+        suppress_tags = _merge_unique_strings(
+            suppress_tags,
+            [
+                "incremental_progress",
+                "quality_rank_finegrid",
+                "teacher_quality_plus",
+                "smoke_claim_as_progress",
+            ],
+        )
+        retrieval_queries = _merge_unique_strings(
+            retrieval_queries,
+            [
+                "exact public checkpoint config data contract",
+                "mini smoke only non comparable runs do not count",
+                "artifact persistence official box coder public student",
+            ],
+        )
+        kill_conditions = _merge_unique_strings(
+            kill_conditions,
+            [
+                "checkpoint config or data contract mismatch under a public reproduction thesis",
+                "any mini smoke run is treated as frontier progress or resets the main frontier",
+                "artifact persistence is missing for checkpoints, logs, or official metrics",
+            ],
+        )
+        rationale = _merge_unique_strings(
+            rationale,
+            [
+                "mini runs are smoke tests only and cannot count as frontier progress",
+                (
+                    "public student work only counts when checkpoint, config, and data "
+                    "contract are comparable"
+                ),
+            ],
+        )
+        enforced["comparison_contract"] = {
+            "mini_split_policy": "smoke_only_nonpromotable",
+            "frontier_claim_requires": [
+                "exact public checkpoint plus exact public config plus official data contract",
+                "or full-schedule comparable training on the official stack",
+            ],
+            "non_comparable_runs_do_not_count": True,
+        }
+    else:
+        enforced["comparison_contract"] = {
+            "mini_split_policy": "bounded_local_only",
+            "frontier_claim_requires": [
+                "official metrics plus export sanity plus a comparable recipe contract"
+            ],
+            "non_comparable_runs_do_not_count": False,
+        }
+
+    enforced["execution_contract"] = {
+        "autofix_trivial_infra": True,
+        "artifact_persistence_required": True,
+        "stop_for_external_only": [
+            "gated credentials",
+            "destructive approval",
+            "irrecoverable ambiguity",
+        ],
+    }
+    enforced["loop_contract"] = {
+        "run_forever": True,
+        "summarize_threshold_ratio": SUMMARY_THRESHOLD_RATIO,
+        "cpu_reasoning_lane_required": True,
+    }
+    enforced["priority_tags"] = priority_tags
+    enforced["suppress_tags"] = suppress_tags
+    enforced["rationale"] = rationale
+    enforced["kill_conditions"] = kill_conditions
+    enforced["retrieval_queries"] = retrieval_queries
+    enforced["report_outline"] = _merge_unique_strings(
+        report_outline,
+        ["Status", "Failure Signatures", "Executable Next Steps"],
+    )
+    enforced["force_priority_only"] = bool(enforced.get("force_priority_only", True))
+    return enforced
 
 
 def _extract_python_block(text: str) -> str:
@@ -285,7 +464,7 @@ def _run_candidate(candidate: HarnessCandidateSpec, task: dict[str, Any]) -> dic
     result = module.run_harness(task)
     if not isinstance(result, dict):
         raise RuntimeError("candidate run_harness() must return a dict")
-    return result
+    return _enforce_repo_law(result, task)
 
 
 def _incumbent_candidate_source() -> str:
@@ -398,6 +577,12 @@ def run_harness(task: dict) -> dict:
         "camera_bev_working_baseline",
         "official_box_coder",
         "bevdepth_temporal_student",
+        "exact_public_reproduction",
+        "mini_smoke_only",
+        "artifact_persistence_required",
+        "noncomparable_runs_do_not_count",
+        "autofix_trivial_infra",
+        "codex_cli_loop",
         "geometry_sanity",
         "official_metric_only",
     ]
@@ -468,6 +653,8 @@ def run_harness(task: dict) -> dict:
         ],
         "retrieval_queries": [
             "public student replacement BEVDet BEVDepth official box coder",
+            "exact public checkpoint config data contract",
+            "mini smoke only non comparable runs do not count",
             "current incumbent scale blocker custom student head decoder",
             "repeated rabbit hole incremental progress schedule drift",
         ],
@@ -488,6 +675,28 @@ def run_harness(task: dict) -> dict:
             "Prefer public working student replacement, kill catastrophic custom-student "
             "failures early, and suppress repeated low-ROI custom mutations."
         ),
+        "comparison_contract": {
+            "mini_split_policy": "smoke_only_nonpromotable",
+            "frontier_claim_requires": [
+                "exact public checkpoint plus exact public config plus official data contract",
+                "or full-schedule comparable training on the official stack",
+            ],
+            "non_comparable_runs_do_not_count": True,
+        },
+        "execution_contract": {
+            "autofix_trivial_infra": True,
+            "artifact_persistence_required": True,
+            "stop_for_external_only": [
+                "gated credentials",
+                "destructive approval",
+                "irrecoverable ambiguity",
+            ],
+        },
+        "loop_contract": {
+            "run_forever": True,
+            "summarize_threshold_ratio": 0.5,
+            "cpu_reasoning_lane_required": True,
+        },
     }
 """
 
@@ -521,13 +730,26 @@ def _default_replay_tasks(
 ) -> list[HarnessReplayTask]:
     live_expected = {
         "required_priority_tags": [
-            "dino_v3_bridge",
-            "bevformer_v2_perspective_supervision",
-            "world_latent_distillation",
+            "public_student_replacement",
+            "bevdet_public_student",
+            "official_box_coder",
+            EXACT_PUBLIC_REPRO_TAG,
+            MINI_SMOKE_ONLY_TAG,
+            AUTOFIX_TRIVIAL_INFRA_TAG,
+            CODEX_LOOP_TAG,
         ],
-        "required_suppress_tags": ["quality_rank_finegrid", "teacher_quality_plus"],
-        "required_queries": ["scale blocker", "bevfusion baseline", "incremental progress"],
-        "required_outline": ["Status", "Next Steps"],
+        "required_suppress_tags": ["incremental_progress", "quality_rank_finegrid"],
+        "required_queries": [
+            "exact public checkpoint",
+            "official data contract",
+            "scale blocker",
+        ],
+        "required_outline": ["Status", "Failure Signatures", "Executable Next Steps"],
+        "required_contract_flags": {
+            "comparison_contract.non_comparable_runs_do_not_count": True,
+            "execution_contract.autofix_trivial_infra": True,
+            "loop_contract.run_forever": True,
+        },
     }
     joint_brief = {
         "current_state": [
@@ -573,10 +795,15 @@ def _default_replay_tasks(
             proposal_context=proposal_context,
             expected={
                 "required_bottleneck": "joint-metric-collapse",
-                "required_priority_tags": ["overfit_gate_32_sample", "geometry_sanity"],
+                "required_priority_tags": [
+                    "public_student_replacement",
+                    "geometry_sanity",
+                    "official_metric_only",
+                    EXACT_PUBLIC_REPRO_TAG,
+                ],
                 "required_suppress_tags": ["teacher_bag", "anchor_mix", "quality_rank_finegrid"],
-                "required_kill_terms": ["zero metrics", "legacy branch"],
-                "required_outline": ["Failure Signatures", "Next Steps"],
+                "required_kill_terms": ["zero metrics", "legacy branch", "smoke run"],
+                "required_outline": ["Failure Signatures", "Executable Next Steps"],
             },
             category="failure",
             weight=1.0,
@@ -587,13 +814,66 @@ def _default_replay_tasks(
             brief=catastrophic_brief,
             proposal_context=proposal_context,
             expected={
-                "required_bottleneck": "catastrophic-geometry-failure",
-                "required_priority_tags": ["geometry_sanity", "official_metric_only"],
-                "required_kill_terms": ["official eval", "export sanity"],
+                "required_priority_tags": [
+                    "geometry_sanity",
+                    "official_metric_only",
+                    EXACT_PUBLIC_REPRO_TAG,
+                ],
+                "required_kill_terms": ["official eval", "export sanity", "artifact persistence"],
                 "required_outline": ["Failure Signatures", "Kill Conditions"],
             },
             category="failure",
             weight=1.1,
+        ),
+        HarnessReplayTask(
+            task_id="exact_public_reproduction_discipline",
+            title=(
+                "Keep mini public-student work in smoke-test mode until exact reproduction exists"
+            ),
+            brief=brief,
+            proposal_context=proposal_context,
+            expected={
+                "required_priority_tags": [
+                    EXACT_PUBLIC_REPRO_TAG,
+                    MINI_SMOKE_ONLY_TAG,
+                    ARTIFACT_PERSISTENCE_TAG,
+                    NONCOMPARABLE_DO_NOT_COUNT_TAG,
+                ],
+                "required_kill_terms": [
+                    "checkpoint config or data contract mismatch",
+                    "smoke run",
+                    "artifact persistence",
+                ],
+                "required_queries": [
+                    "exact public checkpoint",
+                    "mini smoke only",
+                    "artifact persistence",
+                ],
+                "required_contract_flags": {
+                    "comparison_contract.non_comparable_runs_do_not_count": True,
+                    "comparison_contract.mini_split_policy": "smoke_only_nonpromotable",
+                },
+                "required_outline": ["Failure Signatures", "Executable Next Steps"],
+            },
+            category="decision",
+            weight=1.2,
+        ),
+        HarnessReplayTask(
+            task_id="codex_loop_persistence",
+            title="Keep the control plane alive and autonomous on trivial infra issues",
+            brief=brief,
+            proposal_context=proposal_context,
+            expected={
+                "required_priority_tags": [AUTOFIX_TRIVIAL_INFRA_TAG, CODEX_LOOP_TAG],
+                "required_kill_terms": ["trivial infra", "context must be summarized"],
+                "required_contract_flags": {
+                    "execution_contract.autofix_trivial_infra": True,
+                    "loop_contract.run_forever": True,
+                },
+                "required_outline": ["Status", "Executable Next Steps"],
+            },
+            category="execution",
+            weight=0.9,
         ),
         HarnessReplayTask(
             task_id="publication_quality",
@@ -632,6 +912,9 @@ def _score_task(
     report_outline = _normalize_strings(cast(list[Any], result.get("report_outline", [])))
     objective = str(result.get("objective", ""))
     bottleneck = str(result.get("targeted_bottleneck", ""))
+    comparison_contract = result.get("comparison_contract", {})
+    execution_contract = result.get("execution_contract", {})
+    loop_contract = result.get("loop_contract", {})
 
     decision_score = 0.0
     failure_score = 0.0
@@ -668,9 +951,35 @@ def _score_task(
     outline_hits = sum(1 for item in required_outline if item in report_outline)
     if required_outline:
         publication_score += outline_hits / len(required_outline)
+    required_contract_flags = cast(dict[str, Any], expected.get("required_contract_flags", {}))
+    contract_hits = 0
+    for dotted_key, expected_value in required_contract_flags.items():
+        root_key, _, child_key = dotted_key.partition(".")
+        source: Any
+        if root_key == "comparison_contract":
+            source = comparison_contract
+        elif root_key == "execution_contract":
+            source = execution_contract
+        elif root_key == "loop_contract":
+            source = loop_contract
+        else:
+            source = result
+            child_key = dotted_key
+        if isinstance(source, dict):
+            actual = source.get(child_key)
+            if actual == expected_value:
+                contract_hits += 1
+            else:
+                failing_checks.append(f"contract:{dotted_key}")
+    if required_contract_flags:
+        decision_score += contract_hits / len(required_contract_flags)
 
     if priority_tags:
-        if _priority_tags_request_frontier(priority_tags):
+        if (
+            _priority_tags_request_frontier(priority_tags)
+            or _priority_tags_request_public_student(priority_tags)
+            or EXACT_PUBLIC_REPRO_TAG in priority_tags
+        ):
             execution_score += 1.0
         elif "frontier" in task.task_id or "catastrophic" in task.task_id:
             failing_checks.append("execution:not_frontier")

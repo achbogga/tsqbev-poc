@@ -33,6 +33,7 @@ from tsqbev.bevfusion_env import (
     render_bevfusion_runbook_markdown,
 )
 from tsqbev.checkpoints import load_model_from_checkpoint
+from tsqbev.codex_loop import run_codex_loop
 from tsqbev.config import ModelConfig
 from tsqbev.data_checks import check_nuscenes_root, check_openlane_root
 from tsqbev.eval_nuscenes import evaluate_nuscenes_predictions, export_nuscenes_predictions
@@ -610,6 +611,7 @@ def _make_parser() -> argparse.ArgumentParser:
             "eval-openlane",
             "research-loop",
             "research-supervisor",
+            "codex-loop",
             "maintenance-once",
             "maintenance-supervisor",
             "reset-stack",
@@ -812,6 +814,7 @@ def _make_parser() -> argparse.ArgumentParser:
     parser.add_argument("--device", type=str, default=None)
     parser.add_argument("--max-experiments", type=int, default=5)
     parser.add_argument("--max-invocations", type=int, default=None)
+    parser.add_argument("--max-cycles", type=int, default=None)
     parser.add_argument("--sleep-seconds", type=int, default=30)
     parser.add_argument("--wait-poll-seconds", type=int, default=20)
     parser.add_argument("--interval-hours", type=int, default=24)
@@ -1474,6 +1477,29 @@ def main() -> None:
                 git_remote=args.git_remote,
                 git_branch=args.git_branch,
                 proposal_path=args.proposal_path,
+            )
+        )
+        return
+    if args.command == "codex-loop":
+        if args.dataset_root is None:
+            raise ValueError("--dataset-root is required for codex-loop")
+        teacher_provider_config = _resolve_teacher_provider_config(args)
+        print(
+            run_codex_loop(
+                dataroot=args.dataset_root,
+                artifact_dir=args.artifact_dir,
+                harness_root=args.artifact_dir / "harness_v2",
+                proposal_path=args.proposal_path,
+                device=args.device,
+                max_experiments=args.max_experiments,
+                teacher_provider_config=teacher_provider_config,
+                max_cycles=args.max_cycles,
+                search_iterations=args.iterations,
+                sleep_seconds=args.sleep_seconds,
+                wait_poll_seconds=args.wait_poll_seconds,
+                git_publish=args.git_publish,
+                git_remote=args.git_remote,
+                git_branch=args.git_branch,
             )
         )
         return

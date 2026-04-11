@@ -37,6 +37,11 @@ The parallel harness-search control plane is defined in
   orchestration, and stop/pivot policy without destabilizing the live supervisor
 - new control-plane ideas should enter the repo through replay benchmarks and shadow mode before
   they are allowed to steer live GPU execution
+- `codex-loop` is the preferred persistent entrypoint when the goal is unattended operation with
+  autonomous harness search/promotion plus bounded supervisor execution
+- public-student `mini` runs are smoke/control only by default; they may not reset the frontier or
+  count as breakthrough evidence unless they satisfy an exact public reproduction or comparable
+  full-training contract
 
 ## Target Stack Bias
 

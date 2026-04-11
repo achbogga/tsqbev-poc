@@ -57,6 +57,7 @@ These instructions are durable repo policy, not one-off chat guidance.
 - stop and reassess when the direction becomes a rabbit hole
 - stop immediately on catastrophic official-eval or export-sanity failure; capture the failure
   signature and relaunch only after the diagnosis changes the next move
+- trivial infra issues are not stop conditions; repair them autonomously and keep the loop moving
 - hydrate the local research-memory brief before planning the next bounded move
 - publish PI-readable reports and machine-readable sync artifacts after each invocation
 - treat lane work as an explicit secondary bootstrap track: prove the isolated OpenLane lane path,
@@ -204,6 +205,15 @@ memory compression, and orchestration logic. It must stay offline-first:
 1. replay benchmark first
 2. shadow against the incumbent harness second
 3. promote only when the scorecard and shadow gates pass
+
+For persistent unattended operation, prefer `tsqbev codex-loop`. That entrypoint is responsible
+for:
+
+1. running harness search and promotion continuously
+2. keeping the promoted harness live in the supervisor
+3. repairing trivial infra failures without waiting for user intervention
+4. treating public-student `mini` runs as smoke/control only unless the run is an exact public
+   reproduction or a comparable full-schedule contract
 
 Separate from the GPU research supervisor, the repo should keep a CPU-only daily maintenance agent
 alive via `tsqbev maintenance-supervisor`. That process is responsible for repo hygiene checks,

@@ -259,6 +259,49 @@ def test_harness_search_passes_provider_and_iterations(monkeypatch, tmp_path) ->
     cli_module.main()
 
 
+def test_codex_loop_dispatches_to_runner(monkeypatch, tmp_path) -> None:
+    captured: dict[str, object] = {}
+
+    def fake_parser() -> argparse.ArgumentParser:
+        class _Parser:
+            def parse_args(self_inner) -> SimpleNamespace:
+                return SimpleNamespace(
+                    command="codex-loop",
+                    dataset_root=tmp_path / "nuscenes",
+                    artifact_dir=tmp_path / "artifacts" / "codex_loop",
+                    proposal_path=tmp_path / "proposal.md",
+                    device="cuda",
+                    max_experiments=3,
+                    teacher_kind=None,
+                    teacher_cache_dir=None,
+                    teacher_checkpoint=None,
+                    max_cycles=2,
+                    iterations=4,
+                    sleep_seconds=7,
+                    wait_poll_seconds=11,
+                    git_publish=False,
+                    git_remote="origin",
+                    git_branch="main",
+                )
+
+        return _Parser()  # type: ignore[return-value]
+
+    monkeypatch.setattr(cli_module, "_make_parser", fake_parser)
+
+    def fake_loop(**kwargs):
+        captured.update(kwargs)
+        return {"ok": True}
+
+    monkeypatch.setattr(cli_module, "run_codex_loop", fake_loop)
+    cli_module.main()
+
+    assert captured["dataroot"] == tmp_path / "nuscenes"
+    assert captured["artifact_dir"] == tmp_path / "artifacts" / "codex_loop"
+    assert captured["harness_root"] == tmp_path / "artifacts" / "codex_loop" / "harness_v2"
+    assert captured["max_cycles"] == 2
+    assert captured["search_iterations"] == 4
+
+
 def test_run_bevdet_public_student_dispatches(monkeypatch, tmp_path) -> None:
     captured: dict[str, object] = {}
 

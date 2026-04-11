@@ -122,6 +122,12 @@ class ResearchRecipe:
     external_config_relpath: str | None = None
     external_image_tag: str | None = None
     external_version: str | None = None
+    comparison_tier: Literal["frontier_comparable", "bounded_local", "smoke_control"] = (
+        "frontier_comparable"
+    )
+    promotion_eligible: bool = True
+    frontier_claim_eligible: bool = True
+    exact_public_contract: bool = False
 
 
 @dataclass(slots=True)
@@ -234,6 +240,10 @@ _PUBLIC_STUDENT_LAUNCH_TAGS = {
     "bevdepth_temporal_student",
     "official_box_coder",
     "camera_bev_working_baseline",
+    "exact_public_reproduction",
+    "mini_smoke_only",
+    "artifact_persistence_required",
+    "noncomparable_runs_do_not_count",
 }
 
 
@@ -298,6 +308,10 @@ def _public_bevdet_primary_recipe() -> ResearchRecipe:
         external_config_relpath=PRIMARY_BEVDET_CONFIG,
         external_image_tag=DEFAULT_BEVDET_IMAGE_TAG,
         external_version="v1.0-mini",
+        comparison_tier="smoke_control",
+        promotion_eligible=False,
+        frontier_claim_eligible=False,
+        exact_public_contract=False,
     )
 
 
@@ -323,6 +337,10 @@ def _make_public_bevdet_temporal_recipe(recipe: ResearchRecipe) -> ResearchRecip
         external_config_relpath=CONTROL_BEVDET_CONFIG,
         external_image_tag=DEFAULT_BEVDET_IMAGE_TAG,
         external_version="v1.0-mini",
+        comparison_tier="smoke_control",
+        promotion_eligible=False,
+        frontier_claim_eligible=False,
+        exact_public_contract=False,
     )
 
 
@@ -342,6 +360,10 @@ def _make_public_bevdet_primary_rerun(recipe: ResearchRecipe) -> ResearchRecipe:
         external_config_relpath=PRIMARY_BEVDET_CONFIG,
         external_image_tag=DEFAULT_BEVDET_IMAGE_TAG,
         external_version="v1.0-mini",
+        comparison_tier="smoke_control",
+        promotion_eligible=False,
+        frontier_claim_eligible=False,
+        exact_public_contract=False,
     )
 
 
@@ -814,6 +836,10 @@ def _clone_recipe(
     external_config_relpath: str | None = None,
     external_image_tag: str | None = None,
     external_version: str | None = None,
+    comparison_tier: Literal["frontier_comparable", "bounded_local", "smoke_control"] | None = None,
+    promotion_eligible: bool | None = None,
+    frontier_claim_eligible: bool | None = None,
+    exact_public_contract: bool | None = None,
 ) -> ResearchRecipe:
     return ResearchRecipe(
         name=name,
@@ -929,6 +955,20 @@ def _clone_recipe(
         ),
         external_version=(
             recipe.external_version if external_version is None else external_version
+        ),
+        comparison_tier=(
+            recipe.comparison_tier if comparison_tier is None else comparison_tier
+        ),
+        promotion_eligible=(
+            recipe.promotion_eligible if promotion_eligible is None else promotion_eligible
+        ),
+        frontier_claim_eligible=(
+            recipe.frontier_claim_eligible
+            if frontier_claim_eligible is None
+            else frontier_claim_eligible
+        ),
+        exact_public_contract=(
+            recipe.exact_public_contract if exact_public_contract is None else exact_public_contract
         ),
     )
 
@@ -2336,6 +2376,10 @@ def _serialize_recipe(recipe: ResearchRecipe) -> dict[str, Any]:
         "external_config_relpath": recipe.external_config_relpath,
         "external_image_tag": recipe.external_image_tag,
         "external_version": recipe.external_version,
+        "comparison_tier": recipe.comparison_tier,
+        "promotion_eligible": recipe.promotion_eligible,
+        "frontier_claim_eligible": recipe.frontier_claim_eligible,
+        "exact_public_contract": recipe.exact_public_contract,
     }
 
 
@@ -2678,6 +2722,10 @@ def _select_better_record(
     current_best: dict[str, Any] | None,
     candidate: dict[str, Any],
 ) -> tuple[bool, str]:
+    candidate_promotion_eligible = bool(candidate.get("promotion_eligible", True))
+    candidate_tier = str(candidate.get("comparison_tier", "frontier_comparable"))
+    if current_best is None and not candidate_promotion_eligible:
+        return True, f"establishes the first {candidate_tier} control baseline for this invocation"
     candidate_eval = candidate.get("evaluation", {})
     assert isinstance(candidate_eval, dict)
     candidate_nds = float(candidate_eval.get("nd_score", float("-inf")))
@@ -2685,6 +2733,12 @@ def _select_better_record(
     candidate_val = float(candidate.get("val", {}).get("total", float("inf")))
     if current_best is None:
         return True, "establishes the first completed baseline for this invocation"
+    current_promotion_eligible = bool(current_best.get("promotion_eligible", True))
+    current_tier = str(current_best.get("comparison_tier", "frontier_comparable"))
+    if not candidate_promotion_eligible:
+        return False, f"{candidate_tier} run is smoke/control only and cannot replace the incumbent"
+    if not current_promotion_eligible:
+        return True, f"first promotion-eligible comparable run replaces the {current_tier} baseline"
     current_eval = current_best.get("evaluation", {})
     assert isinstance(current_eval, dict)
     current_nds = float(current_eval.get("nd_score", float("-inf")))
@@ -2749,6 +2803,10 @@ def _apply_final_decisions(
             record["final_decision"] = "promote"
         elif record.get("status") == "error":
             record["final_decision"] = "crash"
+        elif record.get("status") == "completed" and not bool(
+            record.get("promotion_eligible", True)
+        ):
+            record["final_decision"] = "control_only"
         else:
             record["final_decision"] = "discard"
     return ranked
@@ -3694,7 +3752,11 @@ def run_bounded_research_loop(
             )
         recipe_index += 1
 
-    promoted_run_id = int(incumbent_record["run_id"]) if incumbent_record is not None else None
+    promoted_run_id = (
+        int(incumbent_record["run_id"])
+        if incumbent_record is not None and bool(incumbent_record.get("promotion_eligible", True))
+        else None
+    )
     ranked = _apply_final_decisions(records, promoted_run_id)
     _flush_progress_ledgers(artifact_root, records)
 
@@ -3714,6 +3776,43 @@ def run_bounded_research_loop(
             json.dumps(failed_summary, indent=2, default=str)
         )
         return failed_summary
+    if not bool(incumbent_record.get("promotion_eligible", True)):
+        smoke_summary: dict[str, Any] = {
+            "status": "smoke_only",
+            "reference_workflow": "karpathy/autoresearch",
+            "selected_recipe": incumbent_recipe.name,
+            "selected_record": incumbent_record,
+            "records_path": str(artifact_root / "results.jsonl"),
+            "results_tsv_path": str(artifact_root / "results.tsv"),
+            "evaluation": incumbent_record.get("evaluation", {}),
+            "leaderboard": _leaderboard(records),
+            "relaunch": {
+                "should_relaunch": True,
+                "reason": (
+                    "only smoke/control baselines were produced; exact public reproduction or "
+                    "a promotion-eligible comparable run is still required"
+                ),
+            },
+            "recommended_next_steps": [
+                "treat this invocation as smoke/control only",
+                "do not reset the frontier from a non-comparable mini run",
+                "fix exact checkpoint/config/data-contract reproduction before claiming progress",
+            ],
+            "proposal": None if resolved_proposal is None else resolved_proposal.to_dict(),
+            "supervisor_policy": supervisor_policy,
+            "pre_run_brief_path": str(artifact_root / "pre_run_brief.json"),
+        }
+        (artifact_root / "summary.json").write_text(
+            json.dumps(smoke_summary, indent=2, default=str)
+        )
+        memory_sync = safe_sync_research_memory(REPO_ROOT)
+        post_run_brief = safe_build_research_brief(REPO_ROOT, persist_log=True)
+        smoke_summary["memory_sync"] = memory_sync
+        smoke_summary["post_run_brief"] = post_run_brief
+        (artifact_root / "summary.json").write_text(
+            json.dumps(smoke_summary, indent=2, default=str)
+        )
+        return smoke_summary
 
     scale_verdict = _scale_gate_verdict(incumbent_record, records)
     boss_progress_verdict = _boss_progress_verdict(

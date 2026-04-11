@@ -50,6 +50,11 @@ Continuing to train through a known catastrophe is anti-research behavior.
 - if the same recipe family catastrophically fails twice, a third identical launch is forbidden
 - when context grows large, summarize it immediately and write the summary into durable memory
   before reasoning degrades
+- trivial infra issues such as package conflicts, docker issues, path bugs, missing wheels,
+  checkpoint downloads, or launcher mistakes are not reasons to stop the loop and ask for help;
+  they are execution work and should be repaired autonomously
+- the default operating mode is a persistent codex-style loop: benchmark the harness, promote only
+  when it clears the gates, then continue running the bounded supervisor without waiting passively
 
 Urgency in this repo does not mean panic. It means shorter feedback loops, faster honest kills,
 and faster evidence-backed pivots.
@@ -60,6 +65,8 @@ and faster evidence-backed pivots.
 - official metrics decide promotion
 - memory should store exact facts, not narrative optimism
 - “better looking logs” do not count as progress unless the target metric moves
+- `mini` public-student runs are smoke tests unless they exactly match an official public
+  checkpoint/config/data-contract reproduction or a full comparable training contract
 
 ## Frontier Standard
 
