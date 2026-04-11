@@ -12,7 +12,6 @@ from typing import Any
 from tsqbev.harness_v2 import (
     DEFAULT_HARNESS_ROOT,
     DEFAULT_PROPOSAL_PATH,
-    render_harness_report,
     run_harness_promote,
     run_harness_search,
     sync_harness_memory,
@@ -257,9 +256,25 @@ def run_codex_loop(
                 notes=notes,
             )
             _persist_cycle_phase(cycle_root, phase="memory_sync", notes=cycle_notes)
-            sync_harness_memory(artifact_dir=harness_root_path)
-            render_harness_report(artifact_dir=harness_root_path)
-            safe_sync_research_memory(REPO_ROOT)
+            memory_sync_summary = sync_harness_memory(artifact_dir=harness_root_path)
+            qdrant_summary = memory_sync_summary.get("qdrant", {})
+            mem0_summary = memory_sync_summary.get("mem0", {})
+            qdrant_mode = (
+                "reused"
+                if isinstance(qdrant_summary, dict) and bool(qdrant_summary.get("reused"))
+                else "cold"
+            )
+            mem0_mode = (
+                "reused"
+                if isinstance(mem0_summary, dict) and bool(mem0_summary.get("reused"))
+                else "cold"
+            )
+            cycle_notes.append(f"memory_qdrant={qdrant_mode}")
+            cycle_notes.append(f"memory_mem0={mem0_mode}")
+            _log(
+                f"cycle={cycles_started} phase=memory_sync_complete "
+                f"memory_qdrant={qdrant_mode} memory_mem0={mem0_mode}"
+            )
             safe_build_research_brief(REPO_ROOT, persist_log=True)
             _log(f"cycle={cycles_started} phase=supervisor")
             _persist_state(

@@ -33,9 +33,6 @@ def test_codex_loop_runs_one_cycle(monkeypatch, tmp_path: Path) -> None:
         calls["memory"] += 1
         return {"ok": True, "artifact_dir": str(artifact_dir)}
 
-    def fake_render_report(*, artifact_dir):
-        return {"ok": True, "artifact_dir": str(artifact_dir)}
-
     def fake_safe_sync(repo_root):
         calls["memory"] += 1
         return {"ok": True, "repo_root": str(repo_root)}
@@ -51,7 +48,6 @@ def test_codex_loop_runs_one_cycle(monkeypatch, tmp_path: Path) -> None:
     monkeypatch.setattr("tsqbev.codex_loop.run_harness_search", fake_search)
     monkeypatch.setattr("tsqbev.codex_loop.run_harness_promote", fake_promote)
     monkeypatch.setattr("tsqbev.codex_loop.sync_harness_memory", fake_sync_memory)
-    monkeypatch.setattr("tsqbev.codex_loop.render_harness_report", fake_render_report)
     monkeypatch.setattr("tsqbev.codex_loop.safe_sync_research_memory", fake_safe_sync)
     monkeypatch.setattr("tsqbev.codex_loop.safe_build_research_brief", fake_brief)
     monkeypatch.setattr("tsqbev.codex_loop.run_research_supervisor", fake_supervisor)
@@ -68,5 +64,6 @@ def test_codex_loop_runs_one_cycle(monkeypatch, tmp_path: Path) -> None:
     assert result["status"] == "completed"
     assert calls["search"] == 1
     assert calls["promote"] == 1
+    assert calls["memory"] == 1
     assert calls["supervisor"] == 1
     assert (tmp_path / "artifacts" / "codex_loop" / "state.json").exists()

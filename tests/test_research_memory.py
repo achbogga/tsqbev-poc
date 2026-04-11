@@ -367,6 +367,74 @@ def test_sync_research_memory_promotes_even_when_semantic_backends_raise(
     assert (config.artifact_root / "sync_manifest.json").exists()
 
 
+def test_sync_research_memory_reuses_semantic_state_when_corpus_is_unchanged(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    import tsqbev.research_memory as research_memory
+
+    calls = {"qdrant_upsert": 0, "mem0_add": 0}
+
+    class _FakeEmbedder:
+        reranker_enabled = False
+        reranker_provider = "none"
+        reranker_reason = None
+        reranker_fallback_reason = None
+
+    class _FakeQdrant:
+        def __init__(self, config: ResearchMemoryConfig) -> None:
+            self.enabled = True
+            self.mode = "server"
+            self.reason = None
+            self.embedder_provider = "fastembed"
+            self._embedder = _FakeEmbedder()
+
+        def upsert_chunks(self, chunks: list[object]) -> int:
+            calls["qdrant_upsert"] += 1
+            return len(chunks)
+
+    class _FakeMem0:
+        def __init__(self, config: ResearchMemoryConfig) -> None:
+            self.enabled = True
+            self.reason = None
+
+        def add_fact(self, fact: object) -> bool:
+            calls["mem0_add"] += 1
+            return True
+
+    monkeypatch.setattr(research_memory, "QdrantEvidenceIndex", _FakeQdrant)
+    monkeypatch.setattr(research_memory, "Mem0MemoryBackend", _FakeMem0)
+    monkeypatch.setattr(
+        research_memory,
+        "_flush_mem0_spool",
+        lambda _config, _backend: {"attempted": 0, "flushed": 0, "remaining": 0},
+    )
+
+    repo_root = _make_repo_fixture(tmp_path)
+    config = ResearchMemoryConfig(
+        memory_root=tmp_path / ".local" / "memory",
+        artifact_root=repo_root / "artifacts" / "memory",
+        reports_root=repo_root / "docs" / "reports",
+        report_log_root=repo_root / "docs" / "reports" / "log",
+        steering_path=repo_root / "docs" / "steering.md",
+        qdrant_enabled=True,
+        mem0_enabled=True,
+    )
+
+    first = sync_research_memory(repo_root, config=config)
+    second = sync_research_memory(repo_root, config=config)
+
+    assert first["qdrant"]["reused"] is False
+    assert second["qdrant"]["reused"] is True
+    assert second["qdrant"]["reason"] == "reused_unchanged_chunks"
+    assert first["qdrant"]["evidence_collection"] == second["qdrant"]["evidence_collection"]
+    assert first["chunk_fingerprint"] == second["chunk_fingerprint"]
+    assert calls["qdrant_upsert"] == 1
+    assert first["mem0"]["reused"] is False
+    assert second["mem0"]["reused"] is True
+    assert first["fact_fingerprint"] == second["fact_fingerprint"]
+
+
 def test_evidence_source_files_exclude_results_jsonl(tmp_path: Path) -> None:
     repo_root = _make_repo_fixture(tmp_path)
 

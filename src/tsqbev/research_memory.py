@@ -143,6 +143,7 @@ class ResearchMemoryConfig(BaseModel):
     chunk_overlap_chars: int = 160
     evidence_top_k: int = 8
     catalog_override_path: Path | None = None
+    semantic_reuse_enabled: bool = True
 
     @property
     def catalog_path(self) -> Path:
@@ -235,6 +236,7 @@ class ResearchMemoryConfig(BaseModel):
             chunk_chars=int(os.getenv("TSQBEV_MEMORY_CHUNK_CHARS", "1200")),
             chunk_overlap_chars=int(os.getenv("TSQBEV_MEMORY_CHUNK_OVERLAP", "160")),
             evidence_top_k=int(os.getenv("TSQBEV_MEMORY_TOP_K", "8")),
+            semantic_reuse_enabled=_env_bool("TSQBEV_MEMORY_SEMANTIC_REUSE_ENABLED", True),
         )
 
 
@@ -2207,6 +2209,8 @@ def _promote_memory_build(
         "fact_count": summary["fact_count"],
         "event_count": summary["event_count"],
         "evidence_count": summary["evidence_count"],
+        "chunk_fingerprint": summary.get("chunk_fingerprint"),
+        "fact_fingerprint": summary.get("fact_fingerprint"),
     }
     promoted_summary = dict(summary)
     promoted_summary.update(current_build)
@@ -2224,6 +2228,66 @@ def _write_json_atomic(path: Path, payload: dict[str, Any]) -> None:
     tmp_path = path.with_suffix(path.suffix + ".tmp")
     tmp_path.write_text(json.dumps(payload, indent=2, default=str))
     tmp_path.replace(path)
+
+
+def _stable_digest(items: Iterable[str], *, prefix: str) -> str:
+    joined = "\n".join(sorted(str(item) for item in items))
+    return _sha1(f"{prefix}\n{joined}")
+
+
+def _chunk_fingerprint(chunks: Iterable[EvidenceChunk]) -> str:
+    return _stable_digest((chunk.chunk_id for chunk in chunks), prefix="chunks")
+
+
+def _fact_fingerprint(facts: Iterable[MemoryFact]) -> str:
+    return _stable_digest((fact.fact_id for fact in facts), prefix="facts")
+
+
+def _manifest_field(manifest: dict[str, Any] | None, key: str) -> str | None:
+    if not isinstance(manifest, dict):
+        return None
+    value = _as_opt_str(manifest.get(key))
+    if value is not None:
+        return value
+    nested = manifest.get("current_build")
+    if isinstance(nested, dict):
+        return _as_opt_str(nested.get(key))
+    return None
+
+
+def _can_reuse_qdrant_semantics(
+    config: ResearchMemoryConfig,
+    *,
+    promoted_manifest: dict[str, Any] | None,
+    chunk_fingerprint: str,
+) -> bool:
+    if not config.semantic_reuse_enabled or not isinstance(promoted_manifest, dict):
+        return False
+    if _as_opt_str(promoted_manifest.get("chunk_fingerprint")) != chunk_fingerprint:
+        return False
+    qdrant = promoted_manifest.get("qdrant")
+    if not isinstance(qdrant, dict) or not bool(qdrant.get("enabled")):
+        return False
+    evidence_collection = _manifest_field(promoted_manifest, "qdrant_evidence_collection")
+    memory_collection = _manifest_field(promoted_manifest, "qdrant_memory_collection")
+    return bool(evidence_collection and memory_collection)
+
+
+def _can_reuse_mem0_semantics(
+    config: ResearchMemoryConfig,
+    *,
+    promoted_manifest: dict[str, Any] | None,
+    fact_fingerprint: str,
+) -> bool:
+    if not config.semantic_reuse_enabled or not isinstance(promoted_manifest, dict):
+        return False
+    if _as_opt_str(promoted_manifest.get("fact_fingerprint")) != fact_fingerprint:
+        return False
+    mem0 = promoted_manifest.get("mem0")
+    if not isinstance(mem0, dict) or not bool(mem0.get("enabled")):
+        return False
+    collection_name = _manifest_field(promoted_manifest, "mem0_qdrant_collection")
+    return bool(collection_name)
 
 
 def _active_catalog_path(config: ResearchMemoryConfig) -> Path:
@@ -2281,6 +2345,7 @@ def sync_research_memory(
     runtime_cfg = _runtime_memory_config(cfg)
     cfg.memory_root.mkdir(parents=True, exist_ok=True)
     cfg.artifact_root.mkdir(parents=True, exist_ok=True)
+    promoted_manifest = _load_promoted_manifest(cfg)
     build_id = _build_id(repo_root)
     build_dir = cfg.builds_root / build_id
     if build_dir.exists():
@@ -2304,6 +2369,8 @@ def sync_research_memory(
         knowledge_facts = _collect_knowledge_facts(repo_root)
         facts = _derive_memory_facts(events, repo_root) + knowledge_facts
         phase_timings_s["derive_facts"] = round(time.perf_counter() - phase_started, 4)
+        chunk_fingerprint = _chunk_fingerprint(chunks)
+        fact_fingerprint = _fact_fingerprint(facts)
 
         phase_started = time.perf_counter()
         event_count = catalog.upsert_events(events)
@@ -2325,48 +2392,87 @@ def sync_research_memory(
             "embedder_provider": "hash",
             "evidence_collection": runtime_cfg.qdrant_evidence_collection,
             "memory_collection": runtime_cfg.qdrant_memory_collection,
+            "reused": False,
         }
         phase_started = time.perf_counter()
-        try:
-            index = QdrantEvidenceIndex(build_cfg)
-            indexed_chunks = index.upsert_chunks(chunks)
+        if _can_reuse_qdrant_semantics(
+            cfg,
+            promoted_manifest=promoted_manifest,
+            chunk_fingerprint=chunk_fingerprint,
+        ):
             qdrant_summary = {
-                "enabled": index.enabled,
-                "mode": index.mode,
-                "reason": index.reason,
-                "indexed_chunks": indexed_chunks,
-                "embedder_provider": index.embedder_provider,
-                "evidence_collection": (
-                    build_cfg.qdrant_evidence_collection
-                    if index.enabled and indexed_chunks > 0
-                    else runtime_cfg.qdrant_evidence_collection
+                "enabled": True,
+                "mode": _as_opt_str(_nested_get(promoted_manifest, "qdrant", "mode")),
+                "reason": "reused_unchanged_chunks",
+                "indexed_chunks": 0,
+                "embedder_provider": (
+                    _as_opt_str(_nested_get(promoted_manifest, "qdrant", "embedder_provider"))
+                    or "unknown"
                 ),
-                "memory_collection": (
-                    build_cfg.qdrant_memory_collection
-                    if index.enabled and indexed_chunks > 0
-                    else runtime_cfg.qdrant_memory_collection
+                "evidence_collection": _manifest_field(
+                    promoted_manifest, "qdrant_evidence_collection"
                 ),
+                "memory_collection": _manifest_field(
+                    promoted_manifest, "qdrant_memory_collection"
+                ),
+                "reused": True,
             }
-            reranker_summary = {
-                "enabled": index._embedder.reranker_enabled,
-                "provider": index._embedder.reranker_provider,
-                "reason": index._embedder.reranker_reason,
-                "fallback_reason": index._embedder.reranker_fallback_reason,
-                "configured_provider": cfg.reranker_provider,
-                "configured_model": cfg.reranker_model,
-                "configured_cohere_model": cfg.cohere_reranker_model,
-            }
-        except Exception as exc:
-            qdrant_summary["reason"] = repr(exc)
-            reranker_summary = {
-                "enabled": False,
-                "provider": "none",
-                "reason": f"qdrant_sync_failed: {exc!r}",
-                "fallback_reason": None,
-                "configured_provider": cfg.reranker_provider,
-                "configured_model": cfg.reranker_model,
-                "configured_cohere_model": cfg.cohere_reranker_model,
-            }
+            previous_reranker = promoted_manifest.get("reranker")
+            reranker_summary = (
+                dict(previous_reranker)
+                if isinstance(previous_reranker, dict)
+                else {
+                    "enabled": False,
+                    "provider": "none",
+                    "reason": "reused_qdrant_without_prior_reranker_metadata",
+                    "fallback_reason": None,
+                    "configured_provider": cfg.reranker_provider,
+                    "configured_model": cfg.reranker_model,
+                    "configured_cohere_model": cfg.cohere_reranker_model,
+                }
+            )
+        else:
+            try:
+                index = QdrantEvidenceIndex(build_cfg)
+                indexed_chunks = index.upsert_chunks(chunks)
+                qdrant_summary = {
+                    "enabled": index.enabled,
+                    "mode": index.mode,
+                    "reason": index.reason,
+                    "indexed_chunks": indexed_chunks,
+                    "embedder_provider": index.embedder_provider,
+                    "evidence_collection": (
+                        build_cfg.qdrant_evidence_collection
+                        if index.enabled and indexed_chunks > 0
+                        else runtime_cfg.qdrant_evidence_collection
+                    ),
+                    "memory_collection": (
+                        build_cfg.qdrant_memory_collection
+                        if index.enabled and indexed_chunks > 0
+                        else runtime_cfg.qdrant_memory_collection
+                    ),
+                    "reused": False,
+                }
+                reranker_summary = {
+                    "enabled": index._embedder.reranker_enabled,
+                    "provider": index._embedder.reranker_provider,
+                    "reason": index._embedder.reranker_reason,
+                    "fallback_reason": index._embedder.reranker_fallback_reason,
+                    "configured_provider": cfg.reranker_provider,
+                    "configured_model": cfg.reranker_model,
+                    "configured_cohere_model": cfg.cohere_reranker_model,
+                }
+            except Exception as exc:
+                qdrant_summary["reason"] = repr(exc)
+                reranker_summary = {
+                    "enabled": False,
+                    "provider": "none",
+                    "reason": f"qdrant_sync_failed: {exc!r}",
+                    "fallback_reason": None,
+                    "configured_provider": cfg.reranker_provider,
+                    "configured_model": cfg.reranker_model,
+                    "configured_cohere_model": cfg.cohere_reranker_model,
+                }
         phase_timings_s["qdrant_sync"] = round(time.perf_counter() - phase_started, 4)
 
         mem0_summary = {
@@ -2375,39 +2481,63 @@ def sync_research_memory(
             "synced_now": 0,
             "spool": {"attempted": 0, "flushed": 0, "remaining": 0},
             "collection_name": build_cfg.mem0_qdrant_collection,
+            "reused": False,
         }
         phase_started = time.perf_counter()
-        try:
-            mem0_backend = Mem0MemoryBackend(build_cfg)
-            synced_now = 0
-            if mem0_backend.enabled:
-                for fact in facts:
-                    if mem0_backend.add_fact(fact):
-                        synced_now += 1
-                spool_result = _flush_mem0_spool(build_cfg, mem0_backend)
-            else:
-                _spool_pending_facts(build_cfg, facts)
-                spool_result = {"attempted": 0, "flushed": 0, "remaining": len(facts)}
+        if _can_reuse_mem0_semantics(
+            cfg,
+            promoted_manifest=promoted_manifest,
+            fact_fingerprint=fact_fingerprint,
+        ):
+            previous_mem0 = promoted_manifest.get("mem0")
+            reused_reason = "reused_unchanged_facts"
             mem0_summary = {
-                "enabled": mem0_backend.enabled,
-                "reason": mem0_backend.reason,
-                "synced_now": synced_now,
-                "spool": spool_result,
-                "collection_name": (
-                    build_cfg.mem0_qdrant_collection
-                    if mem0_backend.enabled
-                    else runtime_cfg.mem0_qdrant_collection
-                ),
-            }
-        except Exception as exc:
-            _spool_pending_facts(build_cfg, facts)
-            mem0_summary = {
-                "enabled": False,
-                "reason": repr(exc),
+                "enabled": True,
+                "reason": reused_reason,
                 "synced_now": 0,
-                "spool": {"attempted": 0, "flushed": 0, "remaining": len(facts)},
-                "collection_name": runtime_cfg.mem0_qdrant_collection,
+                "spool": {"attempted": 0, "flushed": 0, "remaining": 0},
+                "collection_name": _manifest_field(promoted_manifest, "mem0_qdrant_collection"),
+                "reused": True,
             }
+            if isinstance(previous_mem0, dict):
+                mem0_summary["spool"] = dict(previous_mem0.get("spool", mem0_summary["spool"]))
+                mem0_summary["spool"]["attempted"] = 0
+                mem0_summary["spool"]["flushed"] = 0
+                mem0_summary["spool"]["remaining"] = 0
+        else:
+            try:
+                mem0_backend = Mem0MemoryBackend(build_cfg)
+                synced_now = 0
+                if mem0_backend.enabled:
+                    for fact in facts:
+                        if mem0_backend.add_fact(fact):
+                            synced_now += 1
+                    spool_result = _flush_mem0_spool(build_cfg, mem0_backend)
+                else:
+                    _spool_pending_facts(build_cfg, facts)
+                    spool_result = {"attempted": 0, "flushed": 0, "remaining": len(facts)}
+                mem0_summary = {
+                    "enabled": mem0_backend.enabled,
+                    "reason": mem0_backend.reason,
+                    "synced_now": synced_now,
+                    "spool": spool_result,
+                    "collection_name": (
+                        build_cfg.mem0_qdrant_collection
+                        if mem0_backend.enabled
+                        else runtime_cfg.mem0_qdrant_collection
+                    ),
+                    "reused": False,
+                }
+            except Exception as exc:
+                _spool_pending_facts(build_cfg, facts)
+                mem0_summary = {
+                    "enabled": False,
+                    "reason": repr(exc),
+                    "synced_now": 0,
+                    "spool": {"attempted": 0, "flushed": 0, "remaining": len(facts)},
+                    "collection_name": runtime_cfg.mem0_qdrant_collection,
+                    "reused": False,
+                }
         phase_timings_s["mem0_sync"] = round(time.perf_counter() - phase_started, 4)
 
         summary = {
@@ -2420,6 +2550,8 @@ def sync_research_memory(
             "event_count": event_count,
             "evidence_count": chunk_count,
             "fact_count": fact_count,
+            "chunk_fingerprint": chunk_fingerprint,
+            "fact_fingerprint": fact_fingerprint,
             "qdrant": qdrant_summary,
             "reranker": reranker_summary,
             "mem0": mem0_summary,
