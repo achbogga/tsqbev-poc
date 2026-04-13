@@ -16,12 +16,18 @@ from __future__ import annotations
 import json
 import os
 import shutil
+import signal
 import subprocess
+import time
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
-from tsqbev.eval_nuscenes import evaluate_nuscenes_predictions, prediction_geometry_diagnostics
+from tsqbev.eval_nuscenes import (
+    evaluate_nuscenes_predictions,
+    export_sanity_diagnostics,
+    prediction_geometry_diagnostics,
+)
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_BEVDET_IMAGE_TAG = "tsqbev-bevdet-official:latest"
@@ -29,6 +35,8 @@ PRIMARY_BEVDET_CONFIG = "configs/bevdet/bevdet-r50-cbgs.py"
 CONTROL_BEVDET_CONFIG = "configs/bevdet/bevdet-r50-4d-depth-cbgs.py"
 DEFAULT_PRIMARY_CONFIG_KEY = "bevdet-r50-cbgs"
 DEFAULT_CONTROL_CONFIG_KEY = "bevdet-r50-4d-depth-cbgs"
+DEFAULT_PROBE_MIN_AGE_SECONDS = 30.0
+DEFAULT_PROBE_POLL_SECONDS = 15.0
 
 
 @dataclass(frozen=True, slots=True)
@@ -101,6 +109,56 @@ def _reported_latency(config_relpath: str) -> dict[str, Any]:
             "fps": 25.2,
         }
     return {"mean_ms": float("inf"), "source": "no official latency attached"}
+
+
+def _probe_epoch_from_checkpoint(path: Path) -> int | None:
+    stem = path.stem
+    if not stem.startswith("epoch_"):
+        return None
+    suffix = stem.removeprefix("epoch_")
+    if not suffix.isdigit():
+        return None
+    return int(suffix)
+
+
+def _bevdet_probe_is_catastrophic(
+    evaluation: dict[str, Any],
+    prediction_geometry: dict[str, Any],
+    export_sanity: dict[str, Any],
+) -> bool:
+    nds = float(evaluation.get("nd_score", 0.0) or 0.0)
+    mean_ap = float(evaluation.get("mean_ap", 0.0) or 0.0)
+    sanity_ok = float(export_sanity.get("sanity_ok", 1.0) or 0.0)
+    return (
+        nds <= 0.0
+        and mean_ap <= 0.0
+        and (
+            sanity_ok <= 0.0
+            or float(prediction_geometry.get("max_box_size_m", 0.0) or 0.0) > 30.0
+            or float(prediction_geometry.get("ego_translation_norm_p99", 0.0) or 0.0)
+            > 120.0
+            or float(prediction_geometry.get("boxes_per_sample_mean", 0.0) or 0.0) > 80.0
+            or float(export_sanity.get("score_mean", 0.0) or 0.0) > 0.98
+        )
+    )
+
+
+def _terminate_process_group(pid: int) -> None:
+    try:
+        os.killpg(pid, signal.SIGTERM)
+    except ProcessLookupError:
+        return
+    deadline = time.monotonic() + 20.0
+    while time.monotonic() < deadline:
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            return
+        time.sleep(0.5)
+    try:
+        os.killpg(pid, signal.SIGKILL)
+    except ProcessLookupError:
+        return
 
 
 def check_bevdet_environment(repo_root: Path, dataset_root: Path) -> BevDetEnvStatus:
@@ -295,6 +353,76 @@ def render_bevdet_runbook_markdown(
     return "\n".join(lines).rstrip() + "\n"
 
 
+def _run_bevdet_checkpoint_probe(
+    *,
+    repo_root: Path,
+    dataset_root: Path,
+    artifact_dir: Path,
+    config_relpath: str,
+    version: str,
+    image_tag: str,
+    checkpoint_path: Path,
+    split_name: str,
+) -> dict[str, Any]:
+    probe_epoch = _probe_epoch_from_checkpoint(checkpoint_path)
+    probe_name = (
+        f"epoch_{probe_epoch:03d}" if probe_epoch is not None else checkpoint_path.stem
+    )
+    probe_root = artifact_dir / "checkpoint_probes" / probe_name
+    result_prefix = probe_root / "format_only"
+    result_json = result_prefix / "pts_bbox" / "results_nusc.json"
+    probe_root.mkdir(parents=True, exist_ok=True)
+
+    probe_env = {
+        **os.environ,
+        "BEVDET_ROOT": str(repo_root),
+        "DATASET_ROOT": str(dataset_root),
+        "BEVDET_IMAGE_TAG": image_tag,
+        "CONFIG_REL": config_relpath,
+        "VERSION": version,
+        "ARTIFACT_DIR": str(probe_root),
+        "WORK_DIR": str(artifact_dir / "work_dir"),
+        "CHECKPOINT_PATH": str(checkpoint_path),
+        "RESULT_PREFIX": str(result_prefix),
+        "TEST_LOG": str(probe_root / "probe_test.log"),
+    }
+    subprocess.run(
+        ["bash", str(REPO_ROOT / "research" / "scripts" / "run_bevdet_nuscenes_probe.sh")],
+        cwd=REPO_ROOT,
+        env=probe_env,
+        check=True,
+    )
+    evaluation = evaluate_nuscenes_predictions(
+        dataroot=dataset_root,
+        version=version,
+        split=split_name,
+        result_path=result_json,
+        output_dir=probe_root / "official_eval" / split_name,
+    )
+    prediction_geometry = prediction_geometry_diagnostics(
+        result_json,
+        dataroot=dataset_root,
+        version=version,
+    )
+    export_sanity = export_sanity_diagnostics(
+        result_json,
+        dataroot=dataset_root,
+        version=version,
+    )
+    probe_summary = {
+        "checkpoint_path": str(checkpoint_path),
+        "prediction_path": str(result_json),
+        "evaluation": evaluation,
+        "prediction_geometry": prediction_geometry,
+        "export_sanity": export_sanity,
+    }
+    (probe_root / "probe_summary.json").write_text(
+        json.dumps(probe_summary, indent=2),
+        encoding="utf-8",
+    )
+    return probe_summary
+
+
 def run_bevdet_public_student(
     *,
     repo_root: Path,
@@ -361,12 +489,77 @@ def run_bevdet_public_student(
     }
     if load_from is not None:
         run_env["LOAD_FROM"] = str(load_from)
-    subprocess.run(
+
+    work_dir = artifact_dir / "work_dir"
+    train_process = subprocess.Popen(
         ["bash", str(REPO_ROOT / "research" / "scripts" / "run_bevdet_nuscenes_train.sh")],
         cwd=REPO_ROOT,
         env=run_env,
-        check=True,
+        start_new_session=True,
     )
+    seen_probe_epochs: set[int] = set()
+    checkpoint_probes: list[dict[str, Any]] = []
+    catastrophic_probe: dict[str, Any] | None = None
+    while True:
+        returncode = train_process.poll()
+        checkpoint_paths = sorted(work_dir.glob("epoch_*.pth"))
+        now = time.time()
+        for checkpoint_path in checkpoint_paths:
+            epoch = _probe_epoch_from_checkpoint(checkpoint_path)
+            if epoch is None or epoch in seen_probe_epochs:
+                continue
+            try:
+                if now - checkpoint_path.stat().st_mtime < DEFAULT_PROBE_MIN_AGE_SECONDS:
+                    continue
+            except OSError:
+                continue
+            probe_summary = _run_bevdet_checkpoint_probe(
+                repo_root=repo_root,
+                dataset_root=dataset_root,
+                artifact_dir=artifact_dir,
+                config_relpath=config_relpath,
+                version=version,
+                image_tag=image_tag,
+                checkpoint_path=checkpoint_path,
+                split_name=split_name,
+            )
+            seen_probe_epochs.add(epoch)
+            checkpoint_probes.append(probe_summary)
+            if _bevdet_probe_is_catastrophic(
+                cast(dict[str, Any], probe_summary["evaluation"]),
+                cast(dict[str, Any], probe_summary["prediction_geometry"]),
+                cast(dict[str, Any], probe_summary["export_sanity"]),
+            ):
+                catastrophic_probe = probe_summary
+                _terminate_process_group(train_process.pid)
+                break
+        if catastrophic_probe is not None:
+            break
+        if returncode is not None:
+            if returncode != 0:
+                raise subprocess.CalledProcessError(
+                    returncode,
+                    [
+                        "bash",
+                        str(
+                            REPO_ROOT
+                            / "research"
+                            / "scripts"
+                            / "run_bevdet_nuscenes_train.sh"
+                        ),
+                    ],
+                )
+            break
+        time.sleep(DEFAULT_PROBE_POLL_SECONDS)
+
+    if catastrophic_probe is not None:
+        (artifact_dir / "checkpoint_probes" / "last_catastrophic_probe.json").write_text(
+            json.dumps(catastrophic_probe, indent=2),
+            encoding="utf-8",
+        )
+        raise RuntimeError(
+            "catastrophic public-student geometry failure during checkpoint probe"
+        )
 
     summary = json.loads(summary_path.read_text(encoding="utf-8"))
     prediction_path = Path(str(summary["prediction_path"]))
@@ -395,6 +588,7 @@ def run_bevdet_public_student(
         "durations_s": summary.get("durations_s", {}),
         "train_log": summary.get("train_log"),
         "test_log": summary.get("test_log"),
+        "checkpoint_probes": checkpoint_probes,
         "extra_tag": extra_tag,
         "version": version,
         "split": split_name,

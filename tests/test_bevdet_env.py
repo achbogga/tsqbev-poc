@@ -4,6 +4,8 @@ from pathlib import Path
 
 from tsqbev.bevdet_env import (
     PRIMARY_BEVDET_CONFIG,
+    _bevdet_probe_is_catastrophic,
+    _probe_epoch_from_checkpoint,
     bevdet_official_commands,
     check_bevdet_environment,
     render_bevdet_runbook_markdown,
@@ -70,3 +72,29 @@ def test_bevdet_runbook_mentions_public_student_helpers(tmp_path: Path) -> None:
     assert "run_bevdet_nuscenes_prep.sh" in report
     assert "run_bevdet_nuscenes_train.sh" in report
     assert "BEVDet Public Student Runbook" in report
+
+
+def test_probe_epoch_from_checkpoint_extracts_epoch() -> None:
+    assert _probe_epoch_from_checkpoint(Path("/tmp/epoch_3.pth")) == 3
+    assert _probe_epoch_from_checkpoint(Path("/tmp/latest.pth")) is None
+
+
+def test_bevdet_probe_catastrophic_gate_requires_zero_metrics_and_bad_geometry() -> None:
+    assert _bevdet_probe_is_catastrophic(
+        {"nd_score": 0.0, "mean_ap": 0.0},
+        {
+            "max_box_size_m": 40.0,
+            "ego_translation_norm_p99": 150.0,
+            "boxes_per_sample_mean": 120.0,
+        },
+        {"sanity_ok": 0.0, "score_mean": 0.999},
+    )
+    assert not _bevdet_probe_is_catastrophic(
+        {"nd_score": 0.03, "mean_ap": 0.001},
+        {
+            "max_box_size_m": 10.0,
+            "ego_translation_norm_p99": 15.0,
+            "boxes_per_sample_mean": 12.0,
+        },
+        {"sanity_ok": 1.0, "score_mean": 0.2},
+    )
