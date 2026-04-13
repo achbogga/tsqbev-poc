@@ -154,12 +154,12 @@ def _linux_process_name(pid: int) -> str | None:
 
 def _external_research_loop_processes(repo_root: Path = REPO_ROOT) -> list[dict[str, Any]]:
     completed = subprocess.run(
-        ["pgrep", "-af", "tsqbev research-loop"],
+        ["ps", "-eo", "pid=", "-o", "args="],
         check=False,
         capture_output=True,
         text=True,
     )
-    if completed.returncode not in {0, 1}:
+    if completed.returncode != 0:
         return []
     current_pid = os.getpid()
     processes: list[dict[str, Any]] = []
@@ -174,9 +174,21 @@ def _external_research_loop_processes(repo_root: Path = REPO_ROOT) -> list[dict[
         cmd = parts[1] if len(parts) > 1 else ""
         if pid == current_pid:
             continue
-        if "research-supervisor" in cmd:
+        normalized = cmd.lower()
+        if "research-supervisor" in normalized:
             continue
         if _linux_process_name(pid) == "pt_data_worker":
+            continue
+        if not any(
+            marker in normalized
+            for marker in (
+                "tsqbev research-loop",
+                "docker run --rm --gpus all",
+                "python tools/train.py configs/bevdet",
+                "python tools/test.py configs/bevdet",
+                "run_bevdet_nuscenes_train.sh",
+            )
+        ):
             continue
         processes.append({"pid": pid, "cmd": cmd})
     return processes

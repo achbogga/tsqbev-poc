@@ -179,6 +179,9 @@ def test_external_research_loop_processes_ignores_pt_data_workers(monkeypatch) -
                 "2222 /home/user/.venv/bin/python tsqbev research-loop --artifact-dir /tmp/a\n"
                 "3333 /home/user/.venv/bin/python tsqbev research-supervisor "
                 "--artifact-dir /tmp/b\n"
+                "4444 docker run --rm --gpus all tsqbev-bevdet-official:latest "
+                "/bin/bash -lc python tools/train.py "
+                "configs/bevdet/bevdet-r50-cbgs.py\n"
             ),
             stderr="",
         ),
@@ -195,7 +198,15 @@ def test_external_research_loop_processes_ignores_pt_data_workers(monkeypatch) -
         {
             "pid": 1111,
             "cmd": "/home/user/.venv/bin/python tsqbev research-loop --artifact-dir /tmp/a",
-        }
+        },
+        {
+            "pid": 4444,
+            "cmd": (
+                "docker run --rm --gpus all tsqbev-bevdet-official:latest "
+                "/bin/bash -lc python tools/train.py "
+                "configs/bevdet/bevdet-r50-cbgs.py"
+            ),
+        },
     ]
 
 
