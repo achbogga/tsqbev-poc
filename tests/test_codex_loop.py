@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from subprocess import CompletedProcess
 
-from tsqbev.codex_loop import run_codex_loop
+from tsqbev.codex_loop import _request_background_memory_sync, run_codex_loop
 
 
 def test_codex_loop_runs_one_cycle(monkeypatch, tmp_path: Path) -> None:
@@ -76,3 +77,38 @@ def test_codex_loop_runs_one_cycle(monkeypatch, tmp_path: Path) -> None:
     heartbeat = json.loads(heartbeat_path.read_text(encoding="utf-8"))
     assert state["active_phase_started_at_utc"]
     assert heartbeat["active_phase_started_at_utc"]
+
+
+def test_request_background_memory_sync_uses_non_blocking_systemd(
+    monkeypatch, tmp_path: Path
+) -> None:
+    seen: dict[str, object] = {}
+
+    def fake_service_load_state(_unit_name: str) -> str:
+        return "loaded"
+
+    def fake_run(cmd: list[str], **kwargs) -> CompletedProcess[str]:
+        seen["cmd"] = cmd
+        seen["kwargs"] = kwargs
+        return CompletedProcess(cmd, 0, stdout="", stderr="")
+
+    monkeypatch.setattr(
+        "tsqbev.codex_loop._service_load_state",
+        fake_service_load_state,
+    )
+    monkeypatch.setattr("tsqbev.codex_loop.subprocess.run", fake_run)
+
+    result = _request_background_memory_sync(
+        artifact_root=tmp_path / "artifacts",
+        harness_root=tmp_path / "artifacts" / "harness_v2",
+    )
+
+    assert result["mode"] == "systemd"
+    assert result["requested"] is True
+    assert seen["cmd"] == [
+        "systemctl",
+        "--user",
+        "start",
+        "--no-block",
+        "tsqbev-memory-sync.service",
+    ]

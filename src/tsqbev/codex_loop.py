@@ -198,7 +198,13 @@ def _request_background_memory_sync(
     unit_state = _service_load_state(DEFAULT_MEMORY_SYNC_SERVICE)
     if unit_state not in {"not-found", "masked"}:
         completed = subprocess.run(
-            ["systemctl", "--user", "start", DEFAULT_MEMORY_SYNC_SERVICE],
+            [
+                "systemctl",
+                "--user",
+                "start",
+                "--no-block",
+                DEFAULT_MEMORY_SYNC_SERVICE,
+            ],
             check=False,
             capture_output=True,
             text=True,
