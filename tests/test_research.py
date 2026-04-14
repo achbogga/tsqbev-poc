@@ -510,8 +510,14 @@ def test_initial_recipes_launch_public_bevdet_family_when_requested(tmp_path: Pa
     assert recipes[0].name == "public_bevdet_r50_cbgs"
     assert recipes[0].execution_backend == "bevdet_official"
     assert recipes[0].external_config_relpath == "configs/bevdet/bevdet-r50-cbgs.py"
+    assert recipes[0].external_version == "v1.0-trainval"
+    assert recipes[0].exact_public_contract is True
+    assert recipes[0].comparison_tier == "frontier_comparable"
     assert recipes[1].name == "public_bevdet_r50_4d_depth_cbgs"
     assert recipes[1].execution_backend == "bevdet_official"
+    assert recipes[1].external_version == "v1.0-trainval"
+    assert recipes[1].exact_public_contract is True
+    assert recipes[1].comparison_tier == "frontier_comparable"
 
 
 def test_initial_recipes_fail_loudly_when_frontier_tags_filter_everything(

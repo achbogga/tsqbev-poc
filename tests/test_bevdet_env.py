@@ -3,8 +3,10 @@ from __future__ import annotations
 from pathlib import Path
 
 from tsqbev.bevdet_env import (
+    CONTROL_BEVDET_CONFIG,
     PRIMARY_BEVDET_CONFIG,
     _bevdet_probe_is_catastrophic,
+    _default_bevdet_load_from,
     _probe_epoch_from_checkpoint,
     bevdet_official_commands,
     check_bevdet_environment,
@@ -98,3 +100,9 @@ def test_bevdet_probe_catastrophic_gate_requires_zero_metrics_and_bad_geometry()
         },
         {"sanity_ok": 1.0, "score_mean": 0.2},
     )
+
+
+def test_default_bevdet_load_from_uses_depth_pretrain_for_temporal_depth() -> None:
+    load_from = _default_bevdet_load_from(CONTROL_BEVDET_CONFIG)
+    assert load_from is None or load_from.name == "r50_256x705_depth_pretrain.pth"
+    assert _default_bevdet_load_from(PRIMARY_BEVDET_CONFIG) is None

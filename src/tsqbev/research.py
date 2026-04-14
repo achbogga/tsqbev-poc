@@ -26,6 +26,7 @@ from torch.utils.data import DataLoader, Dataset
 
 from tsqbev.bevdet_env import (
     CONTROL_BEVDET_CONFIG,
+    DEFAULT_BEVDET_DEPTH_PRETRAIN,
     DEFAULT_BEVDET_IMAGE_TAG,
     PRIMARY_BEVDET_CONFIG,
     run_bevdet_public_student,
@@ -291,7 +292,7 @@ def _public_bevdet_primary_recipe() -> ResearchRecipe:
         grad_accum_steps=1,
         lr=2e-4,
         weight_decay=1e-2,
-        epochs=4,
+        epochs=20,
         max_train_steps=None,
         num_workers=2,
         score_threshold=0.10,
@@ -307,11 +308,11 @@ def _public_bevdet_primary_recipe() -> ResearchRecipe:
         external_repo_root="/home/achbogga/projects/BEVDet",
         external_config_relpath=PRIMARY_BEVDET_CONFIG,
         external_image_tag=DEFAULT_BEVDET_IMAGE_TAG,
-        external_version="v1.0-mini",
-        comparison_tier="smoke_control",
-        promotion_eligible=False,
-        frontier_claim_eligible=False,
-        exact_public_contract=False,
+        external_version="v1.0-trainval",
+        comparison_tier="frontier_comparable",
+        promotion_eligible=True,
+        frontier_claim_eligible=True,
+        exact_public_contract=True,
     )
 
 
@@ -331,16 +332,21 @@ def _make_public_bevdet_temporal_recipe(recipe: ResearchRecipe) -> ResearchRecip
             "advance from BEVDet R50-CBGS to the official BEVDet R50-4D-Depth-CBGS temporal "
             "student after establishing a nonzero public baseline"
         ),
-        epochs=4,
+        epochs=20,
+        batch_size=1,
+        num_workers=2,
         execution_backend="bevdet_official",
         external_repo_root="/home/achbogga/projects/BEVDet",
         external_config_relpath=CONTROL_BEVDET_CONFIG,
         external_image_tag=DEFAULT_BEVDET_IMAGE_TAG,
-        external_version="v1.0-mini",
-        comparison_tier="smoke_control",
-        promotion_eligible=False,
-        frontier_claim_eligible=False,
-        exact_public_contract=False,
+        external_version="v1.0-trainval",
+        comparison_tier="frontier_comparable",
+        promotion_eligible=True,
+        frontier_claim_eligible=True,
+        exact_public_contract=True,
+        init_checkpoint=str(DEFAULT_BEVDET_DEPTH_PRETRAIN)
+        if DEFAULT_BEVDET_DEPTH_PRETRAIN.exists()
+        else None,
     )
 
 
@@ -354,16 +360,18 @@ def _make_public_bevdet_primary_rerun(recipe: ResearchRecipe) -> ResearchRecipe:
             "layer on temporal or teacher-side complexity"
         ),
         mutation_reason="repeat the BEVDet baseline under the same mini protocol",
-        epochs=4,
+        epochs=20,
+        batch_size=1,
+        num_workers=2,
         execution_backend="bevdet_official",
         external_repo_root="/home/achbogga/projects/BEVDet",
         external_config_relpath=PRIMARY_BEVDET_CONFIG,
         external_image_tag=DEFAULT_BEVDET_IMAGE_TAG,
-        external_version="v1.0-mini",
-        comparison_tier="smoke_control",
-        promotion_eligible=False,
-        frontier_claim_eligible=False,
-        exact_public_contract=False,
+        external_version="v1.0-trainval",
+        comparison_tier="frontier_comparable",
+        promotion_eligible=True,
+        frontier_claim_eligible=True,
+        exact_public_contract=True,
     )
 
 

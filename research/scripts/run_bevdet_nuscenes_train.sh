@@ -63,26 +63,32 @@ if [[ -n "${LOAD_FROM}" ]]; then
   CONTAINER_LOAD_FROM="$(path_in_container "${LOAD_FROM}")"
 fi
 
-CFG_OPTIONS=(
-  "data.samples_per_gpu=${SAMPLES_PER_GPU}"
-  "data.workers_per_gpu=${WORKERS_PER_GPU}"
-  "data.train.dataset.data_root=data/nuscenes/"
-  "data.train.dataset.ann_file=data/nuscenes/${EXTRA_TAG}_infos_train.pkl"
-  "data.val.data_root=data/nuscenes/"
-  "data.val.ann_file=data/nuscenes/${EXTRA_TAG}_infos_val.pkl"
-  "data.test.data_root=data/nuscenes/"
-  "data.test.ann_file=data/nuscenes/${EXTRA_TAG}_infos_val.pkl"
-  "runner.max_epochs=${EPOCHS}"
-  "evaluation.interval=1"
-  "checkpoint_config.interval=1"
-  "log_config.interval=20"
-)
+if [[ -z "${CFG_STRING:-}" ]]; then
+  CFG_OPTIONS=(
+    "data.samples_per_gpu=${SAMPLES_PER_GPU}"
+    "data.workers_per_gpu=${WORKERS_PER_GPU}"
+    "data.train.dataset.data_root=data/nuscenes/"
+    "data.train.dataset.ann_file=data/nuscenes/${EXTRA_TAG}_infos_train.pkl"
+    "data.val.data_root=data/nuscenes/"
+    "data.val.ann_file=data/nuscenes/${EXTRA_TAG}_infos_val.pkl"
+    "data.test.data_root=data/nuscenes/"
+    "data.test.ann_file=data/nuscenes/${EXTRA_TAG}_infos_val.pkl"
+    "runner.max_epochs=${EPOCHS}"
+    "evaluation.interval=1"
+    "checkpoint_config.interval=1"
+    "log_config.interval=20"
+  )
 
-if [[ -n "${LOAD_FROM}" ]]; then
-  CFG_OPTIONS+=("load_from=${CONTAINER_LOAD_FROM}")
+  if [[ -n "${LOAD_FROM}" ]]; then
+    CFG_OPTIONS+=("load_from=${CONTAINER_LOAD_FROM}")
+  fi
+
+  CFG_STRING="${CFG_OPTIONS[*]}"
 fi
 
-CFG_STRING="${CFG_OPTIONS[*]}"
+if [[ -n "${LOAD_FROM}" && "${CFG_STRING}" != *"load_from="* ]]; then
+  CFG_STRING="${CFG_STRING} load_from=${CONTAINER_LOAD_FROM}"
+fi
 
 set +e
 docker run --rm --gpus all --shm-size 16g \

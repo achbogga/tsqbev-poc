@@ -37,6 +37,10 @@ DEFAULT_PRIMARY_CONFIG_KEY = "bevdet-r50-cbgs"
 DEFAULT_CONTROL_CONFIG_KEY = "bevdet-r50-4d-depth-cbgs"
 DEFAULT_PROBE_MIN_AGE_SECONDS = 30.0
 DEFAULT_PROBE_POLL_SECONDS = 15.0
+DEFAULT_BEVDET_DEPTH_PRETRAIN = (
+    Path("/home/achbogga/projects/research_assets/checkpoints/bevdet")
+    / "r50_256x705_depth_pretrain.pth"
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -109,6 +113,36 @@ def _reported_latency(config_relpath: str) -> dict[str, Any]:
             "fps": 25.2,
         }
     return {"mean_ms": float("inf"), "source": "no official latency attached"}
+
+
+def _default_bevdet_load_from(config_relpath: str) -> Path | None:
+    if config_relpath == CONTROL_BEVDET_CONFIG and DEFAULT_BEVDET_DEPTH_PRETRAIN.exists():
+        return DEFAULT_BEVDET_DEPTH_PRETRAIN
+    return None
+
+
+def _build_bevdet_cfg_options(
+    *,
+    extra_tag: str,
+    epochs: int,
+    samples_per_gpu: int,
+    workers_per_gpu: int,
+) -> list[str]:
+    options = [
+        f"data.samples_per_gpu={samples_per_gpu}",
+        f"data.workers_per_gpu={workers_per_gpu}",
+        "data.train.dataset.data_root=data/nuscenes/",
+        f"data.train.dataset.ann_file=data/nuscenes/{extra_tag}_infos_train.pkl",
+        "data.val.data_root=data/nuscenes/",
+        f"data.val.ann_file=data/nuscenes/{extra_tag}_infos_val.pkl",
+        "data.test.data_root=data/nuscenes/",
+        f"data.test.ann_file=data/nuscenes/{extra_tag}_infos_val.pkl",
+        f"runner.max_epochs={epochs}",
+        "evaluation.interval=1",
+        "checkpoint_config.interval=1",
+        "log_config.interval=20",
+    ]
+    return options
 
 
 def _probe_epoch_from_checkpoint(path: Path) -> int | None:
@@ -363,6 +397,7 @@ def _run_bevdet_checkpoint_probe(
     image_tag: str,
     checkpoint_path: Path,
     split_name: str,
+    cfg_string: str,
 ) -> dict[str, Any]:
     probe_epoch = _probe_epoch_from_checkpoint(checkpoint_path)
     probe_name = (
@@ -385,6 +420,7 @@ def _run_bevdet_checkpoint_probe(
         "CHECKPOINT_PATH": str(checkpoint_path),
         "RESULT_PREFIX": str(result_prefix),
         "TEST_LOG": str(probe_root / "probe_test.log"),
+        "CFG_STRING": cfg_string,
     }
     subprocess.run(
         ["bash", str(REPO_ROOT / "research" / "scripts" / "run_bevdet_nuscenes_probe.sh")],
@@ -444,6 +480,14 @@ def run_bevdet_public_student(
     split_name = split or ("mini_val" if version == "v1.0-mini" else "val")
     train_info = dataset_root / f"{extra_tag}_infos_train.pkl"
     val_info = dataset_root / f"{extra_tag}_infos_val.pkl"
+    effective_load_from = load_from or _default_bevdet_load_from(config_relpath)
+    cfg_options = _build_bevdet_cfg_options(
+        extra_tag=extra_tag,
+        epochs=epochs,
+        samples_per_gpu=samples_per_gpu,
+        workers_per_gpu=workers_per_gpu,
+    )
+    cfg_string = " ".join(cfg_options)
 
     if not _docker_image_present(image_tag):
         build_env = {
@@ -487,8 +531,9 @@ def run_bevdet_public_student(
         "WORKERS_PER_GPU": str(workers_per_gpu),
         "SUMMARY_PATH": str(summary_path),
     }
-    if load_from is not None:
-        run_env["LOAD_FROM"] = str(load_from)
+    if effective_load_from is not None:
+        run_env["LOAD_FROM"] = str(effective_load_from)
+    run_env["CFG_STRING"] = cfg_string
 
     work_dir = artifact_dir / "work_dir"
     train_process = subprocess.Popen(
@@ -522,6 +567,7 @@ def run_bevdet_public_student(
                 image_tag=image_tag,
                 checkpoint_path=checkpoint_path,
                 split_name=split_name,
+                cfg_string=cfg_string,
             )
             seen_probe_epochs.add(epoch)
             checkpoint_probes.append(probe_summary)
@@ -592,4 +638,5 @@ def run_bevdet_public_student(
         "extra_tag": extra_tag,
         "version": version,
         "split": split_name,
+        "cfg_string": cfg_string,
     }

@@ -16,6 +16,7 @@ WORK_DIR="${WORK_DIR:-${TSQBEV_ROOT}/artifacts/public_student_bevdet/work_dir}"
 CHECKPOINT_PATH="${CHECKPOINT_PATH:?CHECKPOINT_PATH is required}"
 RESULT_PREFIX="${RESULT_PREFIX:-${WORK_DIR}/probe_format_only}"
 TEST_LOG="${TEST_LOG:-${WORK_DIR}/probe_test.log}"
+EXTRA_TAG="${EXTRA_TAG:-}"
 
 path_in_container() {
   local host_path="$1"
@@ -43,8 +44,27 @@ CONTAINER_RESULT_PREFIX="$(path_in_container "${RESULT_PREFIX}")"
 
 mkdir -p "${RESULT_PREFIX}"
 
+if [[ -z "${EXTRA_TAG}" ]]; then
+  if [[ "${VERSION}" == "v1.0-mini" ]]; then
+    EXTRA_TAG="bevdetv3-mini"
+  else
+    EXTRA_TAG="bevdetv3-nuscenes"
+  fi
+fi
+
+if [[ -z "${CFG_STRING:-}" ]]; then
+  CFG_OPTIONS=(
+    "data.test.data_root=data/nuscenes/"
+    "data.test.ann_file=data/nuscenes/${EXTRA_TAG}_infos_val.pkl"
+    "data.val.data_root=data/nuscenes/"
+    "data.val.ann_file=data/nuscenes/${EXTRA_TAG}_infos_val.pkl"
+  )
+  CFG_STRING="${CFG_OPTIONS[*]}"
+fi
+
 docker run --rm --gpus all --shm-size 16g \
   -e CONFIG_REL="${CONFIG_REL}" \
+  -e CFG_STRING="${CFG_STRING}" \
   -e CONTAINER_CHECKPOINT_PATH="${CONTAINER_CHECKPOINT_PATH}" \
   -e CONTAINER_RESULT_PREFIX="${CONTAINER_RESULT_PREFIX}" \
   -v "${BEVDET_ROOT}:${CONTAINER_BEVDET_ROOT}" \
@@ -67,5 +87,5 @@ docker run --rm --gpus all --shm-size 16g \
       exit 1; \
     fi && \
     python tools/test.py ${CONFIG_REL} ${CONTAINER_CHECKPOINT_PATH} --gpu-id 0 --format-only \
-      --eval-options jsonfile_prefix=${CONTAINER_RESULT_PREFIX}" \
+      --eval-options jsonfile_prefix=${CONTAINER_RESULT_PREFIX} --cfg-options ${CFG_STRING}" \
   2>&1 | tee "${TEST_LOG}"
