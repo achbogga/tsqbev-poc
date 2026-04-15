@@ -1,0 +1,7 @@
+.git/
+.latte/
+.venv/
+.local/
+artifacts/
+docs/reports/log/
+wandb/

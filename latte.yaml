@@ -1,0 +1,38 @@
+name: tsqbev-poc
+namespace: tsqbev-poc
+rulesFiles:
+  - AGENTS.md
+context:
+  include:
+    - README.md
+    - AGENTS.md
+    - SOUL.md
+    - program.md
+    - docs/**/*.md
+    - specs/**/*.md
+    - src/**/*.py
+    - tests/**/*.py
+  maxFiles: 32
+  maxCharsPerFile: 4500
+ignore:
+  - .git/**
+  - .latte/**
+  - .venv/**
+  - .local/**
+  - artifacts/**
+  - docs/reports/log/**
+exports:
+  - docs/**/*.md
+  - specs/**/*.md
+providers:
+  default: codex
+  codex:
+    command: codex
+    argsTemplate:
+      - "{{prompt_file}}"
+  claude:
+    command: claude
+    argsTemplate:
+      - "--resume"
+      - "{{session_id}}"
+      - "{{prompt_file}}"
