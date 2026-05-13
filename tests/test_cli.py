@@ -10,6 +10,26 @@ from tsqbev.research import _canonical_command
 from tsqbev.teacher_backends import TeacherProviderConfig
 
 
+def test_bench_dispatches_device(monkeypatch) -> None:
+    captured: dict[str, str | None] = {}
+
+    class _Parser:
+        def parse_args(self) -> SimpleNamespace:
+            return SimpleNamespace(command="bench", device="cuda")
+
+    monkeypatch.setattr(cli_module, "_make_parser", lambda: _Parser())
+
+    def fake_benchmark(config, steps, warmup, batch_size, device=None):
+        del config, steps, warmup, batch_size
+        captured["device"] = device
+        return {"device": device or "cpu"}
+
+    monkeypatch.setattr(cli_module, "benchmark_forward", fake_benchmark)
+    cli_module.main()
+
+    assert captured["device"] == "cuda"
+
+
 def test_resolve_teacher_provider_config_infers_cache_kind_from_cache_dir() -> None:
     args = argparse.Namespace(
         teacher_kind=None,

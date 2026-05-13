@@ -123,8 +123,8 @@ def eval_smoke() -> None:
     print(run_eval_step(ModelConfig.small(), batch_size=1))
 
 
-def bench_smoke() -> None:
-    print(benchmark_forward(ModelConfig.small(), steps=3, warmup=1, batch_size=1))
+def bench_smoke(device: str | None = None) -> None:
+    print(benchmark_forward(ModelConfig.small(), steps=3, warmup=1, batch_size=1, device=device))
 
 
 def trt_bench_smoke() -> None:
@@ -916,7 +916,7 @@ def main() -> None:
         eval_smoke()
         return
     if args.command == "bench":
-        bench_smoke()
+        bench_smoke(device=args.device)
         return
     if args.command == "trt-bench":
         trt_bench_smoke()

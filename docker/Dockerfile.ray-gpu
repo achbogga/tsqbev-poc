@@ -1,0 +1,29 @@
+FROM rayproject/ray:2.54.0-py311-gpu AS runtime
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    UV_LINK_MODE=copy
+
+USER root
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates git \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY --from=ghcr.io/astral-sh/uv:0.10.12 /uv /uvx /bin/
+
+WORKDIR /app
+COPY --chown=ray:users pyproject.toml uv.lock README.md LICENSE ./
+COPY --chown=ray:users src ./src
+COPY --chown=ray:users compat ./compat
+COPY --chown=ray:users artifacts/.gitkeep ./artifacts/.gitkeep
+
+RUN uv sync --frozen --extra data --no-dev \
+    && chown -R ray:users /app
+
+USER ray
+
+ENV PATH="/app/.venv/bin:${PATH}" \
+    PYTHONPATH="/app/compat"
+
+CMD ["tsqbev", "smoke"]
