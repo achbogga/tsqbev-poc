@@ -2142,7 +2142,7 @@ def _build_exploitation_recipes(
     if remaining_budget <= 0:
         return []
     if incumbent_recipe.execution_backend == "bevdet_official":
-        tagged_candidates: list[tuple[str, ResearchRecipe]] = [
+        public_candidates: list[tuple[str, ResearchRecipe]] = [
             ("bevdet_public_student", _make_public_bevdet_primary_rerun(incumbent_recipe)),
             ("bevdepth_temporal_student", _make_public_bevdet_temporal_recipe(incumbent_recipe)),
         ]
@@ -2151,40 +2151,40 @@ def _build_exploitation_recipes(
             priority_tags = [str(tag) for tag in boss_policy.get("priority_tags", [])]
             force_priority_only = bool(boss_policy.get("force_priority_only", False))
             if suppress_tags:
-                tagged_candidates = [
+                public_candidates = [
                     (tag, candidate)
-                    for tag, candidate in tagged_candidates
+                    for tag, candidate in public_candidates
                     if tag not in suppress_tags
                 ]
             if priority_tags:
                 priority_order = {tag: index for index, tag in enumerate(priority_tags)}
-                tagged_candidates = sorted(
-                    tagged_candidates,
+                public_candidates = sorted(
+                    public_candidates,
                     key=lambda item: priority_order.get(item[0], len(priority_order)),
                 )
             if force_priority_only and priority_tags:
                 allowed_tags = set(priority_tags)
-                tagged_candidates = [
+                public_candidates = [
                     (tag, candidate)
-                    for tag, candidate in tagged_candidates
+                    for tag, candidate in public_candidates
                     if tag in allowed_tags
                 ]
-        deduped: list[ResearchRecipe] = []
-        seen_names: set[str] = set()
-        for _tag, candidate in tagged_candidates:
-            if candidate.name in seen_names:
+        public_deduped: list[ResearchRecipe] = []
+        public_seen_names: set[str] = set()
+        for _tag, candidate in public_candidates:
+            if candidate.name in public_seen_names:
                 continue
-            seen_names.add(candidate.name)
-            deduped.append(candidate)
-        return deduped[:remaining_budget]
+            public_seen_names.add(candidate.name)
+            public_deduped.append(candidate)
+        return public_deduped[:remaining_budget]
     if _is_frontier_recipe(incumbent_recipe):
-        tagged_candidates: list[tuple[str, ResearchRecipe]] = [
+        frontier_candidates: list[tuple[str, ResearchRecipe]] = [
             ("quality_rank_finegrid", _make_frontier_official_guardrail_recipe(incumbent_recipe)),
             ("geometry_sanity", _make_frontier_official_guardrail_recipe(incumbent_recipe)),
             ("official_metric_only", _make_frontier_official_guardrail_recipe(incumbent_recipe)),
         ]
         if incumbent_recipe.config.fusion_style == "gated_latent_cross_attn":
-            tagged_candidates.extend(
+            frontier_candidates.extend(
                 [
                     (
                         "lightweight_bridge",
@@ -2197,7 +2197,7 @@ def _build_exploitation_recipes(
                 ]
             )
         else:
-            tagged_candidates.extend(
+            frontier_candidates.extend(
                 [
                     ("dino_v3", _make_frontier_vitb16_recipe(incumbent_recipe)),
                     ("dino_v3_bridge", _make_frontier_vitb16_recipe(incumbent_recipe)),
@@ -2208,7 +2208,7 @@ def _build_exploitation_recipes(
                 ]
             )
         if incumbent_recipe.use_teacher_provider:
-            tagged_candidates.extend(
+            frontier_candidates.extend(
                 [
                     (
                         "world_aligned_distillation",
@@ -2229,32 +2229,32 @@ def _build_exploitation_recipes(
             priority_tags = [str(tag) for tag in boss_policy.get("priority_tags", [])]
             force_priority_only = bool(boss_policy.get("force_priority_only", False))
             if suppress_tags:
-                tagged_candidates = [
+                frontier_candidates = [
                     (tag, candidate)
-                    for tag, candidate in tagged_candidates
+                    for tag, candidate in frontier_candidates
                     if tag not in suppress_tags
                 ]
             if priority_tags:
                 priority_order = {tag: index for index, tag in enumerate(priority_tags)}
-                tagged_candidates = sorted(
-                    tagged_candidates,
+                frontier_candidates = sorted(
+                    frontier_candidates,
                     key=lambda item: priority_order.get(item[0], len(priority_order)),
                 )
             if force_priority_only and priority_tags:
                 allowed_tags = set(priority_tags)
-                tagged_candidates = [
+                frontier_candidates = [
                     (tag, candidate)
-                    for tag, candidate in tagged_candidates
+                    for tag, candidate in frontier_candidates
                     if tag in allowed_tags
                 ]
-        deduped: list[ResearchRecipe] = []
-        seen_names: set[str] = set()
-        for _tag, candidate in tagged_candidates:
-            if candidate.name in seen_names:
+        frontier_deduped: list[ResearchRecipe] = []
+        frontier_seen_names: set[str] = set()
+        for _tag, candidate in frontier_candidates:
+            if candidate.name in frontier_seen_names:
                 continue
-            seen_names.add(candidate.name)
-            deduped.append(candidate)
-        return deduped[:remaining_budget]
+            frontier_seen_names.add(candidate.name)
+            frontier_deduped.append(candidate)
+        return frontier_deduped[:remaining_budget]
     source_mix = incumbent_record.get("source_mix", {})
     assert isinstance(source_mix, dict)
     tagged_candidates: list[tuple[str, ResearchRecipe]] = []

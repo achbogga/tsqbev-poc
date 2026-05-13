@@ -7,11 +7,11 @@ References:
 - MapTR repo: https://github.com/hustvl/MapTR
 """
 
+from tsqbev.bevdet_env import check_bevdet_environment, render_bevdet_runbook_markdown
 from tsqbev.bevfusion_env import (
     check_bevfusion_environment,
     render_bevfusion_runbook_markdown,
 )
-from tsqbev.bevdet_env import check_bevdet_environment, render_bevdet_runbook_markdown
 from tsqbev.config import ModelConfig
 from tsqbev.gap_analysis import analyze_reset_gap
 from tsqbev.model import TSQBEVCore, TSQBEVModel

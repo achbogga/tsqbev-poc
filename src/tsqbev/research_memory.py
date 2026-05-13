@@ -2384,7 +2384,7 @@ def sync_research_memory(
         fact_count = catalog.upsert_facts(facts)
         phase_timings_s["upsert_facts"] = round(time.perf_counter() - phase_started, 4)
 
-        qdrant_summary = {
+        qdrant_summary: dict[str, Any] = {
             "enabled": False,
             "mode": None,
             "reason": "not_started",
@@ -2400,6 +2400,7 @@ def sync_research_memory(
             promoted_manifest=promoted_manifest,
             chunk_fingerprint=chunk_fingerprint,
         ):
+            assert isinstance(promoted_manifest, dict)
             qdrant_summary = {
                 "enabled": True,
                 "mode": _as_opt_str(_nested_get(promoted_manifest, "qdrant", "mode")),
@@ -2475,7 +2476,7 @@ def sync_research_memory(
                 }
         phase_timings_s["qdrant_sync"] = round(time.perf_counter() - phase_started, 4)
 
-        mem0_summary = {
+        mem0_summary: dict[str, Any] = {
             "enabled": False,
             "reason": "not_started",
             "synced_now": 0,
@@ -2489,6 +2490,7 @@ def sync_research_memory(
             promoted_manifest=promoted_manifest,
             fact_fingerprint=fact_fingerprint,
         ):
+            assert isinstance(promoted_manifest, dict)
             previous_mem0 = promoted_manifest.get("mem0")
             reused_reason = "reused_unchanged_facts"
             mem0_summary = {

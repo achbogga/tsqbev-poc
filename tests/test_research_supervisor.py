@@ -7,6 +7,7 @@ from subprocess import CompletedProcess
 
 from tsqbev.research_memory import ResearchMemoryConfig
 from tsqbev.research_supervisor import (
+    REPO_ROOT,
     SupervisorState,
     _active_checklist_item_for_phase,
     _as_str_list,
@@ -59,7 +60,7 @@ def test_active_checklist_item_maps_joint_collapse_to_multitask_reset() -> None:
 
 
 def test_render_supervisor_report_includes_phase_and_planner_fields(tmp_path: Path) -> None:
-    repo_tmp = Path("/home/achbogga/projects/tsqbev-poc/tests/.tmp")
+    repo_tmp = REPO_ROOT / "tests" / ".tmp"
     state = SupervisorState(
         status="running",
         generated_at_utc="2026-04-05T18:00:00+00:00",

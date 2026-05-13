@@ -2044,7 +2044,6 @@ def fit_joint_public(
                     flush=True,
                 )
                 if _catastrophic_nuscenes_official_failure(latest_official_metrics):
-                    epochs_run = epoch
                     early_stop_triggered = True
                     early_stop_reason = (
                         "catastrophic joint official-eval failure: "
