@@ -88,11 +88,19 @@ def test_load_model_checkpoint_ignores_legacy_lane_attention_projection_mismatch
 
 
 def test_load_model_checkpoint_merges_missing_fields_from_default_config(tmp_path) -> None:
-    checkpoint_config = ModelConfig.rtx5000_nuscenes_dinov3_teacher().model_dump()
+    default_config = ModelConfig.small().model_copy(
+        update={
+            "sam2_repo_root": "/opt/sam2",
+            "sam2_model_cfg": "configs/sam2.1/sam2.1_hiera_b+.yaml",
+            "sam2_checkpoint": "/opt/sam2/sam2.1_hiera_base_plus.pt",
+            "sam2_region_prior_mode": "off",
+            "sam2_region_prior_weight": 0.0,
+        }
+    )
+    checkpoint_config = default_config.model_dump()
     del checkpoint_config["sam2_repo_root"]
     del checkpoint_config["sam2_model_cfg"]
     del checkpoint_config["sam2_checkpoint"]
-    default_config = ModelConfig.rtx5000_nuscenes_dinov3_teacher()
     model = TSQBEVModel(default_config)
     checkpoint_path = tmp_path / "dinov3_missing_sam2.pt"
 
